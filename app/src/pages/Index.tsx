@@ -105,7 +105,7 @@ const Index = () => {
               <>
                 <p className="text-terminal-white">-rw-r--r-- 1 user user 1024 Oct 13 2025{" "}
                   <a 
-                    href="https://github.com/yourusername" 
+                    href="https://github.com/StasABerg" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-terminal-cyan hover:underline"
@@ -115,7 +115,7 @@ const Index = () => {
                 </p>
                 <p className="text-terminal-white">-rw-r--r-- 1 user user 1024 Oct 13 2025{" "}
                   <a 
-                    href="https://linkedin.com/in/yourusername" 
+                    href="https://linkedin.com/in/stasaberg" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-terminal-cyan hover:underline"
