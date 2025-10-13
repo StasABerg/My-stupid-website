@@ -1,0 +1,23 @@
+name: cleanup-registry
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
+jobs:
+  delete-old-images:
+    runs-on: self-hosted
+    steps:
+      - name: Delete old container versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: my-stupid-website
+          package-type: container
+          min-versions-to-keep: 7
