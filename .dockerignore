@@ -1,7 +1,6 @@
 .git
 .github
 charts
-deploy
 node_modules
 app/node_modules
 *.log
