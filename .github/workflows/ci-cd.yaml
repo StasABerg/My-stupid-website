@@ -39,5 +39,6 @@ jobs:
             --namespace my-stupid-website --create-namespace \
             --set image.repository=${IMAGE} \
             --set image.tag=${SHA} \
-            --atomic --wait
+            --atomic --wait \
+            --kube-insecure-skip-tls-verify
 
