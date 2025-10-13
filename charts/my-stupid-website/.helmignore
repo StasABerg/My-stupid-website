@@ -3,6 +3,7 @@
 # negation (prefixed with !). Only one pattern per line.
 .DS_Store
 # Common VCS dirs
+.github/
 .git/
 .gitignore
 .bzr/
@@ -21,3 +22,6 @@
 .idea/
 *.tmproj
 .vscode/
+Dockerfile
+node_modules/
+deploy/
