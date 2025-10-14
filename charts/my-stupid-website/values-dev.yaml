@@ -4,4 +4,6 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
-replicas: 1
+autoscaling:
+  enabled: false
+replicaCount: 1
