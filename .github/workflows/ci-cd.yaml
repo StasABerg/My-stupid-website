@@ -78,7 +78,7 @@ jobs:
           if [[ "${{ needs.changes.outputs.app }}" == "true" && -n "${{ needs.build.outputs.sha }}" ]]; then
             echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
           else
-            TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev -o yaml \
+            TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev --kube-insecure-skip-tls-verify -o yaml \
               | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
             [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -110,7 +110,7 @@ jobs:
           if [[ "${{ needs.changes.outputs.app }}" == "true" && -n "${{ needs.build.outputs.sha }}" ]]; then
             echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
           else
-            TAG=$(helm -n my-stupid-website get values my-stupid-website -o yaml \
+            TAG=$(helm -n my-stupid-website get values my-stupid-website --kube-insecure-skip-tls-verify -o yaml \
               | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
             [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
