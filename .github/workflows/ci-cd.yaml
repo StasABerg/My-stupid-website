@@ -78,7 +78,7 @@ jobs:
             -f charts/my-stupid-website/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
-            --set image.tag={{ needs.build.outputs.sha }} \
+            --set image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
@@ -98,5 +98,5 @@ jobs:
           helm upgrade --install my-stupid-website charts/my-stupid-website \
             --namespace my-stupid-website --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
-            --set image.tag={{ needs.build.outputs.sha }} \
+            --set image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
