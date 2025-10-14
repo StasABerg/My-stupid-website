@@ -21,14 +21,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: out
+        run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           push: true
           tags: |
-            ghcr.io/stasaberg/my-stupid-website:${{ github.sha }}
-            ghcr.io/stasaberg/my-stupid-website:dev
+            ghcr.io/stasaberg/my-stupid-website:${{ steps.out.outputs.sha }}
+            ghcr.io/stasaberg/my-stupid-website:latest
           provenance: false
 
   deploy-dev:
