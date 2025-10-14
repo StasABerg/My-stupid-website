@@ -23,13 +23,11 @@ jobs:
             app:
               - 'app/**'
               - 'docker/**'
-              - 'Dockerfile'
-              - '.dockerignore'
-              - 'package.json'
-              - 'package-lock.json'
-            charts:
-              - 'charts/**'
               - 'deploy/**'
+              - '.dockerignore'
+
+            charts:
+              - 'charts/my-stupid-website/**'
 
   build:
     runs-on: self-hosted
