@@ -62,6 +62,7 @@ jobs:
   deploy-dev:
     runs-on: self-hosted
     needs: [changes, build]
+    if: ${{ always() && (needs.changes.outputs.app == 'true' || needs.changes.outputs.charts == 'true') }}
     environment: development
     steps:
       - uses: actions/checkout@v4
@@ -79,9 +80,7 @@ jobs:
           else
             TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev -o yaml \
               | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
-            if [[ -z "$TAG" ]]; then
-              echo "No current tag found"; exit 1
-            fi
+            [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           fi
       - name: Helm upgrade (dev)
@@ -111,11 +110,9 @@ jobs:
           if [[ "${{ needs.changes.outputs.app }}" == "true" && -n "${{ needs.build.outputs.sha }}" ]]; then
             echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
           else
-            TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev -o yaml \
+            TAG=$(helm -n my-stupid-website get values my-stupid-website -o yaml \
               | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
-            if [[ -z "$TAG" ]]; then
-              echo "No current tag found"; exit 1
-            fi
+            [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           fi
       - name: Helm upgrade (prod)
