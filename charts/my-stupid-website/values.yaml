@@ -2,9 +2,8 @@
 replicaCount: 3
 
 image:
-  repository: ghcr.io/stasaberg/my-stupid-website
   pullPolicy: IfNotPresent
-  tag: "dev"
+
 
 imagePullSecrets: []
 nameOverride: ""

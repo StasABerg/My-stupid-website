@@ -36,6 +36,7 @@ jobs:
     needs: build
     environment: development
     steps:
+      - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
       - name: Kubeconfig
         run: |
@@ -44,17 +45,18 @@ jobs:
       - name: Helm upgrade (dev)
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
+            -f charts/my-stupid-website/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
-            --set image.repository=${{ needs.build.outputs.image }} \
+            --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set image.tag=${{ needs.build.outputs.sha }} \
-            --set ingress.host=dev.gitgud.qzz.io \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
     needs: deploy-dev
-    environment: production 
+    environment: production
     steps:
+      - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
       - name: Kubeconfig
         run: |
@@ -64,7 +66,6 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
             --namespace my-stupid-website --create-namespace \
-            --set image.repository=${{ needs.build.outputs.image }} \
+            --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set image.tag=${{ needs.build.outputs.sha }} \
-            --set ingress.host=gitgud.qzz.io \
             --atomic --wait --kube-insecure-skip-tls-verify

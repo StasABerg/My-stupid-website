@@ -1,0 +1,7 @@
+ingress:
+  hosts:
+    - host: dev.gitgud.qzz.io
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+replicaCount: 1
