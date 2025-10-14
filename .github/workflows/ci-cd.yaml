@@ -72,23 +72,13 @@ jobs:
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
           chmod 600 $HOME/kubeconfig
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
-      - name: Resolve TAG via Helm
-        run: |
-          TAG="${{ needs.build.outputs.sha }}"
-          if [ -z "$TAG" ]; then
-            # read current tag from the release values (no sudo, no kubectl)
-            TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev -o yaml 2>/dev/null \
-              | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
-            [ -z "$TAG" ] && TAG="${GITHUB_SHA}"
-          fi
-          echo "TAG=$TAG" >> $GITHUB_ENV
       - name: Helm upgrade (dev)
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
             -f charts/my-stupid-website/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
-            --set-string image.tag=${TAG} \
+            --set image.tag={{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
@@ -103,15 +93,10 @@ jobs:
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
           chmod 600 $HOME/kubeconfig
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
-      - name: Use tag running in dev (via Helm)
-        run: |
-          TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev -o yaml \
-            | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
-          echo "TAG=$TAG" >> $GITHUB_ENV
       - name: Helm upgrade (prod)
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
             --namespace my-stupid-website --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
-            --set-string image.tag=${TAG} \
+            --set image.tag={{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
