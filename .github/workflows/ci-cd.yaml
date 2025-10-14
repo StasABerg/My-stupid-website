@@ -8,12 +8,11 @@ permissions:
   packages: write 
 
 jobs:
-  build-deploy:
+  build:
     runs-on: self-hosted
-    env:
-      REGISTRY: ghcr.io
-      IMAGE: ghcr.io/stasaberg/my-stupid-website
-      SHA: ${{ github.sha }}
+    outputs:
+      image: ghcr.io/stasaberg/my-stupid-website
+      sha: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -28,19 +27,44 @@ jobs:
           file: docker/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ env.SHA }}
-            ${{ env.IMAGE }}:dev
+            ghcr.io/stasaberg/my-stupid-website:${{ github.sha }}
+            ghcr.io/stasaberg/my-stupid-website:dev
+          provenance: false
+
+  deploy-dev:
+    runs-on: self-hosted
+    needs: build
+    environment: development
+    steps:
+      - uses: azure/setup-helm@v4
       - name: Kubeconfig
         run: |
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
+      - name: Helm upgrade (dev)
+        run: |
+          helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
+            --namespace my-stupid-website-dev --create-namespace \
+            --set image.repository=${{ needs.build.outputs.image }} \
+            --set image.tag=${{ needs.build.outputs.sha }} \
+            --set ingress.host=dev.gitgud.qzz.io \
+            --atomic --wait --kube-insecure-skip-tls-verify
+
+  deploy-prod:
+    runs-on: self-hosted
+    needs: deploy-dev
+    environment: production 
+    steps:
       - uses: azure/setup-helm@v4
-      - name: Helm upgrade
+      - name: Kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
+          echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
+      - name: Helm upgrade (prod)
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
             --namespace my-stupid-website --create-namespace \
-            --set image.repository=${IMAGE} \
-            --set image.tag=${SHA} \
-            --atomic --wait \
-            --kube-insecure-skip-tls-verify
-
+            --set image.repository=${{ needs.build.outputs.image }} \
+            --set image.tag=${{ needs.build.outputs.sha }} \
+            --set ingress.host=gitgud.qzz.io \
+            --atomic --wait --kube-insecure-skip-tls-verify
