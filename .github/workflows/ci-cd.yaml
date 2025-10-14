@@ -95,7 +95,7 @@ jobs:
   deploy-prod:
     runs-on: self-hosted
     needs: [changes, build, deploy-dev]
-    if: ${{ needs.deploy-dev.result == 'success' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.charts == 'true') }}
+    if: ${{ always() && needs.deploy-dev.result == 'success' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.charts == 'true') }}
     environment: production
     steps:
       - uses: actions/checkout@v4
