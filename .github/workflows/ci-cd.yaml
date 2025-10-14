@@ -1,4 +1,3 @@
-#testing
 name: ci-cd
 on:
   push:
@@ -31,7 +30,6 @@ jobs:
             charts:
               - 'charts/**'
               - 'deploy/**'
-              - '.github/workflows/**'
 
   build:
     runs-on: self-hosted
