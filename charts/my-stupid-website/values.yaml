@@ -1,6 +1,6 @@
 
-replicaCount: 3
-#test
+replicaCount: 4
+
 image:
   pullPolicy: IfNotPresent
 
