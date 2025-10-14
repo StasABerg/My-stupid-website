@@ -55,7 +55,7 @@ jobs:
 
   deploy-prod:
     runs-on: self-hosted
-    needs: deploy-dev
+    needs: [build, deploy-dev]
     environment: production
     steps:
       - uses: actions/checkout@v4
