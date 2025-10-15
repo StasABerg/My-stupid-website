@@ -99,14 +99,6 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
         <span className="text-terminal-white">:</span>
         <span className="text-terminal-cyan">~/games/do-nothing</span>
         <span className="text-terminal-white">$ </span>
-        <button 
-          className="text-terminal-yellow cursor-pointer hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
-          onClick={onBack}
-          onKeyDown={(e) => e.key === "Enter" && onBack()}
-          aria-label="Go back to games directory"
-        >
-          cd ..
-        </button>
       </div>
     </div>
   );
