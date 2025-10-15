@@ -4,6 +4,11 @@ COPY app/package.json ./package.json
 COPY app/package-lock.json ./package-lock.json
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY app/ .
+#sanity check
+RUN ls -la src/pages && \
+    node -e "console.log(require('fs').existsSync('src/pages/DoNothingGamePage.tsx'))" && \
+    grep -n 'export default' -n src/pages/DoNothingGamePage.tsx || true && \
+    sed -n '1,120p' src/pages/DoNothingGamePage.tsx
 RUN npm run build
 
 FROM nginx:stable-alpine

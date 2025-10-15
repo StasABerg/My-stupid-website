@@ -1,6 +1,12 @@
 function gen(r) {
   var base = "https://" + r.headersIn.host;
-  var routes = ["/"];
+  var routes = [
+      "/",
+      "/documents",
+      "/games",
+      "/games/do-nothing"
+
+    ];
   var today = new Date().toISOString().slice(0, 10);
 
   var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
