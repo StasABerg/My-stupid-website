@@ -62,7 +62,7 @@ jobs:
   deploy-dev:
     runs-on: self-hosted
     needs: [changes, build]
-      if: >
+    if: >
        (needs.changes.outputs.app == 'true' && needs.build.result == 'success') ||
        (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
     environment: development
