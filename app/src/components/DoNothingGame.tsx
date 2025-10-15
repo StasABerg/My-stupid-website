@@ -70,6 +70,7 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
 
         <div className="space-y-2 mb-4">
         <div className="space-y-2 mb-4" role="status" aria-live="polite">
+          <p className="text-terminal-yellow">
             Status: <span className={isRunning ? "text-terminal-green" : "text-terminal-red"}>
               {isRunning ? "RUNNING" : "STOPPED"}
             </span>
@@ -106,7 +107,6 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
           aria-label="Go back to games directory"
         >
           cd ..
-        </span>
         </button>
       </div>
     </div>
