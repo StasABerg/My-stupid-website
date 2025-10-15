@@ -4,7 +4,7 @@ COPY app/package.json ./package.json
 COPY app/package-lock.json ./package-lock.json
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY app/ .
-RUN npm run build c
+RUN npm run build
 
 FROM nginx:stable-alpine
 RUN apk add --no-cache nginx-mod-http-js
