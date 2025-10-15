@@ -89,13 +89,18 @@ const Index = () => {
             <span className="text-terminal-yellow">cat welcome.txt</span>
           </div>
 
-          <div className="mb-4 pl-2 sm:pl-4 text-terminal-white overflow-x-auto">
+          <div className="mb-4 pl-2 sm:pl-4 text-terminal-white overflow-x-auto font-mono">
             <p className="whitespace-nowrap">╔═══════════════════════════════════════════╗</p>
-            <p className="whitespace-nowrap">║  Welcome to my stupid website             ║</p>
-            <p className="whitespace-nowrap">║  System Status: <span className="text-terminal-green">ONLINE</span>                       ║</p>
-            <p className="whitespace-nowrap">║  Security Level: <span className="text-terminal-cyan">GITGUD</span>                      ║</p>
+            <p className="whitespace-nowrap">║ Welcome to my stupid website              ║</p>
+            <p className="whitespace-nowrap">
+              ║ System Status: <span className="text-terminal-green">ONLINE</span>                    ║
+            </p>
+            <p className="whitespace-nowrap">
+              ║ Security Level: <span className="text-terminal-cyan">GITGUD</span>                   ║
+            </p>
             <p className="whitespace-nowrap">╚═══════════════════════════════════════════╝</p>
           </div>
+
 
           <div className="mb-2">
             <span className="text-terminal-green">user@terminal</span>
