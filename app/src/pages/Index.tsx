@@ -89,7 +89,7 @@ const Index = () => {
             <span className="text-terminal-yellow">cat welcome.txt</span>
           </div>
 
-          <div class="mb-4 pl-2 sm:pl-4 font-mono text-terminal-white leading-none">
+          <div class="mb-4 font-mono text-terminal-white leading-none">
             <p>╔═══════════════════════════════════════════╗</p>
             <p>║ Welcome to my stupid website              ║</p>
             <p>║ System Status: <span class="text-terminal-green">ONLINE</span>                     ║</p>
