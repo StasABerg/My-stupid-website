@@ -6,6 +6,9 @@ on:
 permissions:
   contents: read
   packages: write
+concurrency:
+  group: ci-cd-${{ github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   changes:
@@ -54,7 +57,8 @@ jobs:
             ghcr.io/stasaberg/my-stupid-website:${{ steps.out.outputs.sha }}
             ghcr.io/stasaberg/my-stupid-website:latest
           provenance: false
-
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
   deploy-dev:
     runs-on: self-hosted
     needs: [changes, build]
@@ -85,7 +89,7 @@ jobs:
             -f charts/my-stupid-website/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
-            --set image.tag=${{ steps.tag.outputs.tag }} \
+            --set-string image.tag=${{ steps.tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
@@ -117,5 +121,5 @@ jobs:
           helm upgrade --install my-stupid-website charts/my-stupid-website \
             --namespace my-stupid-website --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
-            --set image.tag=${{ steps.tag.outputs.tag }} \
+            --set-string image.tag=${{ steps.tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify
