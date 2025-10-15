@@ -129,4 +129,9 @@ All colors MUST be HSL.
     clip: auto;
     white-space: normal;
   }
+  
+  .font-mono {
+    letter-spacing: 0;
+    white-space: pre;
+  }
 }
