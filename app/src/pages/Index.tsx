@@ -142,7 +142,6 @@ const Index = () => {
                     Linkedin
                   </a>
                 </p>
-              </>
               </nav>
             ) : showGames ? (
               <nav aria-label="Games list" role="navigation">
