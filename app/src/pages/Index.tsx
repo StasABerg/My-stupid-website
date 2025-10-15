@@ -1,35 +1,6 @@
-import { useState } from "react";
-import DoNothingGame from "@/components/DoNothingGame";
+import { Link } from "react-router-dom";
 
 const Index = () => {
-  const [currentDir, setCurrentDir] = useState<string>("/home/user");
-  const [showDocuments, setShowDocuments] = useState(false);
-  const [showGames, setShowGames] = useState(false);
-  const [currentGame, setCurrentGame] = useState<string | null>(null);
-
-  const handleFolderClick = (folder: string) => {
-    if (folder === "documents") {
-      setShowDocuments(!showDocuments);
-      setShowGames(false);
-      setCurrentGame(null);
-      setCurrentDir(showDocuments ? "/home/user" : "/home/user/documents");
-    } else if (folder === "games") {
-      setShowGames(!showGames);
-      setShowDocuments(false);
-      setCurrentGame(null);
-      setCurrentDir(showGames ? "/home/user" : "/home/user/games");
-    }
-  };
-
-  const handleGameClick = (game: string) => {
-    setCurrentGame(game);
-    setCurrentDir(`/home/user/games/${game}`);
-  };
-
-  const handleBackFromGame = () => {
-    setCurrentGame(null);
-    setCurrentDir("/home/user/games");
-  };
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-2 sm:p-4">
@@ -89,11 +60,11 @@ const Index = () => {
             <span className="text-terminal-yellow">cat welcome.txt</span>
           </div>
 
-          <div class="mb-4 font-mono text-terminal-white leading-none">
+          <div className="mb-4 font-mono text-terminal-white leading-none">
             <p>╔═══════════════════════════════════════════╗</p>
             <p>║ Welcome to my stupid website              ║</p>
-            <p>║ System Status: <span class="text-terminal-green">ONLINE</span>                     ║</p>
-            <p>║ Security Level: <span class="text-terminal-cyan">GITGUD</span>                    ║</p>
+            <p>║ System Status: <span className="text-terminal-green">ONLINE</span>                     ║</p>
+            <p>║ Security Level: <span className="text-terminal-cyan">GITGUD</span>                    ║</p>
             <p>╚═══════════════════════════════════════════╝</p>
           </div>
 
@@ -102,135 +73,44 @@ const Index = () => {
             <span className="text-terminal-white">:</span>
             <span className="text-terminal-cyan">~</span>
             <span className="text-terminal-white">$ </span>
-            <span className="text-terminal-yellow">ls -la {currentDir}</span>
+            <span className="text-terminal-yellow">ls -la /home/user</span>
           </div>
 
           <div className="mb-4 pl-2 sm:pl-4 overflow-x-auto">
-            {!showDocuments && !showGames ? (
-              <nav aria-label="Main directories" role="navigation">
-                <p className="text-terminal-cyan whitespace-nowrap">
-                  <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
-                  <button 
-                    className="text-terminal-magenta cursor-pointer hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
-                    onClick={() => handleFolderClick("documents")}
-                    onKeyDown={(e) => e.key === "Enter" && handleFolderClick("documents")}
-                    aria-label="Open documents folder"
-                  >
-                    documents/
-                  </button>
-                </p>
-                <p className="text-terminal-cyan whitespace-nowrap">
-                  <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
-                  <button 
-                    className="text-terminal-magenta cursor-pointer hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
-                    onClick={() => handleFolderClick("games")}
-                    onKeyDown={(e) => e.key === "Enter" && handleFolderClick("games")}
-                    aria-label="Open games folder"
-                  >
-                    games/
-                  </button>
-                </p>
-              </nav>
-            ) : showDocuments ? (
-              <nav aria-label="Document links" role="navigation">
-                <p className="text-terminal-white whitespace-nowrap">
-                  <span className="hidden sm:inline">-rw-r--r-- 1 user user 1024 Oct 13 2025 </span>
-                  <a 
-                    href="https://github.com/StasABerg" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
-                    aria-label="Visit GitHub profile"
-                  >
-                    Github
-                  </a>
-                </p>
-                <p className="text-terminal-white whitespace-nowrap">
-                  <span className="hidden sm:inline">-rw-r--r-- 1 user user 1024 Oct 13 2025 </span>
-                  <a 
-                    href="https://linkedin.com/in/stasaberg" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
-                    aria-label="Visit LinkedIn profile"
-                  >
-                    Linkedin
-                  </a>
-                </p>
-              </nav>
-            ) : showGames ? (
-              <nav aria-label="Games list" role="navigation">
-                <p className="text-terminal-white whitespace-nowrap">
-                  <span className="hidden sm:inline">-rwxr-xr-x 1 user user 2048 Oct 13 2025 </span>
-                  <button 
-                    className="text-terminal-green cursor-pointer hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-green"
-                    onClick={() => handleGameClick("do-nothing")}
-                    onKeyDown={(e) => e.key === "Enter" && handleGameClick("do-nothing")}
-                    aria-label="Launch do-nothing game"
-                  >
-                    do-nothing
-                  </button>
-                </p>
-              </nav>
-            ) : null}
+            <nav aria-label="Main directories" role="navigation">
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <Link 
+                  to="/documents"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Open documents folder"
+                >
+                  documents/
+                </Link>
+              </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <Link 
+                  to="/games"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Open games folder"
+                >
+                  games/
+                </Link>
+              </p>
+            </nav>
           </div>
 
-          {currentGame ? (
-            <DoNothingGame onBack={handleBackFromGame} />
-          ) : (
-            <>
-              {showDocuments && (
-                <>
-                  <div className="mb-2">
-                    <span className="text-terminal-green">user@terminal</span>
-                    <span className="text-terminal-white">:</span>
-                    <span className="text-terminal-cyan">~/documents</span>
-                    <span className="text-terminal-white">$ </span>
-                    <button 
-                      className="text-terminal-yellow cursor-pointer hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
-                      onClick={() => handleFolderClick("documents")}
-                      onKeyDown={(e) => e.key === "Enter" && handleFolderClick("documents")}
-                      aria-label="Go back to home directory"
-                    >
-                      cd ..
-                    </button>
-                  </div>
-                </>
-              )}
+          <div className="mb-2">
+            <span className="text-terminal-green">user@terminal</span>
+            <span className="text-terminal-white">:</span>
+            <span className="text-terminal-cyan">~</span>
+            <span className="text-terminal-white">$ </span>
+            <span className="text-terminal-yellow">fastfetch</span>
+          </div>
 
-              {showGames && (
-                <>
-                  <div className="mb-2">
-                    <span className="text-terminal-green">user@terminal</span>
-                    <span className="text-terminal-white">:</span>
-                    <span className="text-terminal-cyan">~/games</span>
-                    <span className="text-terminal-white">$ </span>
-                    <button 
-                      className="text-terminal-yellow cursor-pointer hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
-                      onClick={() => handleFolderClick("games")}
-                      onKeyDown={(e) => e.key === "Enter" && handleFolderClick("games")}
-                      aria-label="Go back to home directory"
-                    >
-                      cd ..
-                    </button>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-
-          {!showDocuments && !showGames && !currentGame && (
-            <>
-              <div className="mb-2">
-                <span className="text-terminal-green">user@terminal</span>
-                <span className="text-terminal-white">:</span>
-                <span className="text-terminal-cyan">~</span>
-                <span className="text-terminal-white">$ </span>
-                <span className="text-terminal-yellow">fastfetch</span>
-              </div>
-
-              <div className="mb-4 pl-2 sm:pl-4 overflow-x-auto">
-                <pre className="text-terminal-magenta text-[0.65rem] sm:text-xs" aria-label="System information">
+          <div className="mb-4 pl-2 sm:pl-4 overflow-x-auto">
+            <pre className="text-terminal-magenta text-[0.65rem] sm:text-xs" aria-label="System information">
 {`        .---.
        /     \\       OS: Gitgud 2025
       | O _ O |      Host: Unknown
@@ -241,22 +121,16 @@ const Index = () => {
   /   | /   \\ |   \\
       |/     \\|
 `}
-                </pre>
-              </div>
-            </>
-          )}
+            </pre>
+          </div>
 
-          {!currentGame && (
-            <div className="flex items-center">
-              <span className="text-terminal-green">user@terminal</span>
-              <span className="text-terminal-white">:</span>
-              <span className="text-terminal-cyan">
-                {showDocuments ? "~/documents" : showGames ? "~/games" : "~"}
-              </span>
-              <span className="text-terminal-white">$ </span>
-              <span className="text-terminal-white cursor-blink">█</span>
-            </div>
-          )}
+          <div className="flex items-center">
+            <span className="text-terminal-green">user@terminal</span>
+            <span className="text-terminal-white">:</span>
+            <span className="text-terminal-cyan">~</span>
+            <span className="text-terminal-white">$ </span>
+            <span className="text-terminal-white cursor-blink">█</span>
+          </div>
         </div>
       </div>
     </div>
