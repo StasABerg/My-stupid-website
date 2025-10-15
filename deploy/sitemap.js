@@ -1,5 +1,5 @@
 function gen(r) {
-  var base = r.variables.scheme + "://" + r.headersIn.host;
+  var base = "https://" + r.headersIn.host;
   var routes = ["/"];
   var today = new Date().toISOString().slice(0, 10);
 
