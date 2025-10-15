@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 interface DoNothingGameProps {
   onBack: () => void;
+  backLink?: ReactNode;
 }
 
 const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
@@ -94,6 +95,7 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
         )}
       </div>
 
+      {/* Back command BEFORE the blinking prompt */}
       {backLink && (
         <div className="mt-2">
           <span className="text-terminal-green">user@terminal</span>
@@ -104,6 +106,7 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
         </div>
       )}
 
+      {/* Blinking prompt last */}
       <div className="mb-2">
         <span className="text-terminal-green">user@terminal</span>
         <span className="text-terminal-white">:</span>
