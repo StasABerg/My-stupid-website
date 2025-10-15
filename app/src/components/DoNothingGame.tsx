@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, ReactNode } from "react";
 
 interface DoNothingGameProps {
-  onBack: () => void;
   backLink?: ReactNode;
 }
 
-const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
+const DoNothingGame = ({ backLink }: DoNothingGameProps) => {
   const [isRunning, setIsRunning] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [bestTime, setBestTime] = useState(0);

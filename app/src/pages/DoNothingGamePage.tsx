@@ -20,7 +20,6 @@ const DoNothingGamePage = () => {
         
         <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm">
           <DoNothingGame
-            onBack={() => {}}
             backLink={
               <Link
                 to="/games"
