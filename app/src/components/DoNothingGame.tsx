@@ -94,11 +94,22 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
         )}
       </div>
 
+      {backLink && (
+        <div className="mt-2">
+          <span className="text-terminal-green">user@terminal</span>
+          <span className="text-terminal-white">:</span>
+          <span className="text-terminal-cyan">~/games/do-nothing</span>
+          <span className="text-terminal-white">$ </span>
+          {backLink}
+        </div>
+      )}
+
       <div className="mb-2">
         <span className="text-terminal-green">user@terminal</span>
         <span className="text-terminal-white">:</span>
         <span className="text-terminal-cyan">~/games/do-nothing</span>
         <span className="text-terminal-white">$ </span>
+        <span className="text-terminal-white cursor-blink">█</span>
       </div>
     </div>
   );

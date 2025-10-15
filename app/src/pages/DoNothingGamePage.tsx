@@ -19,21 +19,18 @@ const DoNothingGamePage = () => {
         </div>
         
         <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm">
-          <DoNothingGame onBack={() => {}} />
-          
-          <div className="mt-4">
-            <span className="text-terminal-green">user@terminal</span>
-            <span className="text-terminal-white">:</span>
-            <span className="text-terminal-cyan">~/games/do-nothing</span>
-            <span className="text-terminal-white">$ </span>
-            <Link 
-              to="/games"
-              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
-              aria-label="Go back to games directory"
-            >
-              cd ..
-            </Link>
-          </div>
+          <DoNothingGame
+            onBack={() => {}}
+            backLink={
+              <Link
+                to="/games"
+                className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+                aria-label="Go back to games directory"
+              >
+                cd ..
+              </Link>
+            }
+          />
         </div>
       </div>
     </div>
