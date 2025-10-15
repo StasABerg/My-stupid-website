@@ -7,10 +7,12 @@ COPY app/ .
 RUN npm run build 
 
 FROM nginx:stable-alpine
+RUN apk add --no-cache nginx-mod-http-jsc
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/sitemap.js  /etc/nginx/sitemap.js
+COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
 RUN mkdir -p /var/cache/nginx /var/run /var/log/nginx \
  && chown -R nginx:nginx /var/cache/nginx /var/run /var/log/nginx /etc/nginx/conf.d \
  && sed -i '/^user /d' /etc/nginx/nginx.conf
-COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
 USER nginx
 CMD ["nginx","-g","daemon off;"]
