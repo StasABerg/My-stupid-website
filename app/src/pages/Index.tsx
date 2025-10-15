@@ -92,7 +92,7 @@ const Index = () => {
           <div className="mb-4 pl-2 sm:pl-4 text-terminal-white overflow-x-auto font-mono leading-none">
             <pre className="whitespace-pre text-sm">
           {`╔═══════════════════════════════════════════╗
-          ║ Welcome to my stupid website              ║
+          ║ Welcome to my stupid website !            ║
           ║ System Status: \x1b[32mONLINE\x1b[0m                    ║
           ║ Security Level: \x1b[36mGITGUD\x1b[0m                   ║
           ╚═══════════════════════════════════════════╝`}
