@@ -7,7 +7,7 @@ COPY app/ .
 RUN npm run build 
 
 FROM nginx:stable-alpine
-RUN apk add --no-cache nginx-mod-http-jsc
+RUN apk add --no-cache nginx-mod-http-js
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/sitemap.js  /etc/nginx/sitemap.js
 COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
