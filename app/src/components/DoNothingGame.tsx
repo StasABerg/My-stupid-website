@@ -11,7 +11,7 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
   const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const handleMouseMove = () => {
+    const handleMovement = () => {
       if (isRunning) {
         setIsRunning(false);
         if (intervalRef.current) {
@@ -25,14 +25,16 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
     };
 
     if (isRunning) {
-      window.addEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mousemove", handleMovement);
+      window.removeEventListener("touchmove", handleMovement);
       intervalRef.current = window.setInterval(() => {
         setElapsedTime((prev) => prev + 0.01);
       }, 10);
     }
 
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mousemove", handleMovement);
+      window.removeEventListener("touchmove", handleMovement);
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
@@ -49,7 +51,7 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" role="application" aria-label="Do Nothing Game">
       <div className="mb-4">
         <span className="text-terminal-green">user@terminal</span>
         <span className="text-terminal-white">:</span>
@@ -58,32 +60,34 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
         <span className="text-terminal-yellow">./start.sh</span>
       </div>
 
-      <div className="border-2 border-terminal-green p-4 text-terminal-white">
-        <pre className="text-terminal-cyan mb-4">
-{`╔════════════════════════════════════════════════╗
-║         DO NOTHING GAME v1.0                   ║
-║  Rules: Don't move your mouse!                 ║
-╚════════════════════════════════════════════════╝`}
+      <div className="border-2 border-terminal-green p-3 sm:p-4 text-terminal-white">
+        <pre className="text-terminal-cyan mb-4 overflow-x-auto text-[0.6rem] sm:text-xs">
+{`╔══════════════════════════════════════╗
+║    DO NOTHING GAME v1.0              ║
+║  Rules: Don't move anything!         ║
+╚══════════════════════════════════════╝`}
         </pre>
 
         <div className="space-y-2 mb-4">
-          <p className="text-terminal-yellow">
+        <div className="space-y-2 mb-4" role="status" aria-live="polite">
             Status: <span className={isRunning ? "text-terminal-green" : "text-terminal-red"}>
               {isRunning ? "RUNNING" : "STOPPED"}
             </span>
           </p>
           <p className="text-terminal-cyan">
-            Time: {formatTime(elapsedTime)}s
+            Time: <span aria-label={`${formatTime(elapsedTime)} seconds`}>{formatTime(elapsedTime)}s</span>
           </p>
           <p className="text-terminal-magenta">
-            Best: {formatTime(bestTime)}s
+            Best: <span aria-label={`Best time ${formatTime(bestTime)} seconds`}>{formatTime(bestTime)}s</span>
           </p>
         </div>
 
         {!isRunning && (
           <button
             onClick={handleStart}
-            className="border border-terminal-green bg-transparent text-terminal-green px-4 py-2 hover:bg-terminal-green hover:text-black transition-colors"
+            onKeyDown={(e) => e.key === "Enter" && handleStart()}
+            className="border border-terminal-green bg-transparent text-terminal-green px-3 sm:px-4 py-2 hover:bg-terminal-green hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-terminal-green text-xs sm:text-sm"
+            aria-label={elapsedTime > 0 ? "Restart game" : "Start game"}
           >
             {elapsedTime > 0 ? "RESTART" : "START"}
           </button>
@@ -95,12 +99,15 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
         <span className="text-terminal-white">:</span>
         <span className="text-terminal-cyan">~/games/do-nothing</span>
         <span className="text-terminal-white">$ </span>
-        <span 
-          className="text-terminal-yellow cursor-pointer hover:underline"
+        <button 
+          className="text-terminal-yellow cursor-pointer hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
           onClick={onBack}
+          onKeyDown={(e) => e.key === "Enter" && onBack()}
+          aria-label="Go back to games directory"
         >
           cd ..
         </span>
+        </button>
       </div>
     </div>
   );
