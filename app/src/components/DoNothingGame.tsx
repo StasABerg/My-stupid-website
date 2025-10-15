@@ -25,8 +25,8 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
     };
 
     if (isRunning) {
-      window.removeEventListener("mousemove", handleMovement);
-      window.removeEventListener("touchmove", handleMovement);
+      window.addEventListener("mousemove", handleMovement);
+      window.addEventListener("touchmove", handleMovement);
       intervalRef.current = window.setInterval(() => {
         setElapsedTime((prev) => prev + 0.01);
       }, 10);
@@ -68,7 +68,6 @@ const DoNothingGame = ({ onBack }: DoNothingGameProps) => {
 ╚══════════════════════════════════════╝`}
         </pre>
 
-        <div className="space-y-2 mb-4">
         <div className="space-y-2 mb-4" role="status" aria-live="polite">
           <p className="text-terminal-yellow">
             Status: <span className={isRunning ? "text-terminal-green" : "text-terminal-red"}>
