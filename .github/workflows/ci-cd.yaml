@@ -62,7 +62,9 @@ jobs:
   deploy-dev:
     runs-on: self-hosted
     needs: [changes, build]
-    if: ${{ always() && (needs.changes.outputs.app == 'true' || needs.changes.outputs.charts == 'true') }}
+      if: >
+       (needs.changes.outputs.app == 'true' && needs.build.result == 'success') ||
+       (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
     environment: development
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +77,7 @@ jobs:
       - name: Resolve image tag
         id: tag
         run: |
-          if [[ "${{ needs.changes.outputs.app }}" == "true" && -n "${{ needs.build.outputs.sha }}" ]]; then
+          if [[ "${{ needs.changes.outputs.app }}" == "true" ]]; then
             echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
           else
             TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev --kube-insecure-skip-tls-verify -o yaml \
@@ -95,7 +97,11 @@ jobs:
   deploy-prod:
     runs-on: self-hosted
     needs: [changes, build, deploy-dev]
-    if: ${{ always() && needs.deploy-dev.result == 'success' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.charts == 'true') }}
+    if: >
+      needs.deploy-dev.result == 'success' && (
+        (needs.changes.outputs.app == 'true' && needs.build.result == 'success') ||
+        (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
+      )
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +114,7 @@ jobs:
       - name: Resolve image tag
         id: tag
         run: |
-          if [[ "${{ needs.changes.outputs.app }}" == "true" && -n "${{ needs.build.outputs.sha }}" ]]; then
+          if [[ "${{ needs.changes.outputs.app }}" == "true" ]]; then
             echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
           else
             TAG=$(helm -n my-stupid-website get values my-stupid-website --kube-insecure-skip-tls-verify -o yaml \
