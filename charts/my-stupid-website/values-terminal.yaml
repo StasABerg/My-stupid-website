@@ -7,8 +7,9 @@ terminalService:
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
-    port: 8080
+    port: 80
     annotations: {}
+  containerPort: 8080
   podAnnotations: {}
   podLabels: {}
   podSecurityContext:

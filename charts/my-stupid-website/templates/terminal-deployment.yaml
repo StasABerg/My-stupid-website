@@ -1,7 +1,8 @@
 {{- if .Values.terminalService.enabled }}
 {{- $terminal := .Values.terminalService | default dict -}}
 {{- $service := $terminal.service | default dict -}}
-{{- $port := $service.port | default 8080 -}}
+{{- $servicePort := $service.port | default 80 -}}
+{{- $containerPort := $terminal.containerPort | default 8080 -}}
 {{- $image := $terminal.image | default dict -}}
 {{- $imageRepository := $image.repository | default "ghcr.io/stasaberg/my-stupid-website-terminal" -}}
 {{- $imageTag := $image.tag | default .Chart.AppVersion -}}
@@ -44,7 +45,7 @@ spec:
           imagePullPolicy: {{ $imagePullPolicy }}
           ports:
             - name: http
-              containerPort: {{ $port }}
+              containerPort: {{ $containerPort }}
               protocol: TCP
           {{- with $terminal.securityContext }}
           securityContext:
@@ -52,7 +53,7 @@ spec:
           {{- end }}
           env:
             - name: PORT
-              value: "{{ $port }}"
+              value: "{{ $containerPort }}"
           {{- with $terminal.env }}
             {{- range $key, $value := . }}
             - name: {{ $key }}
