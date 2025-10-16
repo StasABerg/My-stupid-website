@@ -1,0 +1,2 @@
+terminalService:
+  replicaCount: 1

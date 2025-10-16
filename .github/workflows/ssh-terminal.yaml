@@ -6,6 +6,8 @@ on:
     paths:
       - 'terminal-service/**'
       - 'docker/terminal.Dockerfile'
+      - 'charts/my-stupid-website/values-terminal.yaml'
+      - 'charts/my-stupid-website/values-terminal-dev.yaml'
       - '.github/workflows/ssh-terminal.yaml'
   workflow_dispatch:
 
@@ -132,9 +134,10 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
             -f charts/my-stupid-website/values-dev.yaml \
+            -f charts/my-stupid-website/values-terminal.yaml \
+            -f charts/my-stupid-website/values-terminal-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --reuse-values \
-            --set terminalService.enabled=true \
             --set terminalService.image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
             --set-string terminalService.image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
@@ -155,9 +158,9 @@ jobs:
       - name: Helm upgrade (prod - terminal)
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
+            -f charts/my-stupid-website/values-terminal.yaml \
             --namespace my-stupid-website --create-namespace \
             --reuse-values \
-            --set terminalService.enabled=true \
             --set terminalService.image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
             --set-string terminalService.image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify

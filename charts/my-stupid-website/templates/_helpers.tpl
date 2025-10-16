@@ -58,7 +58,7 @@ Terminal service specific helpers
 {{- end }}
 
 {{- define "my-stupid-website.terminalFullname" -}}
-{{- printf "%s-terminal" (include "my-stupid-website.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-terminal" (include "my-stupid-website.name" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{- define "my-stupid-website.terminalSelectorLabels" -}}
