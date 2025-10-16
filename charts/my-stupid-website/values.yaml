@@ -84,5 +84,46 @@ volumeMounts:
   - { name: nginx-log,   mountPath: /var/log/nginx }
   - { name: tmp,         mountPath: /tmp }
 
-
+terminalService:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/stasaberg/my-stupid-website-terminal
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    fsGroup: 101
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  env:
+    SANDBOX_ROOT: /sandbox
+    COMMAND_TIMEOUT_MS: "4000"
+    MAX_PAYLOAD_BYTES: "2048"
+    MAX_OUTPUT_BYTES: "16384"
+  volumeMounts:
+    - name: sandbox-data
+      mountPath: /sandbox
+  volumes:
+    - name: sandbox-data
+      emptyDir: {}
 

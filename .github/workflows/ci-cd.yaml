@@ -16,6 +16,7 @@ jobs:
     outputs:
       app: ${{ steps.f.outputs.app }}
       charts: ${{ steps.f.outputs.charts }}
+      terminal: ${{ steps.f.outputs.terminal }}
     steps:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
@@ -25,11 +26,14 @@ jobs:
           filters: |
             app:
               - 'app/**'
-              - 'docker/**'
+              - 'docker/Dockerfile'
               - 'deploy/**'
               - '.dockerignore'
             charts:
               - 'charts/my-stupid-website/**'
+            terminal:
+              - 'terminal-service/**'
+              - 'docker/terminal.Dockerfile'
 
   trivy-dockerfile:
     name: Trivy Dockerfile

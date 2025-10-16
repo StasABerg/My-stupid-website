@@ -7,3 +7,5 @@ ingress:
 autoscaling:
   enabled: false
 replicaCount: 1
+terminalService:
+  replicaCount: 1

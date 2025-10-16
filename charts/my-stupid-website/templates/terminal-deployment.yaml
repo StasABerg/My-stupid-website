@@ -1,0 +1,67 @@
+{{- if .Values.terminalService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "my-stupid-website.terminalFullname" . }}
+  labels:
+    {{- include "my-stupid-website.terminalLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.terminalService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "my-stupid-website.terminalSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "my-stupid-website.terminalSelectorLabels" . | nindent 8 }}
+        {{- with .Values.terminalService.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.terminalService.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "my-stupid-website.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.terminalService.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: terminal
+          image: "{{ .Values.terminalService.image.repository }}:{{ .Values.terminalService.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.terminalService.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.terminalService.service.port }}
+              protocol: TCP
+          {{- with .Values.terminalService.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: PORT
+              value: "{{ .Values.terminalService.service.port }}"
+          {{- with .Values.terminalService.env }}
+            {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.terminalService.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.terminalService.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.terminalService.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
