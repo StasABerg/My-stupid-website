@@ -28,13 +28,40 @@ jobs:
               - 'docker/**'
               - 'deploy/**'
               - '.dockerignore'
-
             charts:
               - 'charts/my-stupid-website/**'
 
-  build:
+  trivy-dockerfile:
+    name: Trivy Dockerfile
     runs-on: self-hosted
     needs: changes
+    if: needs.changes.outputs.app == 'true'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-db-${{ runner.os }}-
+      - name: Scan Dockerfile misconfig
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: docker/Dockerfile
+          severity: "HIGH,CRITICAL"
+          format: "sarif"
+          output: "trivy-dockerfile.sarif"
+          exit-code: "1"
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-dockerfile.sarif
+
+  build:
+    runs-on: self-hosted
+    needs: [changes, trivy-dockerfile]
     if: needs.changes.outputs.app == 'true'
     outputs:
       sha: ${{ steps.out.outputs.sha }}
@@ -59,12 +86,74 @@ jobs:
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  trivy-image:
+    name: Trivy Image  
+    runs-on: self-hosted
+    needs: build
+    if: needs.changes.outputs.app == 'true' && needs.build.result == 'success'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-db-${{ runner.os }}-
+      - name: Scan built image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/stasaberg/my-stupid-website:${{ needs.build.outputs.sha }}
+          vuln-type: "os,library"
+          ignore-unfixed: true
+          severity: "HIGH,CRITICAL"
+          format: "sarif"
+          output: "trivy-image.sarif"
+          exit-code: "1"
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+
+  trivy-helm:
+    name: Trivy Helm/K8s Config
+    runs-on: self-hosted
+    needs: changes
+    if: needs.changes.outputs.charts == 'true'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-db-${{ runner.os }}-
+      - name: Scan Helm charts
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: charts/my-stupid-website
+          severity: "HIGH,CRITICAL"
+          format: "sarif"
+          output: "trivy-helm.sarif"
+          exit-code: "1"
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-helm.sarif
+
   deploy-dev:
     runs-on: self-hosted
-    needs: [changes, build]
+    needs: [changes, trivy-dockerfile, build, trivy-image, trivy-helm]
     if: >
-       (needs.changes.outputs.app == 'true' && needs.build.result == 'success') ||
-       (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
+       (
+         (needs.changes.outputs.app == 'true' && needs.build.result == 'success') ||
+         (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
+       )
+       && (needs.trivy-dockerfile.result == 'success' || needs.trivy-dockerfile.result == 'skipped')
+       && (needs.trivy-image.result == 'success' || needs.trivy-image.result == 'skipped')
+       && (needs.trivy-helm.result == 'success' || needs.trivy-helm.result == 'skipped')
     environment: development
     steps:
       - uses: actions/checkout@v5
@@ -96,12 +185,15 @@ jobs:
 
   deploy-prod:
     runs-on: self-hosted
-    needs: [changes, build, deploy-dev]
+    needs: [changes, trivy-dockerfile, build, trivy-image, trivy-helm, deploy-dev]
     if: >
       needs.deploy-dev.result == 'success' && (
         (needs.changes.outputs.app == 'true' && needs.build.result == 'success') ||
         (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
       )
+      && (needs.trivy-dockerfile.result == 'success' || needs.trivy-dockerfile.result == 'skipped')
+      && (needs.trivy-image.result == 'success' || needs.trivy-image.result == 'skipped')
+      && (needs.trivy-helm.result == 'success' || needs.trivy-helm.result == 'skipped')
     environment: production
     steps:
       - uses: actions/checkout@v5
