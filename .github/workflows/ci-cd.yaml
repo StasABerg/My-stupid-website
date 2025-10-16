@@ -47,6 +47,8 @@ jobs:
           key: trivy-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan Dockerfile misconfig
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
         with:
           scan-type: config
@@ -55,9 +57,14 @@ jobs:
           format: "sarif"
           output: "trivy-dockerfile.sarif"
           exit-code: "1"
-      - uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-dockerfile.sarif
+      - name: Fail if Trivy found issues
+        if: steps.trivy.outcome == 'failure'
+        run: exit 1
 
   build:
     runs-on: self-hosted
@@ -88,7 +95,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   trivy-image:
-    name: Trivy Image  
+    name: Trivy Image
     runs-on: self-hosted
     needs: build
     if: needs.changes.outputs.app == 'true' && needs.build.result == 'success'
@@ -102,6 +109,8 @@ jobs:
           key: trivy-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan built image
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
         with:
           image-ref: ghcr.io/stasaberg/my-stupid-website:${{ needs.build.outputs.sha }}
@@ -111,9 +120,14 @@ jobs:
           format: "sarif"
           output: "trivy-image.sarif"
           exit-code: "1"
-      - uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-image.sarif
+      - name: Fail if Trivy found issues
+        if: steps.trivy.outcome == 'failure'
+        run: exit 1
 
   trivy-helm:
     name: Trivy Helm/K8s Config
@@ -131,6 +145,8 @@ jobs:
           key: trivy-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan Helm charts
+        id: trivy
+        continue-on-error: true
         uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
         with:
           scan-type: config
@@ -139,9 +155,14 @@ jobs:
           format: "sarif"
           output: "trivy-helm.sarif"
           exit-code: "1"
-      - uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-helm.sarif
+      - name: Fail if Trivy found issues
+        if: steps.trivy.outcome == 'failure'
+        run: exit 1
 
   deploy-dev:
     runs-on: self-hosted
