@@ -167,7 +167,7 @@ jobs:
   deploy-dev:
     runs-on: self-hosted
     needs: [changes, trivy-dockerfile, build, trivy-image, trivy-helm]
-      if: >
+    if: >
         (
           (needs.changes.outputs.app == 'true' && needs.build.result == 'success') ||
           (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
