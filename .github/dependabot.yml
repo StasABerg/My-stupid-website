@@ -8,18 +8,27 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/app"
-      - "terminal-service"      
+      - "terminal-service"
     schedule:
       interval: "weekly"
+    assignees:
+      - "codex"
   - package-ecosystem: "docker"
-    directory: "/docker"      
+    directory: "/docker"
     schedule:
       interval: "weekly"
+    assignees:
+      - "codex"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    assignees:
+      - "codex"
   - package-ecosystem: "helm"
     directory: "/charts/my-stupid-website"
     schedule:
       interval: "weekly"
+    assignees:
+      - "codex"
+
