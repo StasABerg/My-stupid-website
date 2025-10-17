@@ -6,7 +6,9 @@
 version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/app"      
+    directories:
+      - "/app"
+      - "terminal-service"      
     schedule:
       interval: "weekly"
   - package-ecosystem: "docker"
