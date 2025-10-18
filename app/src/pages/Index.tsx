@@ -67,7 +67,7 @@ const Index = () => {
               </p>
               <p className="text-terminal-cyan whitespace-nowrap">
                 <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
-                <Link 
+                <Link
                   to="/games"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
                   aria-label="Open games folder"
@@ -77,7 +77,17 @@ const Index = () => {
               </p>
               <p className="text-terminal-cyan whitespace-nowrap">
                 <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
-                <Link 
+                <Link
+                  to="/radio"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Tune into the Gitgud radio"
+                >
+                  radio/
+                </Link>
+              </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <Link
                   to="/terminal"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
                   aria-label="Open restricted SSH sandbox"

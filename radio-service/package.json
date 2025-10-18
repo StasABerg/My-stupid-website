@@ -1,0 +1,17 @@
+{
+  "name": "radio-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "refresh": "node src/refresh.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.626.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ioredis": "^5.4.1",
+    "zod": "^3.23.8"
+  }
+}

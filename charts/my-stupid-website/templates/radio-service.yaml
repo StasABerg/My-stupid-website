@@ -1,0 +1,32 @@
+{{- $radio := .Values.radioService | default dict -}}
+{{- if $radio.enabled }}
+{{- $service := $radio.service | default dict -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "my-stupid-website.radioFullname" . }}
+  labels:
+    {{- include "my-stupid-website.radioLabels" . | nindent 4 }}
+  {{- with $service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $service.type | default "ClusterIP" }}
+  {{- with $service.clusterIP }}
+  clusterIP: {{ . }}
+  {{- end }}
+  {{- with $service.sessionAffinity }}
+  sessionAffinity: {{ . }}
+  {{- end }}
+  selector:
+    {{- include "my-stupid-website.radioSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $service.port | default 4010 }}
+      targetPort: {{ $service.targetPort | default $radio.containerPort | default ($service.port | default 4010) }}
+      protocol: TCP
+      {{- with $service.nodePort }}
+      nodePort: {{ . }}
+      {{- end }}
+{{- end }}

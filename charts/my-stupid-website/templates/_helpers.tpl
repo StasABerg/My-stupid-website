@@ -77,6 +77,32 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
+Radio service specific helpers
+*/}}
+{{- define "my-stupid-website.radioName" -}}
+{{- printf "%s-radio" (include "my-stupid-website.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "my-stupid-website.radioFullname" -}}
+{{- printf "%s-radio" (include "my-stupid-website.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "my-stupid-website.radioSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "my-stupid-website.radioName" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: radio-service
+{{- end }}
+
+{{- define "my-stupid-website.radioLabels" -}}
+helm.sh/chart: {{ include "my-stupid-website.chart" . }}
+{{ include "my-stupid-website.radioSelectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "my-stupid-website.serviceAccountName" -}}

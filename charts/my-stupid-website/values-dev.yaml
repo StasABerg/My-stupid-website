@@ -7,3 +7,8 @@ ingress:
 autoscaling:
   enabled: false
 replicaCount: 1
+env:
+  - name: VITE_RADIO_API_BASE_URL
+    value: https://gitgud.qzz.io/api/radio
+  - name: VITE_RADIO_DEFAULT_LIMIT
+    value: "200"
