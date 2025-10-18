@@ -36,6 +36,7 @@ export type StationsResponse = {
     filtered: number;
     cacheSource: string;
     updatedAt?: string;
+    countries?: string[];
   };
   items: RadioStation[];
 };

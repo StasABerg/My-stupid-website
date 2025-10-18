@@ -50,6 +50,14 @@ app.get("/stations", async (req, res) => {
     const { payload, cacheSource } = await loadStations(redis, { forceRefresh });
     const stations = Array.isArray(payload?.stations) ? payload.stations : [];
 
+    const availableCountries = Array.from(
+      new Set(
+        stations
+          .map((station) => station.country?.toString().trim() ?? "")
+          .filter((value) => value.length > 0),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+
     let filtered = stations;
     if (country) {
       filtered = filtered.filter((station) => {
@@ -90,6 +98,7 @@ app.get("/stations", async (req, res) => {
         cacheSource,
         origin: payload?.source ?? null,
         updatedAt: payload?.updatedAt,
+        countries: availableCountries,
       },
       items,
     });

@@ -63,6 +63,11 @@ const Radio = () => {
   const activeStation = displayStations[selectedIndex] ?? fallbackStation;
 
   const uniqueCountries = useMemo(() => {
+    const fromMeta = data?.meta.countries;
+    if (Array.isArray(fromMeta) && fromMeta.length > 0) {
+      return fromMeta;
+    }
+
     const seen = new Set<string>();
     const options = stations
       .map((station) => station.country)
@@ -74,7 +79,7 @@ const Radio = () => {
       seen.add(lower);
       return true;
     });
-  }, [stations]);
+  }, [data?.meta.countries, stations]);
 
   const handleStationChange = (index: number) => {
     setSelectedIndex(index);
