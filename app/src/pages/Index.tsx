@@ -4,11 +4,11 @@ import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "
 const Index = () => {
 
   return (
-    <div className="h-full bg-black flex items-center justify-center p-2 sm:p-4">
+    <div className="h-screen bg-black">
       <TerminalWindow>
         <TerminalHeader displayCwd="~" />
         
-        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm overflow-y-auto max-h-[85vh] sm:max-h-[80vh]">
+        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm overflow-y-auto flex-1">
           {/* desktop logo */}
           <pre
             className="hidden sm:block text-terminal-cyan mb-4 overflow-x-auto text-[0.5rem] sm:text-xs"

@@ -3,11 +3,11 @@ import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "
 
 const Games = () => {
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-2 sm:p-4">
+    <div className="h-screen bg-black">
       <TerminalWindow aria-label="Games page">
         <TerminalHeader displayCwd="~/games" />
         
-        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm">
+        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm flex-1 overflow-y-auto">
           <TerminalPrompt path="~/games" command="ls -la" />
 
           <div className="mb-4 pl-2 sm:pl-4">

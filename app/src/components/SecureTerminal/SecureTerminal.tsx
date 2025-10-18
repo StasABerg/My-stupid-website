@@ -38,12 +38,12 @@ const SecureTerminal = () => {
     }
   }, [history, loading, connectionError]);
 
-  const isInputDisabled = loading || Boolean(connectionError) || isSubmitting;
+  const isInputDisabled = loading || isSubmitting;
   return (
     <div
       role="region"
       aria-label="Sandbox terminal"
-      className="w-full max-w-4xl mx-auto bg-black border-2 border-terminal-green font-mono shadow-[0_0_30px_rgba(0,255,0,0.25)]"
+      className="w-full h-screen bg-black border-2 border-terminal-green font-mono shadow-[0_0_30px_rgba(0,255,0,0.25)] flex flex-col"
     >
       <TerminalHeader displayCwd={displayCwd} />
 

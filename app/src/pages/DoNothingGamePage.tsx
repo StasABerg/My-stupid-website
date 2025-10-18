@@ -4,11 +4,11 @@ import { TerminalWindow, TerminalHeader } from "@/components/SecureTerminal";
 
 const DoNothingGamePage = () => {
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-2 sm:p-4">
+    <div className="h-screen bg-black">
       <TerminalWindow>
         <TerminalHeader displayCwd="~/games/do-nothing" />
         
-        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm">
+        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm flex-1 overflow-y-auto">
           <DoNothingGame
             backLink={
               <Link
