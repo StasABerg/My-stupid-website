@@ -139,6 +139,8 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
             -f charts/my-stupid-website/values-dev.yaml \
+            -f charts/my-stupid-website/values-terminal.yaml \
+            -f charts/my-stupid-website/values-terminal-dev.yaml \
             -f charts/my-stupid-website/values-radio.yaml \
             -f charts/my-stupid-website/values-radio-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
