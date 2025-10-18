@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import SecureTerminal from "@/components/SecureTerminal";
+import { SecureTerminal } from "@/components/SecureTerminal";
 
 const Terminal = () => {
   return (
