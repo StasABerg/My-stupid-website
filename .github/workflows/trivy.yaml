@@ -31,6 +31,7 @@ jobs:
       - name: Run Trivy on source code
         uses: aquasecurity/trivy-action@0.33.1
         with:
+          version: v0.67.2
           scan-type: fs
           scanners: "vuln,misconfig,secret"
           ignore-unfixed: true
