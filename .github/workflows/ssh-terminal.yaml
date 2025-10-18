@@ -52,7 +52,7 @@ jobs:
         with:
           sarif_file: trivy-terminal-dockerfile.sarif
       - name: Fail if Trivy found issues
-        if: steps.trivy.outcome == 'failure'
+        if: ${{ always() && steps.trivy.outcome == 'failure' }}
         run: exit 1
 
   build:
@@ -116,7 +116,7 @@ jobs:
         with:
           sarif_file: trivy-terminal-image.sarif
       - name: Fail if Trivy found issues
-        if: steps.trivy.outcome == 'failure'
+        if: ${{ always() && steps.trivy.outcome == 'failure' }}
         run: exit 1
 
   deploy-dev:
