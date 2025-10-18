@@ -1,23 +1,12 @@
 import { Link } from "react-router-dom";
+import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
 
 const Index = () => {
 
   return (
     <div className="h-full bg-black flex items-center justify-center p-2 sm:p-4">
-    <div 
-        className="w-full max-w-4xl bg-black border-2 border-terminal-green shadow-[0_0_30px_rgba(0,255,0,0.3)] rounded-none"
-        role="main"
-        aria-label="Terminal interface"
-        id="main-content"
-      >
-        <div className="border-b-2 border-terminal-green p-2 bg-black">
-          <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-            <span className="text-terminal-red" aria-hidden="true">●</span>
-            <span className="text-terminal-yellow" aria-hidden="true">●</span>
-            <span className="text-terminal-green" aria-hidden="true">●</span>
-            <span className="text-terminal-cyan ml-2 sm:ml-4 truncate">terminal@gitgud.qzz.io:~</span>
-          </div>
-        </div>
+      <TerminalWindow>
+        <TerminalHeader displayCwd="~" />
         
         <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm overflow-y-auto max-h-[85vh] sm:max-h-[80vh]">
           {/* desktop logo */}
@@ -52,13 +41,7 @@ const Index = () => {
                ██████╔╝███████╗╚██████╔╝╚██████╔╝
                ╚═════╝ ╚══════╝ ╚═════╝  ╚═════╝ 
           `}</pre>
-          <div className="mb-2" role="log" aria-live="polite">
-            <span className="text-terminal-green">user@terminal</span>
-            <span className="text-terminal-white">:</span>
-            <span className="text-terminal-cyan">~</span>
-            <span className="text-terminal-white">$ </span>
-            <span className="text-terminal-yellow">cat welcome.txt</span>
-          </div>
+          <TerminalPrompt command="cat welcome.txt" />
 
           <div className="mb-4 font-mono text-terminal-white leading-none">
             <p>╔═══════════════════════════════════════════╗</p>
@@ -68,13 +51,7 @@ const Index = () => {
             <p>╚═══════════════════════════════════════════╝</p>
           </div>
 
-          <div className="mb-2">
-            <span className="text-terminal-green">user@terminal</span>
-            <span className="text-terminal-white">:</span>
-            <span className="text-terminal-cyan">~</span>
-            <span className="text-terminal-white">$ </span>
-            <span className="text-terminal-yellow">ls -la /home/user</span>
-          </div>
+          <TerminalPrompt command="ls -la /home/user" />
 
           <div className="mb-4 pl-2 sm:pl-4 overflow-x-auto">
             <nav aria-label="Main directories" role="navigation">
@@ -111,13 +88,7 @@ const Index = () => {
             </nav>
           </div>
 
-          <div className="mb-2">
-            <span className="text-terminal-green">user@terminal</span>
-            <span className="text-terminal-white">:</span>
-            <span className="text-terminal-cyan">~</span>
-            <span className="text-terminal-white">$ </span>
-            <span className="text-terminal-yellow">fastfetch</span>
-          </div>
+          <TerminalPrompt command="fastfetch" />
 
           <div className="mb-4 pl-2 sm:pl-4 overflow-x-auto">
             <pre className="text-terminal-magenta text-[0.65rem] sm:text-xs" aria-label="System information">
@@ -134,15 +105,11 @@ const Index = () => {
             </pre>
           </div>
 
-          <div className="flex items-center">
-            <span className="text-terminal-green">user@terminal</span>
-            <span className="text-terminal-white">:</span>
-            <span className="text-terminal-cyan">~</span>
-            <span className="text-terminal-white">$ </span>
-            <span className="text-terminal-white cursor-blink">█</span>
-          </div>
+          <TerminalPrompt>
+            <TerminalCursor />
+          </TerminalPrompt>
         </div>
-      </div>
+      </TerminalWindow>
     </div>
   );
 };
