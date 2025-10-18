@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { config } from "./config.js";
-import { buildRadioBrowserUrl } from "./radioBrowser.js";
+import {
+  buildRadioBrowserUrl,
+  getRadioBrowserBaseUrl,
+  rotateRadioBrowserBaseUrl,
+} from "./radioBrowser.js";
 import { fetchStationsFromS3, writeStationsByCountryToS3, writeStationsToS3 } from "./s3.js";
 
 const stationSchema = z.object({
@@ -33,6 +37,41 @@ const countrySchema = z.object({
   iso_3166_1: z.string().nullable().optional(),
   stationcount: z.union([z.string(), z.number()]),
 });
+
+class RadioBrowserRequestError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RadioBrowserRequestError";
+  }
+}
+
+async function withRotatingRadioBrowserHost(executor) {
+  const attempted = new Set();
+  let lastError;
+
+  // Loop until we have tried every known host once.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const baseUrl = await getRadioBrowserBaseUrl();
+    if (attempted.has(baseUrl)) {
+      break;
+    }
+
+    attempted.add(baseUrl);
+
+    try {
+      return await executor(baseUrl);
+    } catch (error) {
+      if (!(error instanceof RadioBrowserRequestError)) {
+        throw error;
+      }
+      lastError = error;
+      await rotateRadioBrowserBaseUrl();
+    }
+  }
+
+  throw lastError ?? new RadioBrowserRequestError("All Radio Browser endpoints failed.");
+}
 
 function normalizeList(value) {
   if (!value) return [];
@@ -90,51 +129,74 @@ function normalizeCountry(country) {
 }
 
 async function fetchCountries() {
-  const url = await buildRadioBrowserUrl(config.radioBrowser.countriesPath);
-  const response = await fetch(url, {
-    headers: buildDefaultHeaders(),
+  return withRotatingRadioBrowserHost(async (baseUrl) => {
+    const url = await buildRadioBrowserUrl(config.radioBrowser.countriesPath, { baseUrl });
+
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: buildDefaultHeaders(),
+      });
+    } catch (error) {
+      throw new RadioBrowserRequestError(
+        `Radio Browser countries request failed: ${error.message} for ${url.toString()}`,
+      );
+    }
+
+    if (!response.ok) {
+      throw new RadioBrowserRequestError(
+        `Radio Browser countries request failed: ${response.status} for ${url.toString()}`,
+      );
+    }
+
+    const payload = await response.json();
+    if (!Array.isArray(payload)) {
+      throw new Error("Unexpected countries payload from Radio Browser API");
+    }
+
+    return {
+      countries: payload.map(normalizeCountry),
+      requestUrl: url.toString(),
+    };
   });
-
-  if (!response.ok) {
-    throw new Error(`Radio Browser countries request failed: ${response.status} for ${url.toString()}`);
-  }
-
-  const payload = await response.json();
-  if (!Array.isArray(payload)) {
-    throw new Error("Unexpected countries payload from Radio Browser API");
-  }
-
-  return {
-    countries: payload.map(normalizeCountry),
-    requestUrl: url.toString(),
-  };
 }
 
-async function buildStationsByCountryUrl(countryName) {
+async function buildStationsByCountryUrl(countryName, { baseUrl }) {
   const basePath = config.radioBrowser.stationsByCountryPath.replace(/\/$/, "");
-  return buildRadioBrowserUrl(`${basePath}/${encodeURIComponent(countryName)}`);
+  return buildRadioBrowserUrl(`${basePath}/${encodeURIComponent(countryName)}`, { baseUrl });
 }
 
 async function fetchStationsForCountry(countryName) {
-  const url = await buildStationsByCountryUrl(countryName);
-  url.searchParams.set("hidebroken", "true");
-  url.searchParams.set("order", "clickcount");
-  url.searchParams.set("reverse", "true");
+  return withRotatingRadioBrowserHost(async (baseUrl) => {
+    const url = await buildStationsByCountryUrl(countryName, { baseUrl });
+    url.searchParams.set("hidebroken", "true");
+    url.searchParams.set("order", "clickcount");
+    url.searchParams.set("reverse", "true");
 
-  const response = await fetch(url, {
-    headers: buildDefaultHeaders(),
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: buildDefaultHeaders(),
+      });
+    } catch (error) {
+      throw new RadioBrowserRequestError(
+        `Radio Browser stations request failed: ${error.message} for ${url.toString()}`,
+      );
+    }
+
+    if (!response.ok) {
+      throw new RadioBrowserRequestError(
+        `Radio Browser stations request failed: ${response.status} for ${url.toString()}`,
+      );
+    }
+
+    const rawStations = await response.json();
+    if (!Array.isArray(rawStations)) {
+      throw new Error("Unexpected stations payload from Radio Browser API");
+    }
+
+    return { rawStations, requestUrl: url.toString() };
   });
-
-  if (!response.ok) {
-    throw new Error(`Radio Browser stations request failed: ${response.status} for ${url.toString()}`);
-  }
-
-  const rawStations = await response.json();
-  if (!Array.isArray(rawStations)) {
-    throw new Error("Unexpected stations payload from Radio Browser API");
-  }
-
-  return { rawStations, requestUrl: url.toString() };
 }
 
 function slugify(value) {
@@ -240,9 +302,9 @@ async function fetchFromRadioBrowser() {
   return payload;
 }
 
-async function buildStationClickUrl(stationUuid) {
+async function buildStationClickUrl(stationUuid, { baseUrl }) {
   const basePath = config.radioBrowser.stationClickPath.replace(/\/$/, "");
-  return buildRadioBrowserUrl(`${basePath}/${encodeURIComponent(stationUuid)}`);
+  return buildRadioBrowserUrl(`${basePath}/${encodeURIComponent(stationUuid)}`, { baseUrl });
 }
 
 export async function notifyStationClick(stationUuid) {
@@ -250,21 +312,33 @@ export async function notifyStationClick(stationUuid) {
     throw new Error("A station UUID is required to record a click.");
   }
 
-  const url = await buildStationClickUrl(stationUuid);
-  const response = await fetch(url, {
-    headers: buildDefaultHeaders(),
+  return withRotatingRadioBrowserHost(async (baseUrl) => {
+    const url = await buildStationClickUrl(stationUuid, { baseUrl });
+
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: buildDefaultHeaders(),
+      });
+    } catch (error) {
+      throw new RadioBrowserRequestError(
+        `Radio Browser click request failed: ${error.message} for ${url.toString()}`,
+      );
+    }
+
+    if (!response.ok) {
+      throw new RadioBrowserRequestError(
+        `Radio Browser click request failed: ${response.status} for ${url.toString()}`,
+      );
+    }
+
+    const payload = await response.json();
+    if (!payload || (payload.ok !== "true" && payload.ok !== true)) {
+      throw new Error("Radio Browser did not confirm the click event.");
+    }
+
+    return payload;
   });
-
-  if (!response.ok) {
-    throw new Error(`Radio Browser click request failed: ${response.status} for ${url.toString()}`);
-  }
-
-  const payload = await response.json();
-  if (!payload || (payload.ok !== "true" && payload.ok !== true)) {
-    throw new Error("Radio Browser did not confirm the click event.");
-  }
-
-  return payload;
 }
 
 export async function getStationsFromS3() {
