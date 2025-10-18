@@ -8,6 +8,7 @@ validateConfig();
 
 const app = express();
 app.disable("x-powered-by");
+app.use(express.json({ limit: "100kb" }));
 
 // Rate limiter: maximum of 100 requests per 15 minutes per IP
 const limiter = rateLimit({
@@ -98,7 +99,17 @@ app.get("/stations", async (req, res) => {
   }
 });
 
-app.post("/stations/refresh", async (_req, res) => {
+function requireRefreshAuth(req, res, next) {
+  const authorization = req.get("authorization") ?? "";
+  const expected = `Bearer ${config.refreshToken}`;
+  if (authorization !== expected) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}
+
+app.post("/stations/refresh", requireRefreshAuth, async (_req, res) => {
   try {
     await ensureRedis();
     const { payload, cacheSource } = await updateStations(redis);

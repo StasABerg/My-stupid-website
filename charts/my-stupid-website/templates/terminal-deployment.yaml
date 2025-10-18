@@ -30,6 +30,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: {{ include "my-stupid-website.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

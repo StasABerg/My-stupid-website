@@ -7,27 +7,33 @@ function numberFromEnv(value, fallback) {
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
-  redisUrl: process.env.REDIS_URL ?? "redis://valkey.media.cluster.local:6379",
+  redisUrl: process.env.REDIS_URL,
   cacheKey: process.env.STATIONS_CACHE_KEY ?? "radio:stations:all",
   cacheTtlSeconds: numberFromEnv(process.env.STATIONS_CACHE_TTL, 900),
   s3: {
-    endpoint: process.env.MINIO_ENDPOINT ?? "http://minio.media.cluster.local:9000",
-    region: process.env.MINIO_REGION ?? "us-east-1",
+    endpoint: process.env.MINIO_ENDPOINT,
+    region: process.env.MINIO_REGION,
     accessKeyId:
-      process.env.MINIO_ACCESS_KEY ?? process.env.AWS_ACCESS_KEY_ID ?? "",
+      process.env.MINIO_ACCESS_KEY ?? process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey:
-      process.env.MINIO_SECRET_KEY ?? process.env.AWS_SECRET_ACCESS_KEY ?? "",
-    bucket: process.env.MINIO_BUCKET ?? "station-artifacts",
-    objectKey: process.env.STATIONS_OBJECT_KEY ?? "stations/latest.json",
+      process.env.MINIO_SECRET_KEY ?? process.env.AWS_SECRET_ACCESS_KEY,
+    bucket: process.env.MINIO_BUCKET,
+    objectKey: process.env.STATIONS_OBJECT_KEY,
   },
   radioBrowser: {
-    baseUrl: process.env.RADIO_BROWSER_BASE_URL ?? "https://api.radio-browser.info",
-    stationsPath: process.env.RADIO_BROWSER_STATIONS_PATH ?? "/json/stations",
+    baseUrl: process.env.RADIO_BROWSER_BASE_URL,
+    stationsPath: process.env.RADIO_BROWSER_STATIONS_PATH,
     limit: numberFromEnv(process.env.RADIO_BROWSER_LIMIT, 500),
   },
+  refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
+  allowInsecureTransports:
+    process.env.ALLOW_INSECURE_TRANSPORT === "true",
 };
 
 export function validateConfig() {
+  if (!config.redisUrl) {
+    throw new Error("REDIS_URL must be provided so the service can populate the cache.");
+  }
   if (!config.s3.accessKeyId || !config.s3.secretAccessKey) {
     throw new Error(
       "MINIO_ACCESS_KEY and MINIO_SECRET_KEY (or AWS_* equivalents) must be set to reach the station artifacts bucket.",
@@ -35,5 +41,45 @@ export function validateConfig() {
   }
   if (!config.s3.bucket) {
     throw new Error("MINIO_BUCKET must be specified so the service knows where to store stations.");
+  }
+  if (!config.s3.endpoint) {
+    throw new Error("MINIO_ENDPOINT must be provided so the service can reach the object store.");
+  }
+  if (!config.radioBrowser.baseUrl) {
+    throw new Error("RADIO_BROWSER_BASE_URL must be provided for refresh operations.");
+  }
+  if (!config.radioBrowser.stationsPath) {
+    throw new Error("RADIO_BROWSER_STATIONS_PATH must be provided for refresh operations.");
+  }
+  if (!config.refreshToken) {
+    throw new Error(
+      "STATIONS_REFRESH_TOKEN must be configured to protect the refresh endpoint.",
+    );
+  }
+
+  let redisUrl;
+  try {
+    redisUrl = new URL(config.redisUrl);
+  } catch (error) {
+    throw new Error(`Invalid REDIS_URL provided: ${error.message}`);
+  }
+
+  if (redisUrl.protocol !== "rediss:" && config.allowInsecureTransports !== true) {
+    throw new Error(
+      "REDIS_URL must use TLS (rediss://). Set ALLOW_INSECURE_TRANSPORT=true to bypass in trusted environments.",
+    );
+  }
+
+  let s3Endpoint;
+  try {
+    s3Endpoint = new URL(config.s3.endpoint);
+  } catch (error) {
+    throw new Error(`Invalid MINIO_ENDPOINT provided: ${error.message}`);
+  }
+
+  if (s3Endpoint.protocol !== "https:" && config.allowInsecureTransports !== true) {
+    throw new Error(
+      "MINIO_ENDPOINT must use HTTPS. Set ALLOW_INSECURE_TRANSPORT=true to bypass in trusted environments.",
+    );
   }
 }

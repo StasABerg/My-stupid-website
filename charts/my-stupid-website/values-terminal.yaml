@@ -19,7 +19,7 @@ terminalService:
     runAsNonRoot: true
     runAsUser: 101
     runAsGroup: 101
-    readOnlyRootFilesystem: false
+    readOnlyRootFilesystem: true
     allowPrivilegeEscalation: false
     capabilities:
       drop: ["ALL"]
@@ -38,7 +38,11 @@ terminalService:
   volumeMounts:
     - name: sandbox-data
       mountPath: /sandbox
+    - name: tmp-data
+      mountPath: /tmp
   volumes:
     - name: sandbox-data
+      emptyDir: {}
+    - name: tmp-data
       emptyDir: {}
 

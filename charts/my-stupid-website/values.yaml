@@ -10,7 +10,8 @@ fullnameOverride: ""
 
 serviceAccount:
   create: false
-  name: ""   
+  name: ""
+  automount: false
 
 
 podAnnotations: {}
