@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 type ExecuteResponse = {
   command: string;
@@ -29,6 +30,7 @@ const toDisplayPath = (virtualPath: string | undefined | null): string => {
 };
 
 export function useTerminal() {
+  const navigate = useNavigate();
   const [virtualCwd, setVirtualCwd] = useState<string>("/home/demo");
   const [input, setInput] = useState<string>("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -46,21 +48,26 @@ export function useTerminal() {
   const displayCwd = toDisplayPath(virtualCwd);
 
   const bannerLines = (() => {
-    if (loading) {
-      return ["Establishing secure connection to sandbox pod..."];
-    }
-    if (connectionError) {
-      return [connectionError];
-    }
     const lines = [
-      "Connected to isolated sandbox pod. Commands run inside a locked-down container.",
+      "Commands run against a locked-down Kubernetes pod with whitelisted binaries and an ephemeral filesystem.",
+      "Need to leave? cd ~",
+      "",
     ];
-    if (supportedCommands.length) {
-      lines.push(`Allowed commands: ${supportedCommands.join(", ")}`);
+    
+    if (loading) {
+      lines.push("Establishing secure connection to sandbox pod...");
+    } else if (connectionError) {
+      lines.push(connectionError);
+    } else {
+      lines.push("Connected to isolated sandbox pod. Commands run inside a locked-down container.");
+      if (supportedCommands.length) {
+        lines.push(`Allowed commands: ${supportedCommands.join(", ")}`);
+      }
+      if (motd.length) {
+        lines.push("---- motd ----", ...motd, "--------------");
+      }
     }
-    if (motd.length) {
-      lines.push("---- motd ----", ...motd, "--------------");
-    }
+    
     return lines;
   })();
 
@@ -129,6 +136,62 @@ export function useTerminal() {
         return;
       }
 
+      // Handle local commands when backend is unavailable
+      if (connectionError) {
+        let output: string[] = [];
+        let isError = false;
+
+        if (trimmed === "help") {
+          output = [
+            "Available commands:",
+            "  help     - Show this help message",
+            "  clear    - Clear the terminal",
+            "  pwd      - Print working directory",
+            "  whoami   - Print current user",
+            "  date     - Print current date",
+            "  echo     - Print arguments",
+            "",
+            "Note: Backend service is unavailable. Some commands may not work as expected."
+          ];
+        } else if (trimmed === "pwd") {
+          output = [previousDisplayCwd];
+        } else if (trimmed === "whoami") {
+          output = ["sandbox"];
+        } else if (trimmed === "date") {
+          output = [new Date().toString()];
+        } else if (trimmed.startsWith("echo ")) {
+          output = [trimmed.slice(5)];
+        } else if (trimmed === "cd" || trimmed === "cd ~" || trimmed.startsWith("cd ")) {
+          const newPath = trimmed === "cd" ? "~" : trimmed.slice(3).trim();
+          if (newPath === "~" || newPath === "" || newPath === "/home/sandbox") {
+            // Navigate back to home page using React Router
+            navigate("/");
+            return;
+          } else {
+            output = ["cd: command not available in offline mode"];
+            isError = true;
+          }
+        } else {
+          output = [
+            `Command '${trimmed}' not available in offline mode.`,
+            "Type 'help' to see available commands."
+          ];
+          isError = true;
+        }
+
+        const entry: HistoryEntry = {
+          id: commandId.current++,
+          cwd: previousDisplayCwd,
+          command: raw,
+          output,
+          isError,
+        };
+
+        setHistory((prev) => [...prev, entry]);
+        setInput("");
+        return;
+      }
+
       try {
         setIsSubmitting(true);
         const response = await fetch(`${API_BASE}/execute`, {
@@ -183,18 +246,18 @@ export function useTerminal() {
         setInput("");
       }
     },
-    [displayCwd, virtualCwd],
+    [displayCwd, virtualCwd, connectionError, navigate],
   );
 
   const handleSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!input.trim() || loading || isSubmitting || connectionError) {
+      if (!input.trim() || loading || isSubmitting) {
         return;
       }
       runCommand(input);
     },
-    [input, runCommand, loading, isSubmitting, connectionError],
+    [input, runCommand, loading, isSubmitting],
   );
 
   const handleKeyDown = useCallback(

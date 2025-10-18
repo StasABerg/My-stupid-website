@@ -32,7 +32,7 @@ const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>(
     ));
 
     return (
-      <div ref={ref} className="h-[60vh] sm:h-[70vh] overflow-y-auto px-3 py-4 text-xs sm:text-sm text-terminal-white">
+      <div ref={ref} className="flex-1 overflow-y-auto px-3 py-4 text-xs sm:text-sm text-terminal-white">
         {bannerLineElements}
         {historyEntryElements}
       </div>
