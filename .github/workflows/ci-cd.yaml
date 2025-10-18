@@ -59,7 +59,7 @@ jobs:
         if: needs.changes.outputs.app == 'true'
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
         with:
           scan-type: config
           scan-ref: docker/Dockerfile
@@ -69,7 +69,7 @@ jobs:
           exit-code: "1"
       - name: Upload SARIF
         if: always() && needs.changes.outputs.app == 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-dockerfile.sarif
       - name: Fail if Trivy found issues
@@ -134,7 +134,7 @@ jobs:
         if: needs.changes.outputs.app == 'true'
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
         with:
           image-ref: ghcr.io/stasaberg/my-stupid-website:${{ needs.build.outputs.sha }}
           vuln-type: "os,library"
@@ -145,7 +145,7 @@ jobs:
           exit-code: "1"
       - name: Upload SARIF
         if: always() && needs.changes.outputs.app == 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
       - name: Fail if Trivy found issues
@@ -176,7 +176,7 @@ jobs:
         if: needs.changes.outputs.charts == 'true'
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
         with:
           scan-type: config
           scan-ref: charts/my-stupid-website
@@ -186,7 +186,7 @@ jobs:
           exit-code: "1"
       - name: Upload SARIF
         if: always() && needs.changes.outputs.charts == 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-helm.sarif
       - name: Fail if Trivy found issues
