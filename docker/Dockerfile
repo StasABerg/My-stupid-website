@@ -5,7 +5,7 @@ COPY app/package-lock.json ./package-lock.json
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY app/ .
 RUN npm run build
-#test
+
 FROM nginx:stable-alpine
 RUN apk add --no-cache nginx-mod-http-js
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
