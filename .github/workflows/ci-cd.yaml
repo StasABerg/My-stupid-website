@@ -65,11 +65,11 @@ jobs:
           scan-type: config
           scan-ref: docker/Dockerfile
           severity: 'HIGH,CRITICAL'
-          format: "table"
-#          output: "trivy-dockerfile.sarif"
+          format: "sarif"
+          output: "trivy-dockerfile.sarif"
           exit-code: "1"
       - name: Upload SARIF
-        if: always() && needs.changes.outputs.app == 'true'
+        if: ${{ always() && needs.changes.outputs.app == 'true' && hashFiles('trivy-dockerfile.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-dockerfile.sarif
@@ -146,7 +146,7 @@ jobs:
           output: "trivy-image.sarif"
           exit-code: "1"
       - name: Upload SARIF
-        if: always() && needs.changes.outputs.app == 'true'
+        if: ${{ always() && needs.changes.outputs.app == 'true' && hashFiles('trivy-image.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
@@ -188,7 +188,7 @@ jobs:
           output: "trivy-helm.sarif"
           exit-code: "1"
       - name: Upload SARIF
-        if: always() && needs.changes.outputs.charts == 'true'
+        if: ${{ always() && needs.changes.outputs.charts == 'true' && hashFiles('trivy-helm.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-helm.sarif

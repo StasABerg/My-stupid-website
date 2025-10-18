@@ -43,11 +43,11 @@ jobs:
           scan-type: config
           scan-ref: docker/terminal.Dockerfile
           severity: 'HIGH,CRITICAL'
-          format: "table"
-#          output: "trivy-terminal-dockerfile.sarif"
+          format: "sarif"
+          output: "trivy-terminal-dockerfile.sarif"
           exit-code: "1"
       - name: Upload SARIF
-        if: always()
+        if: ${{ always() && hashFiles('trivy-terminal-dockerfile.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-terminal-dockerfile.sarif
@@ -111,7 +111,7 @@ jobs:
           output: "trivy-terminal-image.sarif"
           exit-code: "1"
       - name: Upload SARIF
-        if: always()
+        if: ${{ always() && hashFiles('trivy-terminal-image.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-terminal-image.sarif
