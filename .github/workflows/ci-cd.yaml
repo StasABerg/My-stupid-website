@@ -253,6 +253,8 @@ jobs:
             -f charts/my-stupid-website/values-dev.yaml \
             -f charts/my-stupid-website/values-terminal.yaml \
             -f charts/my-stupid-website/values-terminal-dev.yaml \
+            -f charts/my-stupid-website/values-radio.yaml \
+            -f charts/my-stupid-website/values-radio-dev.yaml \
             --reuse-values \
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
