@@ -59,7 +59,16 @@ All colors MUST be HSL.
     @apply border-border;
   }
 
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
     @apply bg-background text-foreground font-mono;
   }
 }
@@ -69,36 +78,40 @@ All colors MUST be HSL.
     color: hsl(var(--terminal-green));
     text-shadow: var(--glow-green);
   }
-  
+
   .text-terminal-cyan {
     color: hsl(var(--terminal-cyan));
     text-shadow: var(--glow-cyan);
   }
-  
+
   .text-terminal-magenta {
     color: hsl(var(--terminal-magenta));
     text-shadow: var(--glow-magenta);
   }
-  
+
   .text-terminal-yellow {
     color: hsl(var(--terminal-yellow));
     text-shadow: var(--glow-yellow);
   }
-  
+
   .text-terminal-red {
     color: hsl(var(--terminal-red));
     text-shadow: var(--glow-red);
   }
-  
+
   .text-terminal-white {
     color: hsl(var(--terminal-white));
   }
 
   @keyframes blink {
-    0%, 49% {
+
+    0%,
+    49% {
       opacity: 1;
     }
-    50%, 100% {
+
+    50%,
+    100% {
       opacity: 0;
     }
   }
@@ -129,7 +142,7 @@ All colors MUST be HSL.
     clip: auto;
     white-space: normal;
   }
-  
+
   .font-mono {
     letter-spacing: 0;
     white-space: pre;

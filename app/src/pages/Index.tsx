@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 const Index = () => {
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-2 sm:p-4">
+    <div className="h-full bg-black flex items-center justify-center p-2 sm:p-4">
     <div 
         className="w-full max-w-4xl bg-black border-2 border-terminal-green shadow-[0_0_30px_rgba(0,255,0,0.3)] rounded-none"
         role="main"
