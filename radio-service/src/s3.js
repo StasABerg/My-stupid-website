@@ -5,6 +5,11 @@ import {
 } from "@aws-sdk/client-s3";
 import { config } from "./config.js";
 
+function parseMaxConcurrency(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const s3Client = new S3Client({
   region: config.s3.region,
   endpoint: config.s3.endpoint,
@@ -59,13 +64,25 @@ export async function writeStationsByCountryToS3(payload, countryGroups) {
     return;
   }
 
+  const maxConcurrency = parseMaxConcurrency(process.env.S3_WRITE_CONCURRENCY, 5);
+
   const baseMetadata = {
     updatedAt: payload.updatedAt,
     source: payload.source,
     requests: payload.requests,
   };
 
-  const putCommands = [];
+  const inFlight = new Set();
+
+  async function schedulePut(commandPromise) {
+    inFlight.add(commandPromise);
+    try {
+      await commandPromise;
+    } finally {
+      inFlight.delete(commandPromise);
+    }
+  }
+
   for (const [slug, group] of countryGroups) {
     const key = joinS3Key(config.s3.countryPrefix, `${slug}.json`);
     const body = JSON.stringify({
@@ -78,7 +95,7 @@ export async function writeStationsByCountryToS3(payload, countryGroups) {
       stations: group.stations,
     });
 
-    putCommands.push(
+    schedulePut(
       s3Client.send(
         new PutObjectCommand({
           Bucket: config.s3.bucket,
@@ -88,7 +105,13 @@ export async function writeStationsByCountryToS3(payload, countryGroups) {
         }),
       ),
     );
+
+    if (inFlight.size >= maxConcurrency) {
+      await Promise.race(inFlight);
+    }
   }
 
-  await Promise.all(putCommands);
+  if (inFlight.size > 0) {
+    await Promise.all(Array.from(inFlight));
+  }
 }
