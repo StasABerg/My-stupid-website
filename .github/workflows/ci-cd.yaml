@@ -253,6 +253,7 @@ jobs:
             -f charts/my-stupid-website/values-dev.yaml \
             -f charts/my-stupid-website/values-terminal.yaml \
             -f charts/my-stupid-website/values-terminal-dev.yaml \
+            --reuse-values \
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
@@ -307,6 +308,7 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
             -f charts/my-stupid-website/values-terminal.yaml \
+            --reuse-values \
             --namespace my-stupid-website --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
