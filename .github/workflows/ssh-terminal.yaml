@@ -42,7 +42,7 @@ jobs:
           version: v0.67.2
           scan-type: config
           scan-ref: docker/terminal.Dockerfile
-          severity: "HIGH,CRITICAL"
+          severity: 'HIGH,CRITICAL'
           format: "sarif"
           output: "trivy-terminal-dockerfile.sarif"
           exit-code: "1"
@@ -106,7 +106,7 @@ jobs:
           image-ref: ghcr.io/stasaberg/my-stupid-website-terminal:${{ needs.build.outputs.sha }}
           vuln-type: "os,library"
           ignore-unfixed: true
-          severity: "HIGH,CRITICAL"
+          severity: 'HIGH,CRITICAL'
           format: "sarif"
           output: "trivy-terminal-image.sarif"
           exit-code: "1"
