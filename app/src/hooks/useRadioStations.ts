@@ -4,7 +4,7 @@ const DEFAULT_LIMIT = Number.parseInt(
   import.meta.env.VITE_RADIO_DEFAULT_LIMIT ?? "200",
   10,
 );
-const RADIO_API_BASE =
+export const RADIO_API_BASE =
   import.meta.env.VITE_RADIO_API_BASE_URL?.replace(/\/$/, "") ?? "/api/radio";
 
 export type RadioStation = {

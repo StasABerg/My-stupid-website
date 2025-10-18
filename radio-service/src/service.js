@@ -1,5 +1,5 @@
 import { readStationsFromCache, writeStationsToCache } from "./cache.js";
-import { getStationsFromS3, refreshStations } from "./stations.js";
+import { getStationsFromS3, notifyStationClick, refreshStations } from "./stations.js";
 
 export async function loadStations(redis, { forceRefresh = false } = {}) {
   if (!forceRefresh) {
@@ -28,4 +28,8 @@ export async function updateStations(redis) {
   const payload = await refreshStations();
   await writeStationsToCache(redis, payload);
   return { payload, cacheSource: "radio-browser" };
+}
+
+export async function recordStationClick(stationUuid) {
+  return notifyStationClick(stationUuid);
 }

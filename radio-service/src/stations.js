@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { config } from "./config.js";
-import { fetchStationsFromS3, writeStationsToS3 } from "./s3.js";
+import { buildRadioBrowserUrl } from "./radioBrowser.js";
+import { fetchStationsFromS3, writeStationsByCountryToS3, writeStationsToS3 } from "./s3.js";
 
 const stationSchema = z.object({
   stationuuid: z.string(),
@@ -25,6 +26,12 @@ const stationSchema = z.object({
   clicktrend: z.coerce.number().nullable().optional(),
   votes: z.coerce.number().nullable().optional(),
   hls: z.coerce.number().nullable().optional(),
+});
+
+const countrySchema = z.object({
+  name: z.string().min(1),
+  iso_3166_1: z.string().nullable().optional(),
+  stationcount: z.union([z.string(), z.number()]),
 });
 
 function normalizeList(value) {
@@ -65,33 +72,198 @@ function normalizeStation(station) {
   };
 }
 
-async function fetchFromRadioBrowser() {
-  const url = new URL(config.radioBrowser.stationsPath, config.radioBrowser.baseUrl);
+function buildDefaultHeaders() {
+  return {
+    "User-Agent": config.radioBrowser.userAgent,
+    Accept: "application/json",
+  };
+}
+
+function normalizeCountry(country) {
+  const data = countrySchema.parse(country);
+  const count = Number.parseInt(String(data.stationcount ?? "0"), 10);
+  return {
+    name: data.name,
+    code: data.iso_3166_1 ?? null,
+    stationCount: Number.isFinite(count) && count > 0 ? count : 0,
+  };
+}
+
+async function fetchCountries() {
+  const url = await buildRadioBrowserUrl(config.radioBrowser.countriesPath);
+  const response = await fetch(url, {
+    headers: buildDefaultHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Radio Browser countries request failed: ${response.status} for ${url.toString()}`);
+  }
+
+  const payload = await response.json();
+  if (!Array.isArray(payload)) {
+    throw new Error("Unexpected countries payload from Radio Browser API");
+  }
+
+  return {
+    countries: payload.map(normalizeCountry),
+    requestUrl: url.toString(),
+  };
+}
+
+async function buildStationsByCountryUrl(countryName) {
+  const basePath = config.radioBrowser.stationsByCountryPath.replace(/\/$/, "");
+  return buildRadioBrowserUrl(`${basePath}/${encodeURIComponent(countryName)}`);
+}
+
+async function fetchStationsForCountry(countryName) {
+  const url = await buildStationsByCountryUrl(countryName);
   url.searchParams.set("hidebroken", "true");
   url.searchParams.set("order", "clickcount");
   url.searchParams.set("reverse", "true");
-  if (config.radioBrowser.limit) {
-    url.searchParams.set("limit", String(config.radioBrowser.limit));
+
+  const response = await fetch(url, {
+    headers: buildDefaultHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Radio Browser stations request failed: ${response.status} for ${url.toString()}`);
   }
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Radio Browser request failed: ${response.status}`);
-  }
   const rawStations = await response.json();
   if (!Array.isArray(rawStations)) {
-    throw new Error("Unexpected payload from Radio Browser API");
+    throw new Error("Unexpected stations payload from Radio Browser API");
   }
 
-  const stations = rawStations.map(normalizeStation);
+  return { rawStations, requestUrl: url.toString() };
+}
+
+function slugify(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function buildCountryGroups(stations) {
+  const groups = new Map();
+
+  for (const station of stations) {
+    const countryCode = station.countryCode ?? null;
+    const countryName = station.country ?? null;
+    const baseKey = countryCode ? countryCode.toLowerCase() : slugify(countryName ?? "unknown");
+    const key = baseKey.length > 0 ? baseKey : "unknown";
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        code: countryCode,
+        name: countryName,
+        stations: [],
+      });
+    } else {
+      const group = groups.get(key);
+      if (!group.code && countryCode) {
+        group.code = countryCode;
+      }
+      if (!group.name && countryName) {
+        group.name = countryName;
+      }
+    }
+
+    groups.get(key).stations.push(station);
+  }
+
+  return groups;
+}
+
+async function fetchFromRadioBrowser() {
+  const { countries, requestUrl: countriesRequestUrl } = await fetchCountries();
+  const sortedCountries = countries
+    .filter((country) => country.stationCount > 0)
+    .sort((a, b) => b.stationCount - a.stationCount);
+
+  const stations = [];
+  const requestUrls = [countriesRequestUrl];
+
+  const maxStations =
+    Number.isFinite(config.radioBrowser.limit) && config.radioBrowser.limit > 0
+      ? config.radioBrowser.limit
+      : Number.POSITIVE_INFINITY;
+  const maxCountries =
+    Number.isFinite(config.radioBrowser.maxPages) && config.radioBrowser.maxPages > 0
+      ? config.radioBrowser.maxPages
+      : Number.POSITIVE_INFINITY;
+  const perCountryLimit =
+    Number.isFinite(config.radioBrowser.pageSize) && config.radioBrowser.pageSize > 0
+      ? Math.max(1, config.radioBrowser.pageSize)
+      : Number.POSITIVE_INFINITY;
+
+  let processedCountries = 0;
+
+  for (const country of sortedCountries) {
+    if (stations.length >= maxStations || processedCountries >= maxCountries) {
+      break;
+    }
+
+    const { rawStations, requestUrl } = await fetchStationsForCountry(country.name);
+    requestUrls.push(requestUrl);
+    processedCountries += 1;
+
+    const limitedStations =
+      perCountryLimit === Number.POSITIVE_INFINITY
+        ? rawStations
+        : rawStations.slice(0, perCountryLimit);
+
+    for (const station of limitedStations) {
+      if (stations.length >= maxStations) {
+        break;
+      }
+      stations.push(normalizeStation(station));
+    }
+  }
+
+  if (stations.length === 0) {
+    throw new Error("Radio Browser API returned no stations");
+  }
+
   const payload = {
     updatedAt: new Date().toISOString(),
-    source: url.toString(),
+    source: countriesRequestUrl,
+    requests: requestUrls,
     total: stations.length,
     stations,
   };
 
   await writeStationsToS3(payload);
+  await writeStationsByCountryToS3(payload, buildCountryGroups(stations));
+  return payload;
+}
+
+async function buildStationClickUrl(stationUuid) {
+  const basePath = config.radioBrowser.stationClickPath.replace(/\/$/, "");
+  return buildRadioBrowserUrl(`${basePath}/${encodeURIComponent(stationUuid)}`);
+}
+
+export async function notifyStationClick(stationUuid) {
+  if (!stationUuid || stationUuid.trim().length === 0) {
+    throw new Error("A station UUID is required to record a click.");
+  }
+
+  const url = await buildStationClickUrl(stationUuid);
+  const response = await fetch(url, {
+    headers: buildDefaultHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Radio Browser click request failed: ${response.status} for ${url.toString()}`);
+  }
+
+  const payload = await response.json();
+  if (!payload || (payload.ok !== "true" && payload.ok !== true)) {
+    throw new Error("Radio Browser did not confirm the click event.");
+  }
+
   return payload;
 }
 

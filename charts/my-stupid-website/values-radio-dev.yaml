@@ -54,24 +54,6 @@ radioService:
           name: radio-service-env-dev
           key: STATIONS_OBJECT_KEY
           optional: true
-    - name: RADIO_BROWSER_BASE_URL
-      valueFrom:
-        secretKeyRef:
-          name: radio-service-env-dev
-          key: RADIO_BROWSER_BASE_URL
-          optional: true
-    - name: RADIO_BROWSER_STATIONS_PATH
-      valueFrom:
-        secretKeyRef:
-          name: radio-service-env-dev
-          key: RADIO_BROWSER_STATIONS_PATH
-          optional: true
-    - name: RADIO_BROWSER_LIMIT
-      valueFrom:
-        secretKeyRef:
-          name: radio-service-env-dev
-          key: RADIO_BROWSER_LIMIT
-          optional: true
     - name: STATIONS_REFRESH_TOKEN
       valueFrom:
         secretKeyRef:

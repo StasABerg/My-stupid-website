@@ -2,7 +2,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { config, validateConfig } from "./config.js";
 import { createRedisClient } from "./redis.js";
-import { loadStations, updateStations } from "./service.js";
+import { loadStations, recordStationClick, updateStations } from "./service.js";
 
 validateConfig();
 
@@ -124,6 +124,21 @@ app.post("/stations/refresh", requireRefreshAuth, async (_req, res) => {
   } catch (error) {
     console.error("refresh-error", { message: error.message });
     res.status(500).json({ error: "Failed to refresh stations" });
+  }
+});
+
+app.post("/stations/:stationId/click", async (req, res) => {
+  try {
+    const stationId = req.params.stationId?.toString().trim() ?? "";
+    if (!stationId) {
+      res.status(400).json({ error: "Station identifier is required" });
+      return;
+    }
+    await recordStationClick(stationId);
+    res.status(202).json({ status: "ok" });
+  } catch (error) {
+    console.error("station-click-error", { message: error.message });
+    res.status(500).json({ error: "Failed to record station click" });
   }
 });
 

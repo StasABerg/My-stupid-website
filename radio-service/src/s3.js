@@ -34,6 +34,15 @@ export async function fetchStationsFromS3() {
   return JSON.parse(body);
 }
 
+function joinS3Key(prefix, suffix) {
+  if (!prefix || prefix.length === 0) {
+    return suffix;
+  }
+  const normalizedPrefix = prefix.replace(/\/+$/u, "");
+  const normalizedSuffix = suffix.replace(/^\/+/, "");
+  return `${normalizedPrefix}/${normalizedSuffix}`;
+}
+
 export async function writeStationsToS3(payload) {
   const command = new PutObjectCommand({
     Bucket: config.s3.bucket,
@@ -43,4 +52,43 @@ export async function writeStationsToS3(payload) {
   });
 
   await s3Client.send(command);
+}
+
+export async function writeStationsByCountryToS3(payload, countryGroups) {
+  if (!config.s3.countryPrefix) {
+    return;
+  }
+
+  const baseMetadata = {
+    updatedAt: payload.updatedAt,
+    source: payload.source,
+    requests: payload.requests,
+  };
+
+  const putCommands = [];
+  for (const [slug, group] of countryGroups) {
+    const key = joinS3Key(config.s3.countryPrefix, `${slug}.json`);
+    const body = JSON.stringify({
+      ...baseMetadata,
+      country: {
+        name: group.name ?? null,
+        code: group.code ?? null,
+      },
+      total: group.stations.length,
+      stations: group.stations,
+    });
+
+    putCommands.push(
+      s3Client.send(
+        new PutObjectCommand({
+          Bucket: config.s3.bucket,
+          Key: key,
+          Body: body,
+          ContentType: "application/json",
+        }),
+      ),
+    );
+  }
+
+  await Promise.all(putCommands);
 }

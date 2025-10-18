@@ -7,7 +7,7 @@ import {
   StationInfoPanel,
   StatusFooter,
 } from "@/components/Radio";
-import { useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
+import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
 
 const presetColors = [
   "text-terminal-green",
@@ -116,6 +116,23 @@ const Radio = () => {
       element.load();
     }
   }, [activeStation]);
+
+  useEffect(() => {
+    if (!activeStation.id || !activeStation.streamUrl) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const url = `${RADIO_API_BASE}/stations/${encodeURIComponent(activeStation.id)}/click`;
+
+    fetch(url, { method: "POST", signal: controller.signal }).catch(() => {
+      /* ignore click tracking errors */
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeStation.id, activeStation.streamUrl]);
 
   const maxFrequencyLabel =
     displayStations.length > 0
