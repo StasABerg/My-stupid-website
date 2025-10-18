@@ -12,7 +12,7 @@ ENV NODE_ENV=production \
     MAX_PAYLOAD_BYTES=2048 \
     MAX_OUTPUT_BYTES=16384
 
-
+#test
 
 RUN mkdir -p "$SANDBOX_ROOT" && chown node:node "$SANDBOX_ROOT"
 

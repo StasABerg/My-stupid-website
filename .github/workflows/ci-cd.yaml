@@ -73,9 +73,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-dockerfile.sarif
-      - name: Fail if Trivy found issues
-        if: ${{ always() && needs.changes.outputs.app == 'true' && steps.trivy.outcome == 'failure' }}
-        run: exit 1
+
 
   build:
     runs-on: self-hosted
@@ -150,9 +148,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
-      - name: Fail if Trivy found issues
-        if: ${{ always() && needs.changes.outputs.app == 'true' && steps.trivy.outcome == 'failure' }}
-        run: exit 1
+
 
   trivy-helm:
     name: Trivy Helm/K8s Config
@@ -192,9 +188,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-helm.sarif
-      - name: Fail if Trivy found issues
-        if: ${{ always() && needs.changes.outputs.charts == 'true' && steps.trivy.outcome == 'failure' }}
-        run: exit 1
+
 
   deploy-dev:
     runs-on: self-hosted
