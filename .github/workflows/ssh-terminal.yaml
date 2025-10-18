@@ -10,14 +10,22 @@ on:
       - 'charts/my-stupid-website/values-terminal-dev.yaml'
       - '.github/workflows/ssh-terminal.yaml'
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch or ref to deploy'
+        required: true
+        default: main
 
 permissions:
   contents: read
   packages: write
 
 concurrency:
-  group: terminal-ci-cd-${{ github.ref_name }}
+  group: terminal-ci-cd-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref_name }}
   cancel-in-progress: true
+
+env:
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
 
 jobs:
   trivy-dockerfile:
@@ -28,7 +36,9 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v5
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/cache@v4
         with:
           path: ~/.cache/trivy
@@ -59,6 +69,8 @@ jobs:
       sha: ${{ steps.meta.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -120,6 +132,8 @@ jobs:
     environment: development
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: azure/setup-helm@v4
       - name: Kubeconfig
         run: |
@@ -130,7 +144,6 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
             -f charts/my-stupid-website/values-dev.yaml \
-            -f charts/my-stupid-website/values-terminal.yaml \
             -f charts/my-stupid-website/values-terminal-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --reuse-values \
@@ -145,6 +158,8 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: azure/setup-helm@v4
       - name: Kubeconfig
         run: |

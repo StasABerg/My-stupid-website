@@ -91,4 +91,3 @@ env:
     value: https://gitgud.qzz.io/api/radio
   - name: VITE_RADIO_DEFAULT_LIMIT
     value: "200"
-envFrom: []

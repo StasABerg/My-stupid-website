@@ -1,5 +1,5 @@
-{{- if .Values.terminalService.enabled }}
 {{- $terminal := .Values.terminalService | default dict -}}
+{{- if ($terminal.enabled | default false) }}
 {{- $service := $terminal.service | default dict -}}
 apiVersion: v1
 kind: Service

@@ -1,5 +1,5 @@
-{{- if .Values.terminalService.enabled }}
 {{- $terminal := .Values.terminalService | default dict -}}
+{{- if ($terminal.enabled | default false) }}
 {{- $service := $terminal.service | default dict -}}
 {{- $servicePort := $service.port | default 80 -}}
 {{- $containerPort := $terminal.containerPort | default 8080 -}}
@@ -22,10 +22,10 @@ spec:
     metadata:
       labels:
         {{- include "my-stupid-website.terminalSelectorLabels" . | nindent 8 }}
-        {{- with .Values.terminalService.podLabels }}
+        {{- with $terminal.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.terminalService.podAnnotations }}
+      {{- with $terminal.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -35,7 +35,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.terminalService.podSecurityContext }}
+      {{- with $terminal.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}

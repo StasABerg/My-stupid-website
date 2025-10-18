@@ -1,0 +1,73 @@
+radioService:
+  enabled: true
+  replicaCount: 1
+  env:
+    - name: REDIS_URL
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: REDIS_URL
+          optional: true
+    - name: STATIONS_CACHE_KEY
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: STATIONS_CACHE_KEY
+          optional: true
+    - name: STATIONS_CACHE_TTL
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: STATIONS_CACHE_TTL
+          optional: true
+    - name: MINIO_ENDPOINT
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: MINIO_ENDPOINT
+          optional: true
+    - name: MINIO_REGION
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: MINIO_REGION
+          optional: true
+    - name: MINIO_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: MINIO_ACCESS_KEY
+    - name: MINIO_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: MINIO_SECRET_KEY
+    - name: MINIO_BUCKET
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: MINIO_BUCKET
+          optional: true
+    - name: STATIONS_OBJECT_KEY
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: STATIONS_OBJECT_KEY
+          optional: true
+    - name: RADIO_BROWSER_BASE_URL
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: RADIO_BROWSER_BASE_URL
+          optional: true
+    - name: RADIO_BROWSER_STATIONS_PATH
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: RADIO_BROWSER_STATIONS_PATH
+          optional: true
+    - name: RADIO_BROWSER_LIMIT
+      valueFrom:
+        secretKeyRef:
+          name: radio-service-env-dev
+          key: RADIO_BROWSER_LIMIT

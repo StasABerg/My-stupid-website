@@ -41,3 +41,4 @@ terminalService:
   volumes:
     - name: sandbox-data
       emptyDir: {}
+
