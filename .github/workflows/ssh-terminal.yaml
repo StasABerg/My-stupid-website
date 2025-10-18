@@ -43,8 +43,8 @@ jobs:
           scan-type: config
           scan-ref: docker/terminal.Dockerfile
           severity: 'HIGH,CRITICAL'
-          format: "sarif"
-          output: "trivy-terminal-dockerfile.sarif"
+          format: "table"
+#          output: "trivy-terminal-dockerfile.sarif"
           exit-code: "1"
       - name: Upload SARIF
         if: always()

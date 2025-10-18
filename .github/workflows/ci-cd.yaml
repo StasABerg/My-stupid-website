@@ -65,8 +65,8 @@ jobs:
           scan-type: config
           scan-ref: docker/Dockerfile
           severity: 'HIGH,CRITICAL'
-          format: "sarif"
-          output: "trivy-dockerfile.sarif"
+          format: "table"
+#          output: "trivy-dockerfile.sarif"
           exit-code: "1"
       - name: Upload SARIF
         if: always() && needs.changes.outputs.app == 'true'
