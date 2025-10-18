@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { config, validateConfig } from "./config.js";
 import { createRedisClient } from "./redis.js";
 import { loadStations, updateStations } from "./service.js";
@@ -7,6 +8,15 @@ validateConfig();
 
 const app = express();
 app.disable("x-powered-by");
+
+// Rate limiter: maximum of 100 requests per 15 minutes per IP
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in RateLimit-* headers
+  legacyHeaders: false, // Disable the X-RateLimit-* headers
+});
+app.use(limiter);
 
 const redis = createRedisClient();
 
