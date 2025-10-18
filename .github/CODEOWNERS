@@ -1,1 +1,4 @@
-* @codex
+/.github/workflows/**  @stasaberg
+/charts/**             @stasaberg
+/deploy/**             @stasaberg
+/docker/**             @stasaberg
