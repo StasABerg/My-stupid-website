@@ -9,8 +9,8 @@ autoscaling:
 replicaCount: 1
 env:
   - name: VITE_RADIO_API_BASE_URL
-    value: /api/radio
+    value: http://my-stupid-website-radio.my-stupid-website-dev.svc.cluster.local
   - name: VITE_TERMINAL_API_BASE_URL
-    value: /api/terminal
+    value: http://my-stupid-website-terminal.my-stupid-website-dev.svc.cluster.local
   - name: VITE_RADIO_DEFAULT_LIMIT
     value: "200"
