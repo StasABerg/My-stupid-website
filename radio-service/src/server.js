@@ -16,6 +16,7 @@ const limiter = rateLimit({
   max: 100, // limit each IP to 100 requests per windowMs
   standardHeaders: true, // Return rate limit info in RateLimit-* headers
   legacyHeaders: false, // Disable the X-RateLimit-* headers
+  skip: (req) => req.path === "/healthz",
 });
 app.use(limiter);
 
