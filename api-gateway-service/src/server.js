@@ -4,6 +4,8 @@ import { config } from "./config.js";
 const RADIO_PREFIX = "/radio";
 const TERMINAL_PREFIX = "/terminal";
 
+const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
+
 function log(message, details = {}) {
   const payload = {
     ts: new Date().toISOString(),
@@ -40,6 +42,9 @@ function handlePreflight(req, res) {
 }
 
 function sanitizePath(prefix, rawSuffix) {
+  if (!VALID_PREFIXES.includes(prefix)) {
+    return null;
+  }
   // Only allow single leading slash, prohibit path traversal, encoded traversal, backslashes, double slashes
   let suffix = rawSuffix || "/";
   if (!suffix.startsWith("/")) suffix = "/" + suffix;
@@ -47,14 +52,14 @@ function sanitizePath(prefix, rawSuffix) {
   if (
     suffix.includes("..") ||
     suffix.includes("\\") ||
-    /%2e|%2F|%5c|%2f|%2e%2e/i.test(suffix) ||
+    /%2e%2f|%2f%2e|%5c|%2f%2f|%2e%2e/i.test(suffix) ||
     suffix.includes("//")
   ) {
     log("blocked-ssrf-attempt", { prefix, suffix });
     return null;
   }
   // Optionally normalize: collapse multiple slashes
-  suffix = suffix.replace(/\/{2,}/g, '/');
+  suffix = suffix.replace(/\/{2,}/g, "/");
   return suffix;
 }
 
