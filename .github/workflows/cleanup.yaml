@@ -12,10 +12,17 @@ permissions:
 jobs:
   delete-old-images:
     runs-on: self-hosted
+    strategy:
+      matrix:
+        package:
+          - my-stupid-website
+          - my-stupid-website-terminal
+          - radio-service
+          - api-gateway-service
     steps:
       - name: Delete old container versions
         uses: actions/delete-package-versions@v5
         with:
-          package-name: my-stupid-website
+          package-name: ${{ matrix.package }}
           package-type: container
           min-versions-to-keep: 7
