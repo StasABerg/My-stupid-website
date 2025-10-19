@@ -6,7 +6,7 @@ image:
 
 imagePullSecrets: []
 nameOverride: ""
-fullnameOverride: ""
+fullnameOverride: "my-stupid-website"
 
 serviceAccount:
   create: false
