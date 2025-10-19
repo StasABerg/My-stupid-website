@@ -1,0 +1,6 @@
+apiVersion: v2
+name: terminal-service
+description: Helm chart for deploying the SSH terminal service
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

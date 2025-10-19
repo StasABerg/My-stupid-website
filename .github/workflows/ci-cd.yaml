@@ -24,7 +24,6 @@ jobs:
     outputs:
       app: ${{ steps.f.outputs.app }}
       charts: ${{ steps.f.outputs.charts }}
-      terminal: ${{ steps.f.outputs.terminal }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -41,9 +40,6 @@ jobs:
               - '.dockerignore'
             charts:
               - 'charts/my-stupid-website/**'
-            terminal:
-              - 'terminal-service/**'
-              - 'docker/terminal.Dockerfile'
 
   trivy-dockerfile:
     name: Trivy Dockerfile
@@ -238,29 +234,14 @@ jobs:
             [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           fi
-      - name: Resolve terminal image tag
-        id: terminal-tag
-        run: |
-          if helm -n my-stupid-website-dev status my-stupid-website-dev --kube-insecure-skip-tls-verify >/dev/null 2>&1; then
-            TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev --kube-insecure-skip-tls-verify -o yaml \
-              | awk '/^terminalService:/{f=1} f && /^  image:/{g=1} g && /^    tag:/{print $2; exit}')
-          fi
-          [[ -n "$TAG" ]] || TAG="latest"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Helm upgrade (dev)
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
             -f charts/my-stupid-website/values-dev.yaml \
-            -f charts/my-stupid-website/values-terminal.yaml \
-            -f charts/my-stupid-website/values-terminal-dev.yaml \
-            -f charts/my-stupid-website/values-radio.yaml \
-            -f charts/my-stupid-website/values-radio-dev.yaml \
             --reuse-values \
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
-            --set terminalService.image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
-            --set-string terminalService.image.tag=${{ steps.terminal-tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
@@ -297,23 +278,11 @@ jobs:
             [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           fi
-      - name: Resolve terminal image tag
-        id: terminal-tag
-        run: |
-          if helm -n my-stupid-website status my-stupid-website --kube-insecure-skip-tls-verify >/dev/null 2>&1; then
-            TAG=$(helm -n my-stupid-website get values my-stupid-website --kube-insecure-skip-tls-verify -o yaml \
-              | awk '/^terminalService:/{f=1} f && /^  image:/{g=1} g && /^    tag:/{print $2; exit}')
-          fi
-          [[ -n "$TAG" ]] || TAG="latest"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Helm upgrade (prod)
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
-            -f charts/my-stupid-website/values-terminal.yaml \
             --reuse-values \
             --namespace my-stupid-website --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
-            --set terminalService.image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
-            --set-string terminalService.image.tag=${{ steps.terminal-tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify

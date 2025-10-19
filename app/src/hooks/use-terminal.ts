@@ -18,7 +18,17 @@ type HistoryEntry = {
   isError: boolean;
 };
 
-const API_BASE = import.meta.env.VITE_TERMINAL_API_BASE ?? "/api/terminal";
+const resolveTerminalApiBase = () => {
+  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+    return "/api/terminal";
+  }
+  return "/api/terminal";
+};
+
+const API_BASE =
+  import.meta.env.VITE_TERMINAL_API_BASE_URL ??
+  import.meta.env.VITE_TERMINAL_API_BASE ??
+  resolveTerminalApiBase();
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
   if (!virtualPath || virtualPath === "/") return "~";

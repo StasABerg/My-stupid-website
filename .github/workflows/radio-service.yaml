@@ -6,8 +6,7 @@ on:
     paths:
       - 'radio-service/**'
       - 'docker/radio-service.Dockerfile'
-      - 'charts/my-stupid-website/values-radio.yaml'
-      - 'charts/my-stupid-website/values-radio-dev.yaml'
+      - 'charts/radio-service/**'
       - '.github/workflows/radio-service.yaml'
   workflow_dispatch:
     inputs:
@@ -137,16 +136,11 @@ jobs:
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
       - name: Helm upgrade (dev - radio)
         run: |
-          helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
-            -f charts/my-stupid-website/values-dev.yaml \
-            -f charts/my-stupid-website/values-terminal.yaml \
-            -f charts/my-stupid-website/values-terminal-dev.yaml \
-            -f charts/my-stupid-website/values-radio.yaml \
-            -f charts/my-stupid-website/values-radio-dev.yaml \
+          helm upgrade --install my-stupid-website-radio charts/radio-service \
+            -f charts/radio-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
-            --reuse-values \
-            --set radioService.image.repository=ghcr.io/stasaberg/radio-service \
-            --set-string radioService.image.tag=${{ needs.build.outputs.sha }} \
+            --set image.repository=ghcr.io/stasaberg/radio-service \
+            --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
@@ -169,10 +163,8 @@ jobs:
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
       - name: Helm upgrade (prod - radio)
         run: |
-          helm upgrade --install my-stupid-website charts/my-stupid-website \
-            -f charts/my-stupid-website/values-radio.yaml \
+          helm upgrade --install my-stupid-website-radio charts/radio-service \
             --namespace my-stupid-website --create-namespace \
-            --reuse-values \
-            --set radioService.image.repository=ghcr.io/stasaberg/radio-service \
-            --set-string radioService.image.tag=${{ needs.build.outputs.sha }} \
+            --set image.repository=ghcr.io/stasaberg/radio-service \
+            --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
