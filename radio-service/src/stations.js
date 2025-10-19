@@ -7,7 +7,7 @@ import {
 } from "./radioBrowser.js";
 import { fetchStationsFromS3, writeStationsByCountryToS3, writeStationsToS3 } from "./s3.js";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const stationSchema = z.object({
   stationuuid: z.string(),
@@ -113,16 +113,32 @@ function sanitizeUrl(rawUrl, { forceHttps = false, allowInsecure = false } = {})
   }
 }
 
-function selectStreamUrl(data) {
-  const allowInsecureStreams =
+function sanitizeStreamUrl(rawUrl) {
+  const httpsPreferred = sanitizeUrl(rawUrl, {
+    forceHttps: true,
+    allowInsecure: false,
+  });
+  if (httpsPreferred) {
+    return httpsPreferred;
+  }
+
+  const allowInsecureFallback =
     config.allowInsecureTransports || !config.radioBrowser.enforceHttpsStreams;
 
+  if (!allowInsecureFallback) {
+    return null;
+  }
+
+  return sanitizeUrl(rawUrl, {
+    forceHttps: false,
+    allowInsecure: true,
+  });
+}
+
+function selectStreamUrl(data) {
   const candidates = [data.url_resolved, data.url];
   for (const candidate of candidates) {
-    const sanitized = sanitizeUrl(candidate, {
-      forceHttps: config.radioBrowser.enforceHttpsStreams,
-      allowInsecure: allowInsecureStreams,
-    });
+    const sanitized = sanitizeStreamUrl(candidate);
     if (sanitized) {
       return sanitized;
     }
@@ -134,6 +150,11 @@ function normalizeStation(station) {
   const data = stationSchema.parse(station);
   const streamUrl = selectStreamUrl(data);
   if (!streamUrl) {
+    return null;
+  }
+
+  const isOnline = data.lastcheckok === 1;
+  if (!isOnline) {
     return null;
   }
 
@@ -164,7 +185,7 @@ function normalizeStation(station) {
     bitrate: typeof data.bitrate === "number" ? data.bitrate : null,
     codec: data.codec ?? null,
     hls: data.hls === 1,
-    isOnline: data.lastcheckok === 1,
+    isOnline,
     lastCheckedAt: data.lastchecktime ?? null,
     lastChangedAt: data.lastchangetime ?? null,
     clickCount: typeof data.clickcount === "number" ? data.clickcount : 0,
@@ -405,13 +426,13 @@ function sanitizePersistedStationRecord(station) {
     return null;
   }
 
-  const streamUrl = sanitizeUrl(station.streamUrl, {
-    forceHttps: config.radioBrowser.enforceHttpsStreams,
-    allowInsecure:
-      config.allowInsecureTransports || !config.radioBrowser.enforceHttpsStreams,
-  });
+  const streamUrl = sanitizeStreamUrl(station.streamUrl);
 
   if (!streamUrl) {
+    return null;
+  }
+
+  if (station.isOnline !== true) {
     return null;
   }
 
@@ -429,6 +450,7 @@ function sanitizePersistedStationRecord(station) {
     streamUrl,
     homepage: homepage ?? null,
     favicon: favicon ?? null,
+    isOnline: true,
   };
 }
 
