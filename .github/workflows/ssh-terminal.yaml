@@ -141,14 +141,8 @@ jobs:
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
       - name: Helm upgrade (dev - terminal)
         run: |
-<<<<<<< HEAD
-          helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
-            -f charts/my-stupid-website/values-dev.yaml \
-            -f charts/my-stupid-website/values-terminal-dev.yaml \
-=======
           helm upgrade --install my-stupid-website-terminal charts/terminal-service \
             -f charts/terminal-service/values-dev.yaml \
->>>>>>> origin/radiothing
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
