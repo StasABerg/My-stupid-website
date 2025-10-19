@@ -7,23 +7,24 @@ interface ScannerControlProps {
 }
 
 const ScannerControl = ({ value, max, onChange, minLabel, maxLabel }: ScannerControlProps) => (
-  <div className="bg-[#050505] border border-terminal-green/30 rounded-3xl px-4 sm:px-8 py-5">
-    <label className="block text-terminal-cyan text-xs uppercase tracking-[0.3em]">
-      Station Scanner
-    </label>
+  <section className="border border-terminal-green/40 rounded-md bg-black/70 p-4">
+    <header className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan">
+      <span>Station Scanner</span>
+      <span className="text-terminal-yellow">Index: {value}</span>
+    </header>
     <input
       type="range"
       min={0}
       max={Math.max(max, 0)}
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="w-full mt-4 accent-terminal-green"
+      className="mt-4 w-full accent-terminal-green"
     />
-    <div className="mt-3 flex justify-between text-[0.6rem] text-terminal-white/60">
+    <div className="mt-3 flex justify-between text-[0.6rem] text-terminal-white/70">
       <span>{minLabel}</span>
       <span>{maxLabel}</span>
     </div>
-  </div>
+  </section>
 );
 
 export default ScannerControl;

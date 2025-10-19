@@ -8,20 +8,36 @@ interface PresetButtonsProps {
 }
 
 const PresetButtons = ({ stations, selectedIndex, onSelect, colors }: PresetButtonsProps) => (
-  <div className="grid grid-cols-3 gap-3">
-    {stations.slice(0, 6).map((station, index) => (
-      <button
-        key={station.id}
-        type="button"
-        onClick={() => onSelect(index)}
-        className={`rounded-full border border-terminal-green/40 bg-black/70 px-4 py-3 text-xs font-semibold shadow-md transition hover:border-terminal-yellow/60 focus:outline-none focus:ring-2 focus:ring-terminal-yellow ${
-          selectedIndex === index ? colors[index % colors.length] : "text-terminal-white"
-        }`}
-      >
-        {station.name.slice(0, 18)}
-      </button>
-    ))}
-  </div>
+  <section className="border border-terminal-green/40 rounded-md bg-black/70 p-4">
+    <header className="text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan">
+      Preset Slots
+    </header>
+    <div className="mt-3 grid grid-cols-2 gap-3">
+      {stations.slice(0, 6).map((station, index) => {
+        const isSelected = selectedIndex === index;
+        return (
+          <button
+            key={station.id}
+            type="button"
+            onClick={() => onSelect(index)}
+            className={`flex items-center gap-2 border border-terminal-green/30 px-3 py-2 text-left font-mono text-[0.65rem] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+              isSelected
+                ? `${colors[index % colors.length]} border-terminal-yellow/60 bg-terminal-yellow/10`
+                : "text-terminal-white hover:border-terminal-yellow/40"
+            }`}
+          >
+            <span className="text-terminal-cyan">[{index + 1}]</span>
+            <span className="truncate">{station.name.slice(0, 24)}</span>
+          </button>
+        );
+      })}
+      {stations.length === 0 && (
+        <p className="col-span-2 text-[0.6rem] text-terminal-white/60">
+          Load stations to populate presets.
+        </p>
+      )}
+    </div>
+  </section>
 );
 
 export default PresetButtons;

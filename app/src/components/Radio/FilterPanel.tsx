@@ -17,8 +17,15 @@ const FilterPanel = ({
   volume,
   onVolumeChange,
 }: FilterPanelProps) => (
-  <div className="bg-black/70 border border-terminal-green/30 rounded-3xl p-5 shadow-lg">
-    <label htmlFor="station-search" className="block text-xs uppercase tracking-[0.3em] text-terminal-cyan">
+  <fieldset className="border border-terminal-green/40 rounded-md bg-black/70 p-4">
+    <legend className="px-2 text-[0.6rem] uppercase tracking-[0.35em] text-terminal-green">
+      Filters
+    </legend>
+
+    <label
+      htmlFor="station-search"
+      className="block text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan"
+    >
       Search
     </label>
     <input
@@ -27,17 +34,20 @@ const FilterPanel = ({
       value={search}
       onChange={(event) => onSearchChange(event.target.value)}
       placeholder="Station, tag, or language"
-      className="mt-2 w-full rounded-lg border border-terminal-green/30 bg-black/60 px-3 py-2 text-terminal-white focus:outline-none focus:ring-2 focus:ring-terminal-green"
+      className="mt-2 w-full border border-terminal-green/40 bg-black px-3 py-2 font-mono text-terminal-white placeholder:text-terminal-white/40 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
     />
 
-    <label htmlFor="station-country" className="mt-4 block text-xs uppercase tracking-[0.3em] text-terminal-cyan">
+    <label
+      htmlFor="station-country"
+      className="mt-4 block text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan"
+    >
       Country
     </label>
     <select
       id="station-country"
       value={country}
       onChange={(event) => onCountryChange(event.target.value)}
-      className="mt-2 w-full rounded-lg border border-terminal-green/30 bg-black/60 px-3 py-2 text-terminal-white focus:outline-none focus:ring-2 focus:ring-terminal-green"
+      className="mt-2 w-full border border-terminal-green/40 bg-black px-3 py-2 font-mono text-terminal-white focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
     >
       <option value="">All origins</option>
       {countries.map((item) => (
@@ -47,7 +57,10 @@ const FilterPanel = ({
       ))}
     </select>
 
-    <label htmlFor="volume" className="mt-6 block text-xs uppercase tracking-[0.3em] text-terminal-cyan">
+    <label
+      htmlFor="volume"
+      className="mt-6 block text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan"
+    >
       Volume
     </label>
     <input
@@ -59,7 +72,10 @@ const FilterPanel = ({
       onChange={(event) => onVolumeChange(Number(event.target.value) / 100)}
       className="mt-2 w-full accent-terminal-yellow"
     />
-  </div>
+    <div className="mt-2 text-[0.6rem] text-terminal-white/70">
+      Level: {Math.round(volume * 100)}%
+    </div>
+  </fieldset>
 );
 
 export default FilterPanel;

@@ -7,6 +7,7 @@ import {
   StationInfoPanel,
   StatusFooter,
 } from "@/components/Radio";
+import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
 
 const presetColors = [
@@ -100,6 +101,18 @@ const Radio = () => {
   };
 
   useEffect(() => {
+    if (displayStations.length === 0) {
+      if (selectedIndex !== 0) {
+        setSelectedIndex(0);
+      }
+      return;
+    }
+    if (selectedIndex >= displayStations.length) {
+      setSelectedIndex(0);
+    }
+  }, [displayStations.length, selectedIndex]);
+
+  useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
     }
@@ -144,21 +157,38 @@ const Radio = () => {
       ? `${formatFrequency(displayStations.length - 1)} FM`
       : `${formatFrequency(0)} FM`;
 
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-[#0b0b0b] to-black text-terminal-white flex flex-col items-center py-10">
-      <div className="w-full max-w-5xl px-4">
-        <RadioHeader />
+  const stationListCommand = `radio stations --limit ${Math.max(
+    0,
+    Math.min(displayStations.length, MAX_VISIBLE),
+  )}`;
 
-        <section
-          aria-label="Car radio player"
-          className="mt-8 bg-gradient-to-br from-[#1b1b1b] via-[#111] to-black rounded-[2.5rem] border border-terminal-green/40 shadow-[0_0_40px_rgba(0,255,128,0.25)] p-6 sm:p-10"
-        >
-          <div className="grid gap-8 lg:grid-cols-[2fr_1fr] items-center">
-            <div className="space-y-6">
+  const updatedAtDisplay = useMemo(() => {
+    if (!data?.meta.updatedAt) {
+      return undefined;
+    }
+    const parsed = new Date(data.meta.updatedAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return data.meta.updatedAt;
+    }
+    return parsed.toLocaleString();
+  }, [data?.meta.updatedAt]);
+
+  return (
+    <div className="h-screen bg-black text-terminal-white">
+      <TerminalWindow aria-label="Gitgud radio control center">
+        <TerminalHeader displayCwd="~/radio" />
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 font-mono text-xs sm:text-sm">
+          <RadioHeader />
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="space-y-4">
+              <TerminalPrompt path="~/radio" command="radio status" />
               <StationInfoPanel
                 station={activeStation}
                 frequencyLabel={`${formatFrequency(selectedIndex)} FM`}
               />
+
+              <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
               <ScannerControl
                 value={selectedIndex}
                 max={displayStations.length - 1}
@@ -166,9 +196,18 @@ const Radio = () => {
                 minLabel={`${formatFrequency(0)} FM`}
                 maxLabel={maxFrequencyLabel}
               />
+
+              <TerminalPrompt path="~/radio" command="radio presets --list" />
+              <PresetButtons
+                stations={displayStations}
+                selectedIndex={selectedIndex}
+                onSelect={handleStationChange}
+                colors={presetColors}
+              />
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
+              <TerminalPrompt path="~/radio" command="radio filters" />
               <FilterPanel
                 search={search}
                 onSearchChange={handleSearchChange}
@@ -179,25 +218,59 @@ const Radio = () => {
                 onVolumeChange={handleVolumeChange}
               />
 
-              <PresetButtons
-                stations={displayStations}
-                selectedIndex={selectedIndex}
-                onSelect={handleStationChange}
-                colors={presetColors}
-              />
+              <TerminalPrompt path="~/radio" command={stationListCommand} />
+              <div className="border border-terminal-green/40 rounded-md bg-black/70">
+                <header className="border-b border-terminal-green/30 px-3 py-2 text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan">
+                  Station Directory
+                </header>
+                {displayStations.length === 0 ? (
+                  <p className="px-3 py-4 text-terminal-white/60 text-[0.6rem]">
+                    No stations found. Adjust filters or refresh the cache.
+                  </p>
+                ) : (
+                  <ol className="max-h-[55vh] overflow-y-auto divide-y divide-terminal-green/20">
+                    {displayStations.map((station, index) => {
+                      const isSelected = index === selectedIndex;
+                      return (
+                        <li key={station.id}>
+                          <button
+                            type="button"
+                            onClick={() => handleStationChange(index)}
+                            className={`flex w-full items-center gap-3 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                              isSelected
+                                ? "bg-terminal-green/20 text-terminal-yellow"
+                                : "text-terminal-white hover:bg-terminal-green/10"
+                            }`}
+                          >
+                            <span className="w-4 text-terminal-cyan">{isSelected ? ">" : " "}</span>
+                            <span className="w-20 text-terminal-green">
+                              {`${formatFrequency(index)} FM`}
+                            </span>
+                            <span className="flex-1 truncate">{station.name}</span>
+                            <span className="hidden md:block text-terminal-cyan">
+                              {station.country ?? "Unknown"}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </div>
             </div>
           </div>
 
           <StatusFooter
             isLoading={isLoading}
             isError={isError}
-            visibleCount={Math.min(displayStations.length, MAX_VISIBLE)}
+            visibleCount={displayStations.length}
             totalCount={data?.meta.total}
             cacheSource={data?.meta.cacheSource}
+            updatedAt={updatedAtDisplay}
+            origin={data?.meta.origin}
           />
-        </section>
-      </div>
-
+        </div>
+      </TerminalWindow>
       <audio ref={audioRef} hidden autoPlay controls />
     </div>
   );

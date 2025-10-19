@@ -37,6 +37,7 @@ export type StationsResponse = {
     cacheSource: string;
     updatedAt?: string;
     countries?: string[];
+    origin?: string | null;
   };
   items: RadioStation[];
 };

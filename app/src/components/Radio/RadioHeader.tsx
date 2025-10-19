@@ -1,23 +1,25 @@
 import { Link } from "react-router-dom";
+import { TerminalPrompt } from "@/components/SecureTerminal";
 
 const RadioHeader = () => (
-  <>
-    <Link
-      to="/"
-      className="text-terminal-cyan text-xs uppercase tracking-widest hover:underline"
-    >
-      ← Return to home
-    </Link>
-    <header className="mt-4 text-center">
-      <h1 className="text-3xl sm:text-4xl font-semibold text-terminal-yellow drop-shadow-lg">
-        Gitgud Roadtrip Radio
-      </h1>
-      <p className="mt-2 text-sm text-terminal-white/80">
-        Spin the dial, drop the presets, and cruise through thousands of live stations from
-        the Radio Browser directory.
+  <div className="space-y-2">
+    <TerminalPrompt path="~">
+      <Link
+        to="/"
+        className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+      >
+        cd ..
+      </Link>
+    </TerminalPrompt>
+    <TerminalPrompt path="~/radio" command="radio --help" />
+    <div className="pl-6 text-terminal-white/80 space-y-1">
+      <p>Use the controls below to search and tune into stations from the Gitgud directory.</p>
+      <p>
+        Adjust filters, choose presets, or scroll the list to lock onto a new frequency. Audio
+        starts automatically when a station is active.
       </p>
-    </header>
-  </>
+    </div>
+  </div>
 );
 
 export default RadioHeader;
