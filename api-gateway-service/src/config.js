@@ -11,13 +11,36 @@ function parsePort(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function splitList(value) {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function extractHostname(value) {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
+
+const radioServiceUrl = DEFAULT_RADIO_BASE_URL.replace(/\/$/, "");
+const terminalServiceUrl = DEFAULT_TERMINAL_BASE_URL.replace(/\/$/, "");
+const explicitAllowedHosts = splitList(process.env.ALLOWED_SERVICE_HOSTNAMES);
+const derivedHosts = [extractHostname(radioServiceUrl), extractHostname(terminalServiceUrl)].filter(
+  (value) => value !== null,
+);
+const allowedServiceHostnames = Array.from(
+  new Set([...derivedHosts, ...explicitAllowedHosts]),
+);
+
 export const config = {
   port: parsePort(process.env.PORT, DEFAULT_PORT),
-  radioServiceUrl: DEFAULT_RADIO_BASE_URL.replace(/\/$/, ""),
-  terminalServiceUrl: DEFAULT_TERMINAL_BASE_URL.replace(/\/$/, ""),
+  radioServiceUrl,
+  terminalServiceUrl,
   requestTimeoutMs: parsePort(process.env.UPSTREAM_TIMEOUT_MS, 10000),
-  allowOrigins: (process.env.CORS_ALLOW_ORIGINS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean),
+  allowOrigins: splitList(process.env.CORS_ALLOW_ORIGINS),
+  allowedServiceHostnames,
 };

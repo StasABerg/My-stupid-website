@@ -1,6 +1,7 @@
 import http from "node:http";
 import { config } from "./config.js";
 
+const ALLOWED_SERVICE_HOSTNAMES = new Set(config.allowedServiceHostnames);
 const RADIO_PREFIX = "/radio";
 const TERMINAL_PREFIX = "/terminal";
 
@@ -19,14 +20,20 @@ function buildCorsHeaders(origin) {
   if (!origin) return { Vary: "Origin" };
 
   const allowed = config.allowOrigins;
-  if (allowed.length === 0 || allowed.includes("*") || allowed.includes(origin)) {
-    return {
+  const wildcard = allowed.includes("*");
+  if (allowed.length === 0 || wildcard || allowed.includes(origin)) {
+    const headers = {
       Vary: "Origin",
-      "Access-Control-Allow-Origin": allowed.includes("*") ? "*" : origin,
+      "Access-Control-Allow-Origin": wildcard ? "*" : origin,
       "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,PATCH,OPTIONS",
       "Access-Control-Allow-Headers": "authorization,content-type",
-      "Access-Control-Allow-Credentials": "true",
     };
+
+    if (!wildcard) {
+      headers["Access-Control-Allow-Credentials"] = "true";
+    }
+
+    return headers;
   }
 
   return { Vary: "Origin" };
@@ -41,6 +48,46 @@ function handlePreflight(req, res) {
   res.end();
 }
 
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-connection",
+  "transfer-encoding",
+  "upgrade",
+  "te",
+  "trailer",
+  "proxy-authorization",
+  "proxy-authenticate",
+  "host",
+  "content-length",
+  "expect",
+]);
+
+function decodeUntilStable(value) {
+  let current = value;
+  for (let i = 0; i < 3; i += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) {
+        return current;
+      }
+      current = decoded;
+    } catch (error) {
+      return current;
+    }
+  }
+  return current;
+}
+
+function containsTraversal(value) {
+  return (
+    value.includes("..") ||
+    value.includes("\\") ||
+    value.includes("//") ||
+    /%2e%2f|%2f%2e|%5c|%2f%2f|%2e%2e/i.test(value)
+  );
+}
+
 function sanitizePath(prefix, rawSuffix) {
   if (!VALID_PREFIXES.includes(prefix)) {
     return null;
@@ -48,13 +95,9 @@ function sanitizePath(prefix, rawSuffix) {
   // Only allow single leading slash, prohibit path traversal, encoded traversal, backslashes, double slashes
   let suffix = rawSuffix || "/";
   if (!suffix.startsWith("/")) suffix = "/" + suffix;
-  // Prohibit "..", "\"," "//", percent-encoded traversal
-  if (
-    suffix.includes("..") ||
-    suffix.includes("\\") ||
-    /%2e%2f|%2f%2e|%5c|%2f%2f|%2e%2e/i.test(suffix) ||
-    suffix.includes("//")
-  ) {
+  // Prohibit path traversal attempts even if encoded
+  const decoded = decodeUntilStable(suffix);
+  if (containsTraversal(suffix) || containsTraversal(decoded)) {
     log("blocked-ssrf-attempt", { prefix, suffix });
     return null;
   }
@@ -87,15 +130,54 @@ function determineTarget(pathname) {
   return null;
 }
 
-function sanitizeHeaders(headers) {
+function sanitizeRequestHeaders(headers) {
   const result = {};
   for (const [key, value] of Object.entries(headers)) {
     if (!value) continue;
     const lowerKey = key.toLowerCase();
-    if (lowerKey === "host" || lowerKey === "content-length") continue;
-    result[key] = value;
+    if (HOP_BY_HOP_HEADERS.has(lowerKey)) continue;
+    result[key] = Array.isArray(value) ? value.join(", ") : value;
   }
   return result;
+}
+
+function sanitizeResponseHeaders(headers) {
+  const result = {};
+  headers.forEach((value, key) => {
+    if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) return;
+    result[key] = value;
+  });
+  return result;
+}
+
+if (ALLOWED_SERVICE_HOSTNAMES.size === 0) {
+  console.error("api-gateway-service: No allowed service hostnames configured; refusing to start.");
+  process.exit(1);
+}
+
+function validateBaseUrl(serviceName, serviceUrl) {
+  let parsed;
+  try {
+    parsed = new URL(serviceUrl);
+  } catch (error) {
+    throw new Error(`Invalid ${serviceName}: ${serviceUrl}`);
+  }
+  if (!ALLOWED_SERVICE_HOSTNAMES.has(parsed.hostname)) {
+    throw new Error(
+      `Blocked SSRF risk for ${serviceName}: hostname "${parsed.hostname}" is not allowed. Allowed: ${Array.from(
+        ALLOWED_SERVICE_HOSTNAMES,
+      ).join(", ")}`,
+    );
+  }
+  return parsed;
+}
+
+try {
+  validateBaseUrl("radioServiceUrl", config.radioServiceUrl);
+  validateBaseUrl("terminalServiceUrl", config.terminalServiceUrl);
+} catch (error) {
+  console.error(`api-gateway-service configuration error: ${error.message}`);
+  process.exit(1);
 }
 
 function readRequestBody(req) {
@@ -128,16 +210,13 @@ async function proxyRequest(req, res, target) {
 
     const upstreamResponse = await fetch(targetUrl, {
       method: req.method,
-      headers: sanitizeHeaders(req.headers),
+      headers: sanitizeRequestHeaders(req.headers),
       body,
       signal: abort.signal,
     });
 
     const corsHeaders = buildCorsHeaders(req.headers.origin);
-    const headers = {};
-    upstreamResponse.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
+    const headers = sanitizeResponseHeaders(upstreamResponse.headers);
 
     res.writeHead(upstreamResponse.status, {
       ...headers,

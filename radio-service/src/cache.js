@@ -11,11 +11,13 @@ export async function readStationsFromCache(redis) {
   }
 }
 
-export async function writeStationsToCache(redis, payload) {
+export async function writeStationsToCache(redis, payload, serializedPayload) {
   const ttl = config.cacheTtlSeconds;
+  const body =
+    typeof serializedPayload === "string" ? serializedPayload : JSON.stringify(payload);
   if (ttl > 0) {
-    await redis.set(config.cacheKey, JSON.stringify(payload), "EX", ttl);
+    await redis.set(config.cacheKey, body, "EX", ttl);
   } else {
-    await redis.set(config.cacheKey, JSON.stringify(payload));
+    await redis.set(config.cacheKey, body);
   }
 }
