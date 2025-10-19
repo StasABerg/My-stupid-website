@@ -1,0 +1,5 @@
+radioService:
+  name: my-stupid-website-radio
+
+terminalService:
+  name: my-stupid-website-terminal
