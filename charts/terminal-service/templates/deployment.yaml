@@ -35,7 +35,16 @@ spec:
       {{- end }}
       containers:
         - name: terminal-service
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- $imageTag := .Values.image.tag | default "" | trim }}
+          {{- $imageRepo := .Values.image.repository | default "" }}
+          {{- $imageRegistry := .Values.image.registry | default "" | trimSuffix "/" }}
+          {{- $needsRegistry := and (ne $imageRegistry "") (not (hasPrefix (printf "%s/" $imageRegistry) $imageRepo)) }}
+          {{- $fullRepo := ternary (printf "%s/%s" $imageRegistry (trimPrefix "/" $imageRepo)) $imageRepo $needsRegistry }}
+          {{- if $imageTag }}
+          image: "{{ $fullRepo }}:{{ $imageTag }}"
+          {{- else }}
+          image: "{{ $fullRepo }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

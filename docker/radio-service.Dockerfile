@@ -1,7 +1,8 @@
 FROM node:25-alpine AS build
 WORKDIR /app
-COPY radio-service/package.json radio-service/package-lock.json* ./
-RUN npm install --omit=dev
+COPY radio-service/package.json ./
+RUN --mount=type=cache,target=/root/.npm npm install --package-lock-only --omit=dev --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund
 
 FROM node:25-alpine AS runner
 WORKDIR /app

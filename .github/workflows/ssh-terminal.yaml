@@ -60,6 +60,39 @@ jobs:
         with:
           sarif_file: trivy-terminal-dockerfile.sarif
 
+  trivy-helm:
+    name: Trivy Helm/K8s Config (terminal)
+    runs-on: self-hosted
+    needs: trivy-dockerfile
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-terminal-helm-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-terminal-helm-${{ runner.os }}-
+      - name: Scan Helm charts
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          version: v0.67.2
+          scan-type: config
+          scan-ref: charts/terminal-service
+          severity: 'HIGH,CRITICAL'
+          format: "sarif"
+          output: "trivy-terminal-helm.sarif"
+      - name: Upload SARIF
+        if: ${{ always() && hashFiles('trivy-terminal-helm.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-terminal-helm.sarif
+
 
   build:
     runs-on: self-hosted
@@ -126,8 +159,8 @@ jobs:
 
   deploy-dev:
     runs-on: self-hosted
-    needs: [build, trivy-image]
-    if: needs.build.result == 'success' && needs.trivy-image.result == 'success'
+    needs: [build, trivy-image, trivy-helm]
+    if: needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: development
     steps:
       - uses: actions/checkout@v5
@@ -144,14 +177,13 @@ jobs:
           helm upgrade --install my-stupid-website-terminal charts/terminal-service \
             -f charts/terminal-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
-            --set image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
-    needs: [build, trivy-image, deploy-dev]
-    if: needs.deploy-dev.result == 'success' && needs.build.result == 'success' && needs.trivy-image.result == 'success'
+    needs: [build, trivy-image, trivy-helm, deploy-dev]
+    if: needs.deploy-dev.result == 'success' && needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: production
     steps:
       - uses: actions/checkout@v5
@@ -167,6 +199,5 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website-terminal charts/terminal-service \
             --namespace my-stupid-website --create-namespace \
-            --set image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify

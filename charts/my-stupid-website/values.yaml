@@ -1,6 +1,9 @@
 
 #test
 image:
+  registry: ghcr.io
+  repository: stasaberg/my-stupid-website
+  tag: ""
   pullPolicy: IfNotPresent
 
 
@@ -20,6 +23,8 @@ podLabels: {}
 podSecurityContext:
   runAsNonRoot: true
   fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   runAsUser: 101
@@ -28,6 +33,8 @@ securityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
 
 
 service:

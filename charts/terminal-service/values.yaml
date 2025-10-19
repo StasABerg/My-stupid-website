@@ -1,8 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/stasaberg/my-stupid-website-terminal
-  tag: latest
+  registry: ghcr.io
+  repository: stasaberg/my-stupid-website-terminal
+  tag: ""
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -18,6 +19,8 @@ podLabels: {}
 podSecurityContext:
   runAsNonRoot: true
   fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   runAsNonRoot: true
@@ -28,6 +31,8 @@ securityContext:
   capabilities:
     drop:
       - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 containerPort: 8080
 

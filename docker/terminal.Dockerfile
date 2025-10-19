@@ -6,8 +6,9 @@ ENV NODE_ENV=production \
     COMMAND_TIMEOUT_MS=3000 \
     MAX_PAYLOAD_BYTES=2048 \
     MAX_OUTPUT_BYTES=16384
-COPY terminal-service/package.json terminal-service/package-lock.json* ./
-RUN npm install --omit=dev
+COPY terminal-service/package.json ./
+RUN --mount=type=cache,target=/root/.npm npm install --package-lock-only --omit=dev --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund
 COPY terminal-service/src ./src
 RUN mkdir -p "$SANDBOX_ROOT" && chown node:node "$SANDBOX_ROOT"
 EXPOSE 8080
