@@ -48,11 +48,13 @@ function joinS3Key(prefix, suffix) {
   return `${normalizedPrefix}/${normalizedSuffix}`;
 }
 
-export async function writeStationsToS3(payload) {
+export async function writeStationsToS3(payload, serializedPayload) {
+  const body =
+    typeof serializedPayload === "string" ? serializedPayload : JSON.stringify(payload);
   const command = new PutObjectCommand({
     Bucket: config.s3.bucket,
     Key: config.s3.objectKey,
-    Body: JSON.stringify(payload),
+    Body: body,
     ContentType: "application/json",
   });
 
@@ -67,6 +69,7 @@ export async function writeStationsByCountryToS3(payload, countryGroups) {
   const maxConcurrency = parseMaxConcurrency(process.env.S3_WRITE_CONCURRENCY, 5);
 
   const baseMetadata = {
+    schemaVersion: payload.schemaVersion ?? null,
     updatedAt: payload.updatedAt,
     source: payload.source,
     requests: payload.requests,

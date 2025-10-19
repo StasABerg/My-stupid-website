@@ -10,8 +10,50 @@ function numberFromEnv(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function booleanFromEnv(value) {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
+}
+
+function trustProxyFromEnv(value) {
+  if (value === undefined || value === null) {
+    return true;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "true") return true;
+  if (lower === "false") return false;
+  const asNumber = Number.parseInt(trimmed, 10);
+  if (Number.isFinite(asNumber) && String(asNumber) === trimmed) {
+    return asNumber;
+  }
+  if (trimmed.includes(",")) {
+    const parts = trimmed
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return parts.length > 0 ? parts : true;
+  }
+  return trimmed;
+}
+
+const allowInsecureTransports = process.env.ALLOW_INSECURE_TRANSPORT === "true";
+const forceHttpsStreamsFlag = booleanFromEnv(process.env.RADIO_BROWSER_FORCE_HTTPS_STREAMS);
+const enforceHttpsStreams =
+  forceHttpsStreamsFlag === null ? !allowInsecureTransports : forceHttpsStreamsFlag;
+const countryConcurrencyCandidate = numberFromEnv(
+  process.env.RADIO_BROWSER_COUNTRY_CONCURRENCY,
+  4,
+);
+const countryConcurrency = countryConcurrencyCandidate > 0 ? countryConcurrencyCandidate : 4;
+
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
+  trustProxy: trustProxyFromEnv(process.env.TRUST_PROXY),
   redisUrl: process.env.REDIS_URL,
   cacheKey: process.env.STATIONS_CACHE_KEY ?? "radio:stations:all",
   cacheTtlSeconds: numberFromEnv(process.env.STATIONS_CACHE_TTL, 900),
@@ -35,10 +77,11 @@ export const config = {
     pageSize: numberFromEnv(process.env.RADIO_BROWSER_PAGE_SIZE, 0),
     maxPages: numberFromEnv(process.env.RADIO_BROWSER_MAX_PAGES, 0),
     userAgent: "My-stupid-website/1.0 (stasaberg)",
+    countryConcurrency,
+    enforceHttpsStreams,
   },
   refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
-  allowInsecureTransports:
-    process.env.ALLOW_INSECURE_TRANSPORT === "true",
+  allowInsecureTransports,
 };
 
 export function validateConfig() {
@@ -64,6 +107,9 @@ export function validateConfig() {
   }
   if (config.radioBrowser.limit < 0) {
     throw new Error("RADIO_BROWSER_LIMIT cannot be negative.");
+  }
+  if (config.radioBrowser.countryConcurrency <= 0) {
+    throw new Error("RADIO_BROWSER_COUNTRY_CONCURRENCY must be greater than zero.");
   }
   if (!config.radioBrowser.userAgent || config.radioBrowser.userAgent.trim().length === 0) {
     throw new Error("A Radio Browser user agent must be provided for outbound requests.");

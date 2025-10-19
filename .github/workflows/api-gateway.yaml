@@ -60,6 +60,39 @@ jobs:
         with:
           sarif_file: trivy-api-gateway-dockerfile.sarif
 
+  trivy-helm:
+    name: Trivy Helm/K8s Config
+    runs-on: self-hosted
+    needs: trivy-dockerfile
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-api-gateway-helm-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-api-gateway-helm-${{ runner.os }}-
+      - name: Scan Helm charts
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          version: v0.67.2
+          scan-type: config
+          scan-ref: charts/api-gateway-service
+          severity: 'HIGH,CRITICAL'
+          format: 'sarif'
+          output: trivy-api-gateway-helm.sarif
+      - name: Upload SARIF
+        if: ${{ always() && hashFiles('trivy-api-gateway-helm.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-api-gateway-helm.sarif
+
   build:
     runs-on: self-hosted
     needs: trivy-dockerfile
@@ -122,8 +155,8 @@ jobs:
 
   deploy-dev:
     runs-on: self-hosted
-    needs: [build, trivy-image]
-    if: needs.build.result == 'success' && needs.trivy-image.result == 'success'
+    needs: [build, trivy-image, trivy-helm]
+    if: needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: development
     steps:
       - uses: actions/checkout@v5
@@ -140,14 +173,13 @@ jobs:
           helm upgrade --install my-stupid-website-api charts/api-gateway-service \
             -f charts/api-gateway-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
-            --set image.repository=ghcr.io/stasaberg/api-gateway-service \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
-    needs: [build, trivy-image, deploy-dev]
-    if: needs.deploy-dev.result == 'success' && needs.build.result == 'success' && needs.trivy-image.result == 'success'
+    needs: [build, trivy-image, trivy-helm, deploy-dev]
+    if: needs.deploy-dev.result == 'success' && needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: production
     steps:
       - uses: actions/checkout@v5
@@ -163,6 +195,5 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website-api charts/api-gateway-service \
             --namespace my-stupid-website --create-namespace \
-            --set image.repository=ghcr.io/stasaberg/api-gateway-service \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify

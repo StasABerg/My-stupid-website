@@ -59,6 +59,39 @@ jobs:
         with:
           sarif_file: trivy-radio-dockerfile.sarif
 
+  trivy-helm:
+    name: Trivy Helm/K8s Config
+    runs-on: self-hosted
+    needs: trivy-dockerfile
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-radio-helm-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-radio-helm-${{ runner.os }}-
+      - name: Scan Helm charts
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          version: v0.67.2
+          scan-type: config
+          scan-ref: charts/radio-service
+          severity: 'HIGH,CRITICAL'
+          format: 'sarif'
+          output: trivy-radio-helm.sarif
+      - name: Upload SARIF
+        if: ${{ always() && hashFiles('trivy-radio-helm.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-radio-helm.sarif
+
   build:
     runs-on: self-hosted
     needs: trivy-dockerfile
@@ -121,8 +154,8 @@ jobs:
 
   deploy-dev:
     runs-on: self-hosted
-    needs: [build, trivy-image]
-    if: needs.build.result == 'success' && needs.trivy-image.result == 'success'
+    needs: [build, trivy-image, trivy-helm]
+    if: needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: development
     steps:
       - uses: actions/checkout@v5
@@ -139,17 +172,17 @@ jobs:
           helm upgrade --install my-stupid-website-radio charts/radio-service \
             -f charts/radio-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
-            --set image.repository=ghcr.io/stasaberg/radio-service \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
-    needs: [build, trivy-image, deploy-dev]
+    needs: [build, trivy-image, trivy-helm, deploy-dev]
     if: >
       needs.deploy-dev.result == 'success'
       && needs.build.result == 'success'
       && needs.trivy-image.result == 'success'
+      && needs.trivy-helm.result == 'success'
     environment: production
     steps:
       - uses: actions/checkout@v5
@@ -165,6 +198,5 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website-radio charts/radio-service \
             --namespace my-stupid-website --create-namespace \
-            --set image.repository=ghcr.io/stasaberg/radio-service \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
             --atomic --wait --kube-insecure-skip-tls-verify
