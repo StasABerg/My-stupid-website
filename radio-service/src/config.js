@@ -10,6 +10,22 @@ function numberFromEnv(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function booleanFromEnv(value) {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
+}
+
+const allowInsecureTransports = process.env.ALLOW_INSECURE_TRANSPORT === "true";
+const forceHttpsStreamsFlag = booleanFromEnv(process.env.RADIO_BROWSER_FORCE_HTTPS_STREAMS);
+const enforceHttpsStreams =
+  forceHttpsStreamsFlag === null ? !allowInsecureTransports : forceHttpsStreamsFlag;
+const countryConcurrencyCandidate = numberFromEnv(
+  process.env.RADIO_BROWSER_COUNTRY_CONCURRENCY,
+  4,
+);
+const countryConcurrency = countryConcurrencyCandidate > 0 ? countryConcurrencyCandidate : 4;
+
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
   redisUrl: process.env.REDIS_URL,
@@ -35,10 +51,11 @@ export const config = {
     pageSize: numberFromEnv(process.env.RADIO_BROWSER_PAGE_SIZE, 0),
     maxPages: numberFromEnv(process.env.RADIO_BROWSER_MAX_PAGES, 0),
     userAgent: "My-stupid-website/1.0 (stasaberg)",
+    countryConcurrency,
+    enforceHttpsStreams,
   },
   refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
-  allowInsecureTransports:
-    process.env.ALLOW_INSECURE_TRANSPORT === "true",
+  allowInsecureTransports,
 };
 
 export function validateConfig() {
@@ -64,6 +81,9 @@ export function validateConfig() {
   }
   if (config.radioBrowser.limit < 0) {
     throw new Error("RADIO_BROWSER_LIMIT cannot be negative.");
+  }
+  if (config.radioBrowser.countryConcurrency <= 0) {
+    throw new Error("RADIO_BROWSER_COUNTRY_CONCURRENCY must be greater than zero.");
   }
   if (!config.radioBrowser.userAgent || config.radioBrowser.userAgent.trim().length === 0) {
     throw new Error("A Radio Browser user agent must be provided for outbound requests.");
