@@ -1,0 +1,279 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  FilterPanel,
+  PresetButtons,
+  RadioHeader,
+  ScannerControl,
+  StationInfoPanel,
+  StatusFooter,
+} from "@/components/Radio";
+import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
+import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
+
+const presetColors = [
+  "text-terminal-green",
+  "text-terminal-cyan",
+  "text-terminal-magenta",
+  "text-terminal-yellow",
+  "text-terminal-red",
+];
+
+const formatFrequency = (index: number) => (87.5 + index * 0.2).toFixed(1);
+
+const fallbackStation: RadioStation = {
+  id: "static-noise",
+  name: "Signal Lost",
+  streamUrl: "",
+  homepage: null,
+  favicon: null,
+  country: null,
+  countryCode: null,
+  state: null,
+  languages: [],
+  tags: [],
+  coordinates: null,
+  bitrate: null,
+  codec: null,
+  hls: false,
+  isOnline: false,
+  lastCheckedAt: null,
+  lastChangedAt: null,
+  clickCount: 0,
+  clickTrend: 0,
+  votes: 0,
+};
+
+const MAX_VISIBLE = 120;
+
+const Radio = () => {
+  const [search, setSearch] = useState("");
+  const [country, setCountry] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [volume, setVolume] = useState(0.65);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const { data, isLoading, isError } = useRadioStations({
+    search: search.trim() || undefined,
+    country: country || undefined,
+    limit: 400,
+  });
+
+  const stations = useMemo(() => data?.items ?? [], [data]);
+  const displayStations = stations.slice(0, MAX_VISIBLE);
+
+  const activeStation = displayStations[selectedIndex] ?? fallbackStation;
+
+  const uniqueCountries = useMemo(() => {
+    const fromMeta = data?.meta.countries;
+    if (Array.isArray(fromMeta) && fromMeta.length > 0) {
+      return fromMeta;
+    }
+
+    const seen = new Set<string>();
+    const options = stations
+      .map((station) => station.country)
+      .filter((value): value is string => Boolean(value));
+
+    return options.filter((entry) => {
+      const lower = entry.toLowerCase();
+      if (seen.has(lower)) return false;
+      seen.add(lower);
+      return true;
+    });
+  }, [data?.meta.countries, stations]);
+
+  const handleStationChange = (index: number) => {
+    setSelectedIndex(index);
+  };
+
+  const handleVolumeChange = (value: number) => {
+    setVolume(value);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setSelectedIndex(0);
+  };
+
+  const handleCountryChange = (value: string) => {
+    setCountry(value);
+    setSelectedIndex(0);
+  };
+
+  useEffect(() => {
+    if (displayStations.length === 0) {
+      if (selectedIndex !== 0) {
+        setSelectedIndex(0);
+      }
+      return;
+    }
+    if (selectedIndex >= displayStations.length) {
+      setSelectedIndex(0);
+    }
+  }, [displayStations.length, selectedIndex]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  useEffect(() => {
+    const element = audioRef.current;
+    if (!element) return;
+    if (activeStation.streamUrl) {
+      element.src = activeStation.streamUrl;
+      element
+        .play()
+        .catch(() => {
+          /* ignore autoplay blockers */
+        });
+    } else {
+      element.pause();
+      element.removeAttribute("src");
+      element.load();
+    }
+  }, [activeStation]);
+
+  useEffect(() => {
+    if (!activeStation.id || !activeStation.streamUrl) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const url = `${RADIO_API_BASE}/stations/${encodeURIComponent(activeStation.id)}/click`;
+
+    fetch(url, { method: "POST", signal: controller.signal }).catch(() => {
+      /* ignore click tracking errors */
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeStation.id, activeStation.streamUrl]);
+
+  const maxFrequencyLabel =
+    displayStations.length > 0
+      ? `${formatFrequency(displayStations.length - 1)} FM`
+      : `${formatFrequency(0)} FM`;
+
+  const stationListCommand = `radio stations --limit ${Math.max(
+    0,
+    Math.min(displayStations.length, MAX_VISIBLE),
+  )}`;
+
+  const updatedAtDisplay = useMemo(() => {
+    if (!data?.meta.updatedAt) {
+      return undefined;
+    }
+    const parsed = new Date(data.meta.updatedAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return data.meta.updatedAt;
+    }
+    return parsed.toLocaleString();
+  }, [data?.meta.updatedAt]);
+
+  return (
+    <div className="h-screen bg-black text-terminal-white">
+      <TerminalWindow aria-label="Gitgud radio control center">
+        <TerminalHeader displayCwd="~/radio" />
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 font-mono text-xs sm:text-sm">
+          <RadioHeader />
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="space-y-4">
+              <TerminalPrompt path="~/radio" command="radio status" />
+              <StationInfoPanel
+                station={activeStation}
+                frequencyLabel={`${formatFrequency(selectedIndex)} FM`}
+              />
+
+              <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
+              <ScannerControl
+                value={selectedIndex}
+                max={displayStations.length - 1}
+                onChange={handleStationChange}
+                minLabel={`${formatFrequency(0)} FM`}
+                maxLabel={maxFrequencyLabel}
+              />
+
+              <TerminalPrompt path="~/radio" command="radio presets --list" />
+              <PresetButtons
+                stations={displayStations}
+                selectedIndex={selectedIndex}
+                onSelect={handleStationChange}
+                colors={presetColors}
+              />
+            </div>
+
+            <div className="space-y-4">
+              <TerminalPrompt path="~/radio" command="radio filters" />
+              <FilterPanel
+                search={search}
+                onSearchChange={handleSearchChange}
+                country={country}
+                onCountryChange={handleCountryChange}
+                countries={uniqueCountries}
+                volume={volume}
+                onVolumeChange={handleVolumeChange}
+              />
+
+              <TerminalPrompt path="~/radio" command={stationListCommand} />
+              <div className="border border-terminal-green/40 rounded-md bg-black/70">
+                <header className="border-b border-terminal-green/30 px-3 py-2 text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan">
+                  Station Directory
+                </header>
+                {displayStations.length === 0 ? (
+                  <p className="px-3 py-4 text-terminal-white/60 text-[0.6rem]">
+                    No stations found. Adjust filters or refresh the cache.
+                  </p>
+                ) : (
+                  <ol className="max-h-[55vh] overflow-y-auto divide-y divide-terminal-green/20">
+                    {displayStations.map((station, index) => {
+                      const isSelected = index === selectedIndex;
+                      return (
+                        <li key={station.id}>
+                          <button
+                            type="button"
+                            onClick={() => handleStationChange(index)}
+                            className={`flex w-full items-center gap-3 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                              isSelected
+                                ? "bg-terminal-green/20 text-terminal-yellow"
+                                : "text-terminal-white hover:bg-terminal-green/10"
+                            }`}
+                          >
+                            <span className="w-4 text-terminal-cyan">{isSelected ? ">" : " "}</span>
+                            <span className="w-20 text-terminal-green">
+                              {`${formatFrequency(index)} FM`}
+                            </span>
+                            <span className="flex-1 truncate">{station.name}</span>
+                            <span className="hidden md:block text-terminal-cyan">
+                              {station.country ?? "Unknown"}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <StatusFooter
+            isLoading={isLoading}
+            isError={isError}
+            visibleCount={displayStations.length}
+            totalCount={data?.meta.total}
+            cacheSource={data?.meta.cacheSource}
+            updatedAt={updatedAtDisplay}
+            origin={data?.meta.origin}
+          />
+        </div>
+      </TerminalWindow>
+      <audio ref={audioRef} hidden autoPlay controls />
+    </div>
+  );
+};
+
+export default Radio;

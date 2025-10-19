@@ -1,7 +1,15 @@
 name: ci-cd
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'docker/Dockerfile'
+      - 'deploy/**'
+      - '.dockerignore'
+      - 'charts/my-stupid-website/**'
+      - '.github/workflows/ci-cd.yaml'
   workflow_dispatch:
     inputs:
       branch:
@@ -19,56 +27,22 @@ env:
   CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
 
 jobs:
-  changes:
-    runs-on: self-hosted
-    outputs:
-      app: ${{ steps.f.outputs.app }}
-      charts: ${{ steps.f.outputs.charts }}
-      terminal: ${{ steps.f.outputs.terminal }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          ref: ${{ env.CHECKOUT_REF }}
-      - id: f
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'app/**'
-              - 'docker/Dockerfile'
-              - 'deploy/**'
-              - '.dockerignore'
-            charts:
-              - 'charts/my-stupid-website/**'
-            terminal:
-              - 'terminal-service/**'
-              - 'docker/terminal.Dockerfile'
-
   trivy-dockerfile:
     name: Trivy Dockerfile
     runs-on: self-hosted
-    needs: changes
     permissions:
       contents: read
       security-events: write
     steps:
-      - name: No app changes
-        if: needs.changes.outputs.app != 'true'
-        run: echo "app unchanged; skipping dockerfile scan"
-
       - uses: actions/checkout@v5
-        if: needs.changes.outputs.app == 'true'
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/cache@v4
-        if: needs.changes.outputs.app == 'true'
         with:
           path: ~/.cache/trivy
           key: trivy-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan Dockerfile misconfig
-        if: needs.changes.outputs.app == 'true'
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@0.33.1
@@ -80,7 +54,7 @@ jobs:
           format: "sarif"
           output: "trivy-dockerfile.sarif"
       - name: Upload SARIF
-        if: ${{ always() && needs.changes.outputs.app == 'true' && hashFiles('trivy-dockerfile.sarif') != '' }}
+        if: ${{ always() && hashFiles('trivy-dockerfile.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-dockerfile.sarif
@@ -88,31 +62,22 @@ jobs:
 
   build:
     runs-on: self-hosted
-    needs: [changes, trivy-dockerfile]
+    needs: trivy-dockerfile
     outputs:
       sha: ${{ steps.out.outputs.sha }}
     steps:
-      - name: No app changes
-        if: needs.changes.outputs.app != 'true'
-        run: echo "app unchanged; skipping build"
-
       - uses: actions/checkout@v5
-        if: needs.changes.outputs.app == 'true'
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: docker/setup-buildx-action@v3
-        if: needs.changes.outputs.app == 'true'
       - uses: docker/login-action@v3
-        if: needs.changes.outputs.app == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: out
-        if: needs.changes.outputs.app == 'true'
         run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
-        if: needs.changes.outputs.app == 'true'
         with:
           context: .
           file: docker/Dockerfile
@@ -127,23 +92,17 @@ jobs:
   trivy-image:
     name: Trivy Image
     runs-on: self-hosted
-    needs: [changes, build]
+    needs: build
     permissions:
       contents: read
       security-events: write
     steps:
-      - name: No app changes
-        if: needs.changes.outputs.app != 'true'
-        run: echo "app unchanged; skipping image scan"
-
       - uses: actions/cache@v4
-        if: needs.changes.outputs.app == 'true'
         with:
           path: ~/.cache/trivy
           key: trivy-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan built image
-        if: needs.changes.outputs.app == 'true'
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@0.33.1
@@ -156,7 +115,7 @@ jobs:
           format: "sarif"
           output: "trivy-image.sarif"
       - name: Upload SARIF
-        if: ${{ always() && needs.changes.outputs.app == 'true' && hashFiles('trivy-image.sarif') != '' }}
+        if: ${{ always() && hashFiles('trivy-image.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
@@ -167,27 +126,20 @@ jobs:
   trivy-helm:
     name: Trivy Helm/K8s Config
     runs-on: self-hosted
-    needs: changes
+    needs: trivy-dockerfile
     permissions:
       contents: read
       security-events: write
     steps:
-      - name: No chart changes
-        if: needs.changes.outputs.charts != 'true'
-        run: echo "charts unchanged; skipping helm scan"
-
       - uses: actions/checkout@v5
-        if: needs.changes.outputs.charts == 'true'
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/cache@v4
-        if: needs.changes.outputs.charts == 'true'
         with:
           path: ~/.cache/trivy
           key: trivy-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan Helm charts
-        if: needs.changes.outputs.charts == 'true'
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@0.33.1
@@ -199,7 +151,7 @@ jobs:
           format: "sarif"
           output: "trivy-helm.sarif"
       - name: Upload SARIF
-        if: ${{ always() && needs.changes.outputs.charts == 'true' && hashFiles('trivy-helm.sarif') != '' }}
+        if: ${{ always() && hashFiles('trivy-helm.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-helm.sarif
@@ -207,13 +159,10 @@ jobs:
 
   deploy-dev:
     runs-on: self-hosted
-    needs: [changes, trivy-dockerfile, build, trivy-image, trivy-helm]
+    needs: [trivy-dockerfile, build, trivy-image, trivy-helm]
     if: >
-      (
-        (needs.changes.outputs.app == 'true' && needs.build.result == 'success')
-        || (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
-      )
-      && needs.trivy-dockerfile.result == 'success'
+      needs.trivy-dockerfile.result == 'success'
+      && needs.build.result == 'success'
       && needs.trivy-image.result == 'success'
       && needs.trivy-helm.result == 'success'
     environment: development
@@ -229,47 +178,24 @@ jobs:
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
       - name: Resolve image tag
         id: tag
-        run: |
-          if [[ "${{ needs.changes.outputs.app }}" == "true" ]]; then
-            echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev --kube-insecure-skip-tls-verify -o yaml \
-              | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
-            [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
-            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Resolve terminal image tag
-        id: terminal-tag
-        run: |
-          if helm -n my-stupid-website-dev status my-stupid-website-dev --kube-insecure-skip-tls-verify >/dev/null 2>&1; then
-            TAG=$(helm -n my-stupid-website-dev get values my-stupid-website-dev --kube-insecure-skip-tls-verify -o yaml \
-              | awk '/^terminalService:/{f=1} f && /^  image:/{g=1} g && /^    tag:/{print $2; exit}')
-          fi
-          [[ -n "$TAG" ]] || TAG="latest"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        run: echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
       - name: Helm upgrade (dev)
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
             -f charts/my-stupid-website/values-dev.yaml \
-            -f charts/my-stupid-website/values-terminal.yaml \
-            -f charts/my-stupid-website/values-terminal-dev.yaml \
+            --reuse-values \
             --namespace my-stupid-website-dev --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
-            --set terminalService.image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
-            --set-string terminalService.image.tag=${{ steps.terminal-tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
-    needs: [changes, trivy-dockerfile, build, trivy-image, trivy-helm, deploy-dev]
+    needs: [trivy-dockerfile, build, trivy-image, trivy-helm, deploy-dev]
     if: >
       needs.deploy-dev.result == 'success'
-      && (
-        (needs.changes.outputs.app == 'true' && needs.build.result == 'success')
-        || (needs.changes.outputs.app != 'true' && needs.changes.outputs.charts == 'true')
-      )
       && needs.trivy-dockerfile.result == 'success'
+      && needs.build.result == 'success'
       && needs.trivy-image.result == 'success'
       && needs.trivy-helm.result == 'success'
     environment: production
@@ -285,31 +211,12 @@ jobs:
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
       - name: Resolve image tag
         id: tag
-        run: |
-          if [[ "${{ needs.changes.outputs.app }}" == "true" ]]; then
-            echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            TAG=$(helm -n my-stupid-website get values my-stupid-website --kube-insecure-skip-tls-verify -o yaml \
-              | awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}')
-            [[ -n "$TAG" ]] || { echo "No current tag found"; exit 1; }
-            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Resolve terminal image tag
-        id: terminal-tag
-        run: |
-          if helm -n my-stupid-website status my-stupid-website --kube-insecure-skip-tls-verify >/dev/null 2>&1; then
-            TAG=$(helm -n my-stupid-website get values my-stupid-website --kube-insecure-skip-tls-verify -o yaml \
-              | awk '/^terminalService:/{f=1} f && /^  image:/{g=1} g && /^    tag:/{print $2; exit}')
-          fi
-          [[ -n "$TAG" ]] || TAG="latest"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        run: echo "tag=${{ needs.build.outputs.sha }}" >> "$GITHUB_OUTPUT"
       - name: Helm upgrade (prod)
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
-            -f charts/my-stupid-website/values-terminal.yaml \
+            --reuse-values \
             --namespace my-stupid-website --create-namespace \
             --set image.repository=ghcr.io/stasaberg/my-stupid-website \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
-            --set terminalService.image.repository=ghcr.io/stasaberg/my-stupid-website-terminal \
-            --set-string terminalService.image.tag=${{ steps.terminal-tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify

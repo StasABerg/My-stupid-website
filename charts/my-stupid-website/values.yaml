@@ -6,11 +6,12 @@ image:
 
 imagePullSecrets: []
 nameOverride: ""
-fullnameOverride: ""
+fullnameOverride: "my-stupid-website"
 
 serviceAccount:
   create: false
-  name: ""   
+  name: ""
+  automount: false
 
 
 podAnnotations: {}
@@ -85,3 +86,11 @@ volumeMounts:
   - { name: nginx-run,   mountPath: /var/run }
   - { name: nginx-log,   mountPath: /var/log/nginx }
   - { name: tmp,         mountPath: /tmp }
+
+env:
+  - name: VITE_RADIO_API_BASE_URL
+    value: /api/radio
+  - name: VITE_TERMINAL_API_BASE_URL
+    value: /api/terminal
+  - name: VITE_RADIO_DEFAULT_LIMIT
+    value: "200"

@@ -1,0 +1,4 @@
+autoscaling:
+  enabled: false
+
+replicaCount: 1

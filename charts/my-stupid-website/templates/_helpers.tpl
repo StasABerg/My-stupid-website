@@ -51,32 +51,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Terminal service specific helpers
-*/}}
-{{- define "my-stupid-website.terminalName" -}}
-{{- printf "%s-terminal" (include "my-stupid-website.name" .) | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{- define "my-stupid-website.terminalFullname" -}}
-{{- printf "%s-terminal" (include "my-stupid-website.name" .) | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{- define "my-stupid-website.terminalSelectorLabels" -}}
-app.kubernetes.io/name: {{ include "my-stupid-website.terminalName" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: terminal
-{{- end }}
-
-{{- define "my-stupid-website.terminalLabels" -}}
-helm.sh/chart: {{ include "my-stupid-website.chart" . }}
-{{ include "my-stupid-website.terminalSelectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{/*
 Create the name of the service account to use
 */}}
 {{- define "my-stupid-website.serviceAccountName" -}}

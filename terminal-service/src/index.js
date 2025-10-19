@@ -52,6 +52,12 @@ const SANDBOX_ENV = {
   LC_ALL: "C.UTF-8",
 };
 
+const allowedOrigins = (process.env.CORS_ALLOW_ORIGIN ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const allowAllOrigins = allowedOrigins.includes("*");
+
 const sandboxRootWithSlash = `${SANDBOX_ROOT}${path.sep}`;
 
 function log(message, extra = {}) {
@@ -61,6 +67,47 @@ function log(message, extra = {}) {
     ...extra,
   });
   console.log(payload);
+}
+
+function resolveAllowedOrigin(origin) {
+  if (!origin) {
+    return null;
+  }
+  if (allowAllOrigins) {
+    return origin;
+  }
+  return allowedOrigins.find((allowed) => allowed === origin) ?? null;
+}
+
+function buildCorsHeaders(req) {
+  const origin = req.headers?.origin;
+  const allowedOrigin = resolveAllowedOrigin(origin);
+  const headers = { Vary: "Origin" };
+  if (allowedOrigin) {
+    headers["Access-Control-Allow-Origin"] = allowedOrigin;
+  }
+  return headers;
+}
+
+function ensureCorsAllowed(req, res) {
+  const origin = req.headers?.origin;
+  if (!origin) {
+    return true;
+  }
+  if (allowAllOrigins) {
+    return true;
+  }
+  if (allowedOrigins.length === 0) {
+    res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
+    res.end(JSON.stringify({ message: "CORS origin denied" }));
+    return false;
+  }
+  if (!allowedOrigins.includes(origin)) {
+    res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
+    res.end(JSON.stringify({ message: "CORS origin denied" }));
+    return false;
+  }
+  return true;
 }
 
 function sanitizeVirtualPath(input) {
@@ -526,12 +573,16 @@ async function handleExecute(body) {
 }
 
 function handleOptions(req, res) {
-  res.writeHead(204, {
-    "Access-Control-Allow-Origin": process.env.CORS_ALLOW_ORIGIN ?? "*",
+  if (!ensureCorsAllowed(req, res)) {
+    return;
+  }
+  const headers = {
+    ...buildCorsHeaders(req),
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "600",
-  });
+  };
+  res.writeHead(204, headers);
   res.end();
 }
 
@@ -592,6 +643,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (!ensureCorsAllowed(req, res)) {
+      return;
+    }
+
     if (req.url === "/healthz" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));
@@ -602,7 +657,7 @@ const server = http.createServer(async (req, res) => {
       const response = await handleInfo();
       res.writeHead(response.status, {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": process.env.CORS_ALLOW_ORIGIN ?? "*",
+        ...buildCorsHeaders(req),
       });
       res.end(JSON.stringify(response.payload));
       return;
@@ -613,7 +668,7 @@ const server = http.createServer(async (req, res) => {
       const response = await handleExecute(body);
       res.writeHead(response.status, {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": process.env.CORS_ALLOW_ORIGIN ?? "*",
+        ...buildCorsHeaders(req),
       });
       res.end(JSON.stringify(response.payload));
       return;
@@ -621,14 +676,14 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(404, {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": process.env.CORS_ALLOW_ORIGIN ?? "*",
+      ...buildCorsHeaders(req),
     });
     res.end(JSON.stringify({ message: "Not Found" }));
   } catch (error) {
     log("Request failed", { error: error.message });
     res.writeHead(500, {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": process.env.CORS_ALLOW_ORIGIN ?? "*",
+      ...buildCorsHeaders(req),
     });
     res.end(JSON.stringify({ message: "Internal Server Error" }));
   }

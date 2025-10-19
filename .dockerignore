@@ -3,6 +3,7 @@
 charts
 node_modules
 app/node_modules
+radio-service/node_modules
 *.log
 *.md
 *.env
