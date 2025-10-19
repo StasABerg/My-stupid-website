@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY --chown=node:node api-gateway-service/package.json ./package.json
 
+RUN chown -R node:node /app
 USER node
 
 RUN --mount=type=cache,target=/home/node/.npm npm install --package-lock-only --no-audit --no-fund
