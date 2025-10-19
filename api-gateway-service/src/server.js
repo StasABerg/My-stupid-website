@@ -1,6 +1,7 @@
 import http from "node:http";
 import { config } from "./config.js";
 
+const ALLOWED_SERVICE_HOSTNAMES = new Set(config.allowedServiceHostnames);
 const RADIO_PREFIX = "/radio";
 const TERMINAL_PREFIX = "/terminal";
 
@@ -147,6 +148,36 @@ function sanitizeResponseHeaders(headers) {
     result[key] = value;
   });
   return result;
+}
+
+if (ALLOWED_SERVICE_HOSTNAMES.size === 0) {
+  console.error("api-gateway-service: No allowed service hostnames configured; refusing to start.");
+  process.exit(1);
+}
+
+function validateBaseUrl(serviceName, serviceUrl) {
+  let parsed;
+  try {
+    parsed = new URL(serviceUrl);
+  } catch (error) {
+    throw new Error(`Invalid ${serviceName}: ${serviceUrl}`);
+  }
+  if (!ALLOWED_SERVICE_HOSTNAMES.has(parsed.hostname)) {
+    throw new Error(
+      `Blocked SSRF risk for ${serviceName}: hostname "${parsed.hostname}" is not allowed. Allowed: ${Array.from(
+        ALLOWED_SERVICE_HOSTNAMES,
+      ).join(", ")}`,
+    );
+  }
+  return parsed;
+}
+
+try {
+  validateBaseUrl("radioServiceUrl", config.radioServiceUrl);
+  validateBaseUrl("terminalServiceUrl", config.terminalServiceUrl);
+} catch (error) {
+  console.error(`api-gateway-service configuration error: ${error.message}`);
+  process.exit(1);
 }
 
 function readRequestBody(req) {
