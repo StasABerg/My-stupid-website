@@ -1,3 +1,8 @@
+autoscaling:
+  enabled: false
+
+replicaCount: 1
+
 radioService:
   name: my-stupid-website-radio
 

@@ -1,4 +1,4 @@
-replicaCount: 1
+replicaCount: 2
 
 image:
   repository: ghcr.io/stasaberg/radio-service
@@ -106,11 +106,18 @@ env:
 
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 1000m
+    memory: 2Gi
   limits:
-    cpu: 250m
-    memory: 256Mi
+    cpu: 2000m
+    memory: 4Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 75
 
 livenessProbe:
   httpGet:
