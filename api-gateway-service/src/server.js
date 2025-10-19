@@ -39,20 +39,43 @@ function handlePreflight(req, res) {
   res.end();
 }
 
+function sanitizePath(prefix, rawSuffix) {
+  // Only allow single leading slash, prohibit path traversal, encoded traversal, backslashes, double slashes
+  let suffix = rawSuffix || "/";
+  if (!suffix.startsWith("/")) suffix = "/" + suffix;
+  // Prohibit "..", "\"," "//", percent-encoded traversal
+  if (
+    suffix.includes("..") ||
+    suffix.includes("\\") ||
+    /%2e|%2F|%5c|%2f|%2e%2e/i.test(suffix) ||
+    suffix.includes("//")
+  ) {
+    log("blocked-ssrf-attempt", { prefix, suffix });
+    return null;
+  }
+  // Optionally normalize: collapse multiple slashes
+  suffix = suffix.replace(/\/{2,}/g, '/');
+  return suffix;
+}
+
 function determineTarget(pathname) {
   if (pathname === RADIO_PREFIX || pathname.startsWith(`${RADIO_PREFIX}/`)) {
-    const suffix = pathname.slice(RADIO_PREFIX.length) || "/";
+    const rawSuffix = pathname.slice(RADIO_PREFIX.length) || "/";
+    const sanitized = sanitizePath(RADIO_PREFIX, rawSuffix);
+    if (!sanitized) return null;
     return {
       baseUrl: config.radioServiceUrl,
-      path: suffix.startsWith("/") ? suffix : `/${suffix}`,
+      path: sanitized,
     };
   }
 
   if (pathname === TERMINAL_PREFIX || pathname.startsWith(`${TERMINAL_PREFIX}/`)) {
-    const suffix = pathname.slice(TERMINAL_PREFIX.length) || "/";
+    const rawSuffix = pathname.slice(TERMINAL_PREFIX.length) || "/";
+    const sanitized = sanitizePath(TERMINAL_PREFIX, rawSuffix);
+    if (!sanitized) return null;
     return {
       baseUrl: config.terminalServiceUrl,
-      path: suffix.startsWith("/") ? suffix : `/${suffix}`,
+      path: sanitized,
     };
   }
 
