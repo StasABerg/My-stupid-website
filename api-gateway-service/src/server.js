@@ -205,7 +205,9 @@ async function proxyRequest(req, res, target) {
     (targetUrl.protocol !== "https:" && targetUrl.protocol !== "http:") ||
     targetUrl.hostname !== allowedHostname
   ) {
-    throw new Error("Resolved target URL failed host validation.");
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Upstream target rejected" }));
+    return;
   }
 
   const abort = new AbortController();

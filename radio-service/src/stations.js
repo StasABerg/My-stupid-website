@@ -325,7 +325,25 @@ async function validateStationStream(station) {
     }
 
     const contentType = candidate.headers.get("content-type") ?? "";
+
+    const lowerType = contentType.toLowerCase().split(";")[0].trim();
+    const isKnownStreamType =
+      lowerType.startsWith("audio/") ||
+      lowerType.startsWith("video/") ||
+      lowerType.includes("mpegurl") ||
+      lowerType === "application/octet-stream" ||
+      lowerType === "application/x-mpegurl";
+
+    const sampled = await candidate.arrayBuffer();
     await clean(candidate);
+
+    if (!isKnownStreamType) {
+      return { ok: false, reason: "unexpected-content-type" };
+    }
+    if (sampled.byteLength === 0) {
+      return { ok: false, reason: "empty-response" };
+    }
+
     return {
       ok: true,
       finalUrl,
