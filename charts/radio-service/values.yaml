@@ -121,6 +121,9 @@ initContainers:
     command:
       - node
       - src/refresh.js
+    env:
+      - name: STREAM_VALIDATION_ENABLED
+        value: "false"
     securityContext:
       runAsUser: 1000
       runAsGroup: 1000
