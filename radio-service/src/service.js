@@ -1,5 +1,10 @@
 import { readStationsFromCache, writeStationsToCache } from "./cache.js";
-import { notifyStationClick, refreshStations, sanitizePersistedStationsPayload } from "./stations.js";
+import {
+  getStationsFromS3,
+  notifyStationClick,
+  refreshStations,
+  sanitizePersistedStationsPayload,
+} from "./stations.js";
 
 let inflightRefreshPromise = null;
 
@@ -30,6 +35,21 @@ export async function loadStations(redis, { forceRefresh = false } = {}) {
         await writeStationsToCache(redis, sanitizedCache, serialized);
       }
       return { payload: sanitizedCache, cacheSource: "cache" };
+    }
+
+    try {
+      const payload = await getStationsFromS3();
+      const sanitizedS3 = sanitizePersistedStationsPayload(payload);
+      if (sanitizedS3) {
+        const serialized = JSON.stringify(sanitizedS3);
+        await writeStationsToCache(redis, sanitizedS3, serialized);
+        scheduleRefresh(redis).catch((error) => {
+          console.warn("background-refresh-error", { message: error.message });
+        });
+        return { payload: sanitizedS3, cacheSource: "s3" };
+      }
+    } catch (error) {
+      console.warn("s3-read-error", { message: error.message });
     }
   }
 

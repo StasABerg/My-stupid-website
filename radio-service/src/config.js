@@ -100,6 +100,9 @@ const apiMaxPageSizeCandidate = numberFromEnv(process.env.API_MAX_PAGE_SIZE, 100
 const apiDefaultPageSize =
   apiDefaultPageSizeCandidate > 0 ? apiDefaultPageSizeCandidate : 50;
 const apiMaxPageSize = apiMaxPageSizeCandidate > 0 ? apiMaxPageSizeCandidate : 100;
+const streamProxyTimeoutCandidate = numberFromEnv(process.env.STREAM_PROXY_TIMEOUT_MS, 15000);
+const streamProxyTimeoutMs =
+  streamProxyTimeoutCandidate > 0 ? streamProxyTimeoutCandidate : 15000;
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
@@ -135,6 +138,9 @@ export const config = {
   api: {
     defaultPageSize: Math.min(apiDefaultPageSize, apiMaxPageSize),
     maxPageSize: apiMaxPageSize,
+  },
+  streamProxy: {
+    timeoutMs: streamProxyTimeoutMs,
   },
   refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
   allowInsecureTransports,
@@ -183,6 +189,9 @@ export function validateConfig() {
   }
   if (config.api.defaultPageSize > config.api.maxPageSize) {
     throw new Error("API_DEFAULT_PAGE_SIZE cannot exceed API_MAX_PAGE_SIZE.");
+  }
+  if (config.streamProxy.timeoutMs <= 0) {
+    throw new Error("STREAM_PROXY_TIMEOUT_MS must be greater than zero.");
   }
 
   const radioBrowserUrls = [
