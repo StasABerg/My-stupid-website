@@ -261,6 +261,110 @@ function buildCountryGroups(stations) {
   return groups;
 }
 
+async function validateStationStream(station) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.streamValidation.timeoutMs);
+
+  try {
+    let response = await fetch(station.streamUrl, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    if (response.status === 405 || response.status === 501) {
+      if (response.body) {
+        try {
+          response.body.cancel();
+        } catch (_error) {
+          /* ignore cancellation errors */
+        }
+      }
+      response = await fetch(station.streamUrl, {
+        method: "GET",
+        headers: { Range: "bytes=0-0" },
+        redirect: "follow",
+        signal: controller.signal,
+      });
+    }
+
+    if (response.body) {
+      try {
+        response.body.cancel();
+      } catch (_error) {
+        /* ignore cancellation errors */
+      }
+    }
+
+    if (!response.ok) {
+      return { ok: false, reason: `status-${response.status}` };
+    }
+
+    const finalUrl = response.url ?? station.streamUrl;
+    if (!finalUrl.toLowerCase().startsWith("https://")) {
+      return { ok: false, reason: "insecure-redirect" };
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    return {
+      ok: true,
+      finalUrl,
+      contentType,
+    };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      return { ok: false, reason: "timeout" };
+    }
+    return { ok: false, reason: "network" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function validateStationStreams(stations) {
+  const concurrency = Math.max(1, config.streamValidation.concurrency);
+  const accepted = new Array(stations.length);
+  const dropCounts = new Map();
+
+  let index = 0;
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const currentIndex = index;
+      index += 1;
+      if (currentIndex >= stations.length) {
+        break;
+      }
+
+      const station = stations[currentIndex];
+      const result = await validateStationStream(station);
+      if (result.ok) {
+        const updatedStation = { ...station };
+        if (result.finalUrl && result.finalUrl !== station.streamUrl) {
+          updatedStation.streamUrl = result.finalUrl;
+        }
+        if (result.contentType && /mpegurl/i.test(result.contentType) && !station.hls) {
+          updatedStation.hls = true;
+        }
+        accepted[currentIndex] = updatedStation;
+      } else {
+        const reason = result.reason ?? "invalid";
+        dropCounts.set(reason, (dropCounts.get(reason) ?? 0) + 1);
+      }
+    }
+  });
+
+  await Promise.all(workers);
+
+  const filtered = accepted.filter(Boolean);
+  return {
+    stations: filtered,
+    dropped: stations.length - filtered.length,
+    reasons: Object.fromEntries(dropCounts),
+  };
+}
+
 async function fetchFromRadioBrowser() {
   const { rawStations, requestUrl } = await fetchStations();
   const requestUrls = [requestUrl];
@@ -286,12 +390,27 @@ async function fetchFromRadioBrowser() {
     }
   }
 
-  if (stations.length === 0) {
+  let validationDrops = 0;
+  let finalStations = stations;
+  if (config.streamValidation.enabled) {
+    const { stations: validatedStations, dropped, reasons } =
+      await validateStationStreams(stations);
+    validationDrops = dropped;
+    finalStations = validatedStations;
+    if (validationDrops > 0) {
+      console.log("stream-validation", { dropped: validationDrops, reasons });
+    }
+  }
+
+  if (finalStations.length === 0) {
     throw new Error("Radio Browser API returned no stations");
   }
 
-  if (filteredStations > 0) {
-    console.log("filtered-stations", { dropped: filteredStations });
+  if (filteredStations > 0 || validationDrops > 0) {
+    console.log("filtered-stations", {
+      droppedNormalizing: filteredStations,
+      droppedValidation: validationDrops,
+    });
   }
 
   const payload = {
@@ -299,11 +418,11 @@ async function fetchFromRadioBrowser() {
     updatedAt: new Date().toISOString(),
     source: requestUrl,
     requests: requestUrls,
-    total: stations.length,
-    stations,
+    total: finalStations.length,
+    stations: finalStations,
   };
 
-  const countryGroups = buildCountryGroups(stations);
+  const countryGroups = buildCountryGroups(finalStations);
 
   scheduleStationsPersistence(payload, countryGroups);
   return payload;

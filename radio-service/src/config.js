@@ -103,6 +103,20 @@ const apiMaxPageSize = apiMaxPageSizeCandidate > 0 ? apiMaxPageSizeCandidate : 1
 const streamProxyTimeoutCandidate = numberFromEnv(process.env.STREAM_PROXY_TIMEOUT_MS, 15000);
 const streamProxyTimeoutMs =
   streamProxyTimeoutCandidate > 0 ? streamProxyTimeoutCandidate : 15000;
+const streamValidationEnabledFlag = booleanFromEnv(process.env.STREAM_VALIDATION_ENABLED);
+const streamValidationEnabled = streamValidationEnabledFlag !== false;
+const streamValidationTimeoutCandidate = numberFromEnv(
+  process.env.STREAM_VALIDATION_TIMEOUT_MS,
+  5000,
+);
+const streamValidationTimeoutMs =
+  streamValidationTimeoutCandidate > 0 ? streamValidationTimeoutCandidate : 5000;
+const streamValidationConcurrencyCandidate = numberFromEnv(
+  process.env.STREAM_VALIDATION_CONCURRENCY,
+  8,
+);
+const streamValidationConcurrency =
+  streamValidationConcurrencyCandidate > 0 ? streamValidationConcurrencyCandidate : 8;
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
@@ -141,6 +155,11 @@ export const config = {
   },
   streamProxy: {
     timeoutMs: streamProxyTimeoutMs,
+  },
+  streamValidation: {
+    enabled: streamValidationEnabled,
+    timeoutMs: streamValidationTimeoutMs,
+    concurrency: streamValidationConcurrency,
   },
   refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
   allowInsecureTransports,
@@ -192,6 +211,12 @@ export function validateConfig() {
   }
   if (config.streamProxy.timeoutMs <= 0) {
     throw new Error("STREAM_PROXY_TIMEOUT_MS must be greater than zero.");
+  }
+  if (config.streamValidation.concurrency <= 0) {
+    throw new Error("STREAM_VALIDATION_CONCURRENCY must be greater than zero.");
+  }
+  if (config.streamValidation.timeoutMs <= 0) {
+    throw new Error("STREAM_VALIDATION_TIMEOUT_MS must be greater than zero.");
   }
 
   const radioBrowserUrls = [
