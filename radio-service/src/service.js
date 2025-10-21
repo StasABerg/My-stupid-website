@@ -12,7 +12,7 @@ function scheduleRefresh(redis) {
   if (!inflightRefreshPromise) {
     inflightRefreshPromise = (async () => {
       try {
-        const payload = await refreshStations();
+        const payload = await refreshStations({ redis });
         const serialized = JSON.stringify(payload);
         await writeStationsToCache(redis, payload, serialized);
         return payload;

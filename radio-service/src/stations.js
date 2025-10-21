@@ -276,44 +276,23 @@ async function validateStationStream(station) {
       }
     };
 
-    let response;
+    const headers = { Range: "bytes=0-4095" };
+    let candidate;
     try {
-      response = await fetch(station.streamUrl, {
-        method: "HEAD",
+      candidate = await fetch(station.streamUrl, {
+        method: "GET",
+        headers,
         redirect: "follow",
         signal: controller.signal,
       });
     } catch (error) {
-      if (error.name !== "AbortError") {
-        return { ok: false, reason: "head-failed" };
+      if (error.name === "AbortError") {
+        throw error;
       }
-      throw error;
+      return { ok: false, reason: "network" };
     }
 
-    const needsBodyCheck =
-      response.status === 405 ||
-      response.status === 501 ||
-      response.status === 204 ||
-      (response.ok && response.headers.get("content-length") === "0");
-
-    if (!needsBodyCheck && !response.ok) {
-      await clean(response);
-      return { ok: false, reason: `status-${response.status}` };
-    }
-
-    let candidate = response;
-
-    if (needsBodyCheck || response.ok) {
-      await clean(response);
-      candidate = await fetch(station.streamUrl, {
-        method: "GET",
-        headers: { Range: "bytes=0-1" },
-        redirect: "follow",
-        signal: controller.signal,
-      });
-    }
-
-    if (!candidate.ok) {
+    if (!candidate.ok && candidate.status !== 206) {
       await clean(candidate);
       return { ok: false, reason: `status-${candidate.status}` };
     }
@@ -383,10 +362,34 @@ async function validateStationStream(station) {
   }
 }
 
-async function validateStationStreams(stations) {
+async function validateStationStreams(stations, { redis } = {}) {
   const concurrency = Math.max(1, config.streamValidation.concurrency);
   const accepted = new Array(stations.length);
   const dropCounts = new Map();
+  const cacheKey = config.streamValidation.cacheKey;
+  const cacheTtlMs = config.streamValidation.cacheTtlSeconds * 1000;
+  const now = Date.now();
+
+  let cache = null;
+  if (redis && cacheKey) {
+    try {
+      const rawCache = await redis.hgetall(cacheKey);
+      cache = new Map();
+      for (const [url, value] of Object.entries(rawCache)) {
+        try {
+          const parsed = JSON.parse(value);
+          cache.set(url, parsed);
+        } catch (_error) {
+          continue;
+        }
+      }
+    } catch (error) {
+      console.warn("stream-validation-cache-read-error", { message: error.message });
+    }
+  }
+
+  const cacheUpdates = [];
+  const cacheRemovals = new Set();
 
   let index = 0;
 
@@ -400,6 +403,21 @@ async function validateStationStreams(stations) {
       }
 
       const station = stations[currentIndex];
+      const cacheEntry = cache?.get(station.streamUrl);
+      if (cacheEntry && typeof cacheEntry.validatedAt === "number") {
+        if (now - cacheEntry.validatedAt <= cacheTtlMs) {
+          const updatedStation = { ...station };
+          if (cacheEntry.finalUrl) {
+            updatedStation.streamUrl = cacheEntry.finalUrl;
+          }
+          if (cacheEntry.forceHls === true) {
+            updatedStation.hls = true;
+          }
+          accepted[currentIndex] = updatedStation;
+          continue;
+        }
+      }
+
       const result = await validateStationStream(station);
       if (result.ok) {
         const updatedStation = { ...station };
@@ -410,9 +428,22 @@ async function validateStationStreams(stations) {
           updatedStation.hls = true;
         }
         accepted[currentIndex] = updatedStation;
+        if (redis && cacheKey) {
+          cacheUpdates.push({
+            streamUrl: station.streamUrl,
+            value: {
+              validatedAt: Date.now(),
+              finalUrl: updatedStation.streamUrl,
+              forceHls: updatedStation.hls === true,
+            },
+          });
+        }
       } else {
         const reason = result.reason ?? "invalid";
         dropCounts.set(reason, (dropCounts.get(reason) ?? 0) + 1);
+        if (redis && cacheKey) {
+          cacheRemovals.add(station.streamUrl);
+        }
       }
     }
   });
@@ -420,6 +451,27 @@ async function validateStationStreams(stations) {
   await Promise.all(workers);
 
   const filtered = accepted.filter(Boolean);
+  if (redis && cacheKey) {
+    try {
+      const pipeline = redis.pipeline();
+      for (const update of cacheUpdates) {
+        pipeline.hset(cacheKey, update.streamUrl, JSON.stringify(update.value));
+      }
+      if (cacheRemovals.size > 0) {
+        pipeline.hdel(cacheKey, ...cacheRemovals);
+      }
+      const shouldExpire = config.streamValidation.cacheTtlSeconds > 0;
+      if (shouldExpire) {
+        pipeline.expire(cacheKey, config.streamValidation.cacheTtlSeconds);
+      }
+      if (cacheUpdates.length > 0 || cacheRemovals.size > 0 || shouldExpire) {
+        await pipeline.exec();
+      }
+    } catch (error) {
+      console.warn("stream-validation-cache-write-error", { message: error.message });
+    }
+  }
+
   return {
     stations: filtered,
     dropped: stations.length - filtered.length,
@@ -427,7 +479,7 @@ async function validateStationStreams(stations) {
   };
 }
 
-async function fetchFromRadioBrowser() {
+async function fetchFromRadioBrowser({ redis } = {}) {
   const { rawStations, requestUrl } = await fetchStations();
   const requestUrls = [requestUrl];
 
@@ -456,7 +508,7 @@ async function fetchFromRadioBrowser() {
   let finalStations = stations;
   if (config.streamValidation.enabled) {
     const { stations: validatedStations, dropped, reasons } =
-      await validateStationStreams(stations);
+      await validateStationStreams(stations, { redis });
     validationDrops = dropped;
     finalStations = validatedStations;
     if (validationDrops > 0) {
@@ -615,6 +667,6 @@ export async function getStationsFromS3() {
   return fetchStationsFromS3();
 }
 
-export async function refreshStations() {
-  return fetchFromRadioBrowser();
+export async function refreshStations(options = {}) {
+  return fetchFromRadioBrowser(options);
 }

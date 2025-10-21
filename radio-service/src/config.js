@@ -117,6 +117,14 @@ const streamValidationConcurrencyCandidate = numberFromEnv(
 );
 const streamValidationConcurrency =
   streamValidationConcurrencyCandidate > 0 ? streamValidationConcurrencyCandidate : 8;
+const streamValidationCacheKey =
+  process.env.STREAM_VALIDATION_CACHE_KEY ?? "radio:streams:validated";
+const streamValidationCacheTtlCandidate = numberFromEnv(
+  process.env.STREAM_VALIDATION_CACHE_TTL,
+  86400,
+);
+const streamValidationCacheTtlSeconds =
+  streamValidationCacheTtlCandidate > 0 ? streamValidationCacheTtlCandidate : 86400;
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
@@ -160,6 +168,8 @@ export const config = {
     enabled: streamValidationEnabled,
     timeoutMs: streamValidationTimeoutMs,
     concurrency: streamValidationConcurrency,
+    cacheKey: streamValidationCacheKey,
+    cacheTtlSeconds: streamValidationCacheTtlSeconds,
   },
   refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
   allowInsecureTransports,
@@ -217,6 +227,9 @@ export function validateConfig() {
   }
   if (config.streamValidation.timeoutMs <= 0) {
     throw new Error("STREAM_VALIDATION_TIMEOUT_MS must be greater than zero.");
+  }
+  if (!config.streamValidation.cacheKey || config.streamValidation.cacheKey.trim().length === 0) {
+    throw new Error("STREAM_VALIDATION_CACHE_KEY must be provided.");
   }
 
   const radioBrowserUrls = [
