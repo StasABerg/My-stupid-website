@@ -246,11 +246,25 @@ async function proxyRequest(req, res, target) {
     const corsHeaders = buildCorsHeaders(req.headers.origin);
     const status = error.name === "AbortError" ? 504 : 502;
     log("proxy-error", { status, error: error.message, target: target.baseUrl });
-    res.writeHead(status, {
-      "Content-Type": "application/json",
-      ...corsHeaders,
-    });
-    res.end(JSON.stringify({ error: "Upstream request failed" }));
+    if (!res.headersSent) {
+      res.writeHead(status, {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      });
+    } else {
+      res.statusCode = status;
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        if (typeof value === "string") {
+          res.setHeader(key, value);
+        }
+      }
+      if (!res.hasHeader("Content-Type")) {
+        res.setHeader("Content-Type", "application/json");
+      }
+    }
+    if (!res.writableEnded) {
+      res.end(JSON.stringify({ error: "Upstream request failed" }));
+    }
   } finally {
     clearTimeout(timeout);
   }
