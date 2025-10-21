@@ -200,6 +200,15 @@ function readRequestBody(req) {
 async function proxyRequest(req, res, target) {
   const parsed = new URL(req.url ?? "/", "http://localhost");
   const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
+  const allowedHostname = new URL(target.baseUrl).hostname;
+  if (
+    (targetUrl.protocol !== "https:" && targetUrl.protocol !== "http:") ||
+    targetUrl.hostname !== allowedHostname
+  ) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Upstream target rejected" }));
+    return;
+  }
 
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), config.requestTimeoutMs);

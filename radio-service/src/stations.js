@@ -325,7 +325,49 @@ async function validateStationStream(station) {
     }
 
     const contentType = candidate.headers.get("content-type") ?? "";
+
+    const lowerType = contentType.toLowerCase().split(";")[0].trim();
+    const isKnownStreamType =
+      lowerType.startsWith("audio/") ||
+      lowerType.startsWith("video/") ||
+      lowerType.includes("mpegurl") ||
+      lowerType === "application/octet-stream" ||
+      lowerType === "application/x-mpegurl";
+
+    let hasData = false;
+    const body = candidate.body;
+    if (body) {
+      if (typeof body.getReader === "function") {
+        const reader = body.getReader();
+        try {
+          const { value, done } = await reader.read();
+          hasData = Boolean(value && value.length > 0 && !done);
+        } finally {
+          try {
+            await reader.cancel();
+          } catch (_error) {
+            /* ignore cancellation errors */
+          }
+        }
+      } else if (typeof body[Symbol.asyncIterator] === "function") {
+        for await (const chunk of body) {
+          if (chunk && chunk.length > 0) {
+            hasData = true;
+            break;
+          }
+        }
+      }
+    }
+
     await clean(candidate);
+
+    if (!isKnownStreamType) {
+      return { ok: false, reason: "unexpected-content-type" };
+    }
+    if (!hasData) {
+      return { ok: false, reason: "empty-response" };
+    }
+
     return {
       ok: true,
       finalUrl,
