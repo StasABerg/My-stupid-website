@@ -28,10 +28,9 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.initContainers }}
+      {{- if .Values.initContainers }}
       initContainers:
-        {{- $root := . -}}
-        {{- range . }}
+        {{- range .Values.initContainers }}
         - name: {{ .name }}
           {{- $imageTag := (.image.tag | default $.Values.image.tag | default "") | trim }}
           {{- $imageRepo := .image.repository | default "" }}

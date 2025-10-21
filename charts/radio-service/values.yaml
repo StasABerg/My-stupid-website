@@ -111,35 +111,7 @@ env:
   - name: STREAM_VALIDATION_CONCURRENCY
     value: "64"
 
-initContainers:
-  - name: warm-cache
-    image:
-      registry: ghcr.io
-      repository: stasaberg/radio-service
-      tag: ""
-      pullPolicy: IfNotPresent
-    command:
-      - node
-      - src/refresh.js
-    env:
-      - name: STREAM_VALIDATION_ENABLED
-        value: "false"
-    securityContext:
-      runAsUser: 1000
-      runAsGroup: 1000
-      runAsNonRoot: true
-      allowPrivilegeEscalation: false
-      readOnlyRootFilesystem: true
-      capabilities:
-        drop:
-          - ALL
-    resources:
-      requests:
-        cpu: 500m
-        memory: 512Mi
-      limits:
-        cpu: 1500m
-        memory: 2048Mi
+initContainers: []
 
 cronJob:
   enabled: false
