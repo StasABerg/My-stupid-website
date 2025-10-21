@@ -266,46 +266,66 @@ async function validateStationStream(station) {
   const timeout = setTimeout(() => controller.abort(), config.streamValidation.timeoutMs);
 
   try {
-    let response = await fetch(station.streamUrl, {
-      method: "HEAD",
-      redirect: "follow",
-      signal: controller.signal,
-    });
-
-    if (response.status === 405 || response.status === 501) {
-      if (response.body) {
+    const clean = async (response) => {
+      if (response?.body) {
         try {
-          response.body.cancel();
+          await response.body.cancel();
         } catch (_error) {
           /* ignore cancellation errors */
         }
       }
+    };
+
+    let response;
+    try {
       response = await fetch(station.streamUrl, {
+        method: "HEAD",
+        redirect: "follow",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        return { ok: false, reason: "head-failed" };
+      }
+      throw error;
+    }
+
+    const needsBodyCheck =
+      response.status === 405 ||
+      response.status === 501 ||
+      response.status === 204 ||
+      (response.ok && response.headers.get("content-length") === "0");
+
+    if (!needsBodyCheck && !response.ok) {
+      await clean(response);
+      return { ok: false, reason: `status-${response.status}` };
+    }
+
+    let candidate = response;
+
+    if (needsBodyCheck || response.ok) {
+      await clean(response);
+      candidate = await fetch(station.streamUrl, {
         method: "GET",
-        headers: { Range: "bytes=0-0" },
+        headers: { Range: "bytes=0-1" },
         redirect: "follow",
         signal: controller.signal,
       });
     }
 
-    if (response.body) {
-      try {
-        response.body.cancel();
-      } catch (_error) {
-        /* ignore cancellation errors */
-      }
+    if (!candidate.ok) {
+      await clean(candidate);
+      return { ok: false, reason: `status-${candidate.status}` };
     }
 
-    if (!response.ok) {
-      return { ok: false, reason: `status-${response.status}` };
-    }
-
-    const finalUrl = response.url ?? station.streamUrl;
+    const finalUrl = candidate.url ?? station.streamUrl;
     if (!finalUrl.toLowerCase().startsWith("https://")) {
+      await clean(candidate);
       return { ok: false, reason: "insecure-redirect" };
     }
 
-    const contentType = response.headers.get("content-type") ?? "";
+    const contentType = candidate.headers.get("content-type") ?? "";
+    await clean(candidate);
     return {
       ok: true,
       finalUrl,

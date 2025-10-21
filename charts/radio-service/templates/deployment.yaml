@@ -33,7 +33,7 @@ spec:
         {{- $root := . -}}
         {{- range . }}
         - name: {{ .name }}
-          {{- $imageTag := .image.tag | default "" | trim }}
+          {{- $imageTag := (.image.tag | default $.Values.image.tag | default "") | trim }}
           {{- $imageRepo := .image.repository | default "" }}
           {{- $imageRegistry := .image.registry | default "" | trimSuffix "/" }}
           {{- $needsRegistry := and (ne $imageRegistry "") (not (hasPrefix (printf "%s/" $imageRegistry) $imageRepo)) }}
