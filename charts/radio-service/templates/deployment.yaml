@@ -28,45 +28,6 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.initContainers }}
-      initContainers:
-        {{- range .Values.initContainers }}
-        - name: {{ .name }}
-          {{- $imageTag := (.image.tag | default $.Values.image.tag | default "") | trim }}
-          {{- $imageRepo := .image.repository | default "" }}
-          {{- $imageRegistry := .image.registry | default "" | trimSuffix "/" }}
-          {{- $needsRegistry := and (ne $imageRegistry "") (not (hasPrefix (printf "%s/" $imageRegistry) $imageRepo)) }}
-          {{- $fullRepo := ternary (printf "%s/%s" $imageRegistry (trimPrefix "/" $imageRepo)) $imageRepo $needsRegistry }}
-          {{- if $imageTag }}
-          image: "{{ $fullRepo }}:{{ $imageTag }}"
-          {{- else }}
-          image: "{{ $fullRepo }}"
-          {{- end }}
-          imagePullPolicy: {{ .image.pullPolicy | default "IfNotPresent" }}
-          command: {{- toYaml .command | nindent 12 }}
-          env:
-            {{- with .env }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
-            {{- range $.Values.env }}
-            - name: {{ .name }}
-              {{- if .value }}
-              value: {{ .value | quote }}
-              {{- else if .valueFrom }}
-              valueFrom:
-                {{- toYaml .valueFrom | nindent 16 }}
-              {{- end }}
-            {{- end }}
-          {{- with .securityContext }}
-          securityContext:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-        {{- end }}
-      {{- end }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
