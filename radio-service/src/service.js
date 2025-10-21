@@ -1,10 +1,5 @@
 import { readStationsFromCache, writeStationsToCache } from "./cache.js";
-import {
-  getStationsFromS3,
-  notifyStationClick,
-  refreshStations,
-  sanitizePersistedStationsPayload,
-} from "./stations.js";
+import { notifyStationClick, refreshStations, sanitizePersistedStationsPayload } from "./stations.js";
 
 export async function loadStations(redis, { forceRefresh = false } = {}) {
   if (!forceRefresh) {
@@ -18,21 +13,6 @@ export async function loadStations(redis, { forceRefresh = false } = {}) {
       }
       return { payload: sanitizedCache, cacheSource: "cache" };
     }
-  }
-
-  try {
-    const payload = await getStationsFromS3();
-    const sanitizedS3 = sanitizePersistedStationsPayload(payload);
-    if (sanitizedS3) {
-      if (sanitizedS3 !== payload) {
-        console.log("cache-upgraded", { source: "s3" });
-      }
-      const serialized = JSON.stringify(sanitizedS3);
-      await writeStationsToCache(redis, sanitizedS3, serialized);
-      return { payload: sanitizedS3, cacheSource: "s3" };
-    }
-  } catch (error) {
-    console.warn("s3-read-error", { message: error.message });
   }
 
   const payload = await refreshStations();

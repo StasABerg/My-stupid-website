@@ -1,9 +1,22 @@
 import "dotenv/config";
 
 const RADIO_BROWSER_DEFAULT_BASE_URL = "https://de2.api.radio-browser.info";
-const RADIO_BROWSER_COUNTRIES_PATH = "/json/countries";
-const RADIO_BROWSER_STATIONS_BY_COUNTRY_PATH = "/json/stations/bycountry";
+const RADIO_BROWSER_STATIONS_PATH = "/json/stations";
 const RADIO_BROWSER_STATION_CLICK_PATH = "/json/url";
+
+function deriveMetadataKey(objectKey) {
+  if (!objectKey) {
+    return null;
+  }
+  const trimmed = objectKey.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (trimmed.toLowerCase().endsWith(".json")) {
+    return `${trimmed.slice(0, -5)}-metadata.json`;
+  }
+  return `${trimmed}-metadata.json`;
+}
 
 function numberFromEnv(value, fallback) {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -66,12 +79,14 @@ export const config = {
       process.env.MINIO_SECRET_KEY ?? process.env.AWS_SECRET_ACCESS_KEY,
     bucket: process.env.MINIO_BUCKET,
     objectKey: process.env.STATIONS_OBJECT_KEY,
+    metadataKey:
+      process.env.STATIONS_METADATA_OBJECT_KEY ??
+      deriveMetadataKey(process.env.STATIONS_OBJECT_KEY),
     countryPrefix: process.env.STATIONS_BY_COUNTRY_PREFIX ?? "stations/by-country",
   },
   radioBrowser: {
     defaultBaseUrl: RADIO_BROWSER_DEFAULT_BASE_URL,
-    countriesPath: RADIO_BROWSER_COUNTRIES_PATH,
-    stationsByCountryPath: RADIO_BROWSER_STATIONS_BY_COUNTRY_PATH,
+    stationsPath: RADIO_BROWSER_STATIONS_PATH,
     stationClickPath: RADIO_BROWSER_STATION_CLICK_PATH,
     limit: numberFromEnv(process.env.RADIO_BROWSER_LIMIT, 0),
     pageSize: numberFromEnv(process.env.RADIO_BROWSER_PAGE_SIZE, 0),
@@ -99,6 +114,11 @@ export function validateConfig() {
   if (!config.s3.endpoint) {
     throw new Error("MINIO_ENDPOINT must be provided so the service can reach the object store.");
   }
+  if (!config.s3.metadataKey) {
+    throw new Error(
+      "STATIONS_METADATA_OBJECT_KEY (or a derivable value) must be set so station metadata can be stored separately.",
+    );
+  }
   if (config.radioBrowser.pageSize < 0) {
     throw new Error("RADIO_BROWSER_PAGE_SIZE cannot be negative.");
   }
@@ -116,8 +136,7 @@ export function validateConfig() {
   }
 
   const radioBrowserUrls = [
-    config.radioBrowser.countriesPath,
-    config.radioBrowser.stationsByCountryPath,
+    config.radioBrowser.stationsPath,
     config.radioBrowser.stationClickPath,
   ].map((path) => {
     try {
