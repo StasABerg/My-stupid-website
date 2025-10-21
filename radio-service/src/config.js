@@ -63,6 +63,11 @@ const countryConcurrencyCandidate = numberFromEnv(
   4,
 );
 const countryConcurrency = countryConcurrencyCandidate > 0 ? countryConcurrencyCandidate : 4;
+const apiDefaultPageSizeCandidate = numberFromEnv(process.env.API_DEFAULT_PAGE_SIZE, 50);
+const apiMaxPageSizeCandidate = numberFromEnv(process.env.API_MAX_PAGE_SIZE, 100);
+const apiDefaultPageSize =
+  apiDefaultPageSizeCandidate > 0 ? apiDefaultPageSizeCandidate : 50;
+const apiMaxPageSize = apiMaxPageSizeCandidate > 0 ? apiMaxPageSizeCandidate : 100;
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
@@ -94,6 +99,10 @@ export const config = {
     userAgent: "My-stupid-website/1.0 (stasaberg)",
     countryConcurrency,
     enforceHttpsStreams,
+  },
+  api: {
+    defaultPageSize: Math.min(apiDefaultPageSize, apiMaxPageSize),
+    maxPageSize: apiMaxPageSize,
   },
   refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
   allowInsecureTransports,
@@ -133,6 +142,15 @@ export function validateConfig() {
   }
   if (!config.radioBrowser.userAgent || config.radioBrowser.userAgent.trim().length === 0) {
     throw new Error("A Radio Browser user agent must be provided for outbound requests.");
+  }
+  if (config.api.maxPageSize <= 0) {
+    throw new Error("API_MAX_PAGE_SIZE must be greater than zero.");
+  }
+  if (config.api.defaultPageSize <= 0) {
+    throw new Error("API_DEFAULT_PAGE_SIZE must be greater than zero.");
+  }
+  if (config.api.defaultPageSize > config.api.maxPageSize) {
+    throw new Error("API_DEFAULT_PAGE_SIZE cannot exceed API_MAX_PAGE_SIZE.");
   }
 
   const radioBrowserUrls = [
