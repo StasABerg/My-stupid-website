@@ -370,6 +370,10 @@ app.get("/stations/:stationId/stream/segment", async (req, res) => {
       res.status(403).json({ error: "Segment URL is not permitted." });
       return;
     }
+    if (targetUrl.protocol !== "https:") {
+      res.status(403).json({ error: "Stream segments must use HTTPS." });
+      return;
+    }
 
     const headers = pickForwardHeaders(req, ["range", "accept", "user-agent"]);
     const controller = new AbortController();

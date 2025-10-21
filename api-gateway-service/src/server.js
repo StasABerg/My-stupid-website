@@ -200,6 +200,13 @@ function readRequestBody(req) {
 async function proxyRequest(req, res, target) {
   const parsed = new URL(req.url ?? "/", "http://localhost");
   const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
+  const allowedHostname = new URL(target.baseUrl).hostname;
+  if (
+    (targetUrl.protocol !== "https:" && targetUrl.protocol !== "http:") ||
+    targetUrl.hostname !== allowedHostname
+  ) {
+    throw new Error("Resolved target URL failed host validation.");
+  }
 
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), config.requestTimeoutMs);
