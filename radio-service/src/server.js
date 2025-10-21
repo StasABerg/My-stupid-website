@@ -67,7 +67,7 @@ function rewritePlaylist(streamUrl, playlist) {
     try {
       const absolute = new URL(trimmed, baseUrl).toString();
       const encoded = encodeURIComponent(absolute);
-      return `segment?source=${encoded}`;
+      return `stream/segment?source=${encoded}`;
     } catch (_error) {
       return line;
     }
