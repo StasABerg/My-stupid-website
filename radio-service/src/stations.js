@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { config } from "./config.js";
+import { Agent } from "undici";
+
+const KEEP_ALIVE_AGENT = new Agent({
+  connections: 2000,
+  keepAliveTimeout: 60_000,
+  keepAliveMaxTimeout: 120_000,
+});
 import {
   buildRadioBrowserUrl,
   getRadioBrowserBaseUrl,
@@ -284,6 +291,7 @@ async function validateStationStream(station) {
         headers,
         redirect: "follow",
         signal: controller.signal,
+        dispatcher: KEEP_ALIVE_AGENT,
       });
     } catch (error) {
       if (error.name === "AbortError") {
