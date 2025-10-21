@@ -1,3 +1,4 @@
+import Hls from "hls.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FilterPanel,
@@ -51,6 +52,7 @@ const Radio = () => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [volume, setVolume] = useState(0.65);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
   const { data, isLoading, isError } = useRadioStations({
     search: search.trim() || undefined,
@@ -62,6 +64,16 @@ const Radio = () => {
   const displayStations = stations.slice(0, MAX_VISIBLE);
 
   const activeStation = displayStations[selectedIndex] ?? fallbackStation;
+  const proxiedStreamUrl = useMemo(() => {
+    if (!activeStation.id || !activeStation.streamUrl) {
+      return null;
+    }
+    if (activeStation.hls) {
+      const encodedId = encodeURIComponent(activeStation.id);
+      return `${RADIO_API_BASE}/stations/${encodedId}/stream`;
+    }
+    return activeStation.streamUrl;
+  }, [activeStation]);
 
   const uniqueCountries = useMemo(() => {
     const fromMeta = data?.meta.countries;
@@ -120,20 +132,89 @@ const Radio = () => {
 
   useEffect(() => {
     const element = audioRef.current;
-    if (!element) return;
-    if (activeStation.streamUrl) {
-      element.src = activeStation.streamUrl;
-      element
-        .play()
-        .catch(() => {
-          /* ignore autoplay blockers */
-        });
-    } else {
+    if (!element) {
+      return;
+    }
+
+    const destroyHls = () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+
+    if (!proxiedStreamUrl) {
+      destroyHls();
       element.pause();
       element.removeAttribute("src");
       element.load();
+      return () => {};
     }
-  }, [activeStation]);
+
+    if (activeStation.hls) {
+      if (Hls.isSupported()) {
+        destroyHls();
+        const hls = new Hls({ enableWorker: true });
+        hlsRef.current = hls;
+
+        const handleMediaAttached = () => {
+          element
+            .play()
+            .catch(() => {
+              /* ignore autoplay blockers */
+            });
+        };
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            hls.destroy();
+            hlsRef.current = null;
+          }
+        });
+
+        hls.on(Hls.Events.MEDIA_ATTACHED, handleMediaAttached);
+        hls.loadSource(proxiedStreamUrl);
+        hls.attachMedia(element);
+
+        return () => {
+          hls.off(Hls.Events.MEDIA_ATTACHED, handleMediaAttached);
+          destroyHls();
+        };
+      }
+
+      if (element.canPlayType("application/vnd.apple.mpegurl")) {
+        destroyHls();
+        element.src = proxiedStreamUrl;
+        element
+          .play()
+          .catch(() => {
+            /* ignore autoplay blockers */
+          });
+        return () => {
+          element.pause();
+        };
+      }
+
+      destroyHls();
+      console.warn("HLS playback is not supported in this browser.");
+      element.pause();
+      element.removeAttribute("src");
+      element.load();
+      return () => {};
+    }
+
+    destroyHls();
+    element.src = proxiedStreamUrl;
+    element
+      .play()
+      .catch(() => {
+        /* ignore autoplay blockers */
+      });
+
+    return () => {
+      element.pause();
+    };
+  }, [activeStation.hls, proxiedStreamUrl]);
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {

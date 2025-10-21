@@ -5,7 +5,7 @@ import {
   getRadioBrowserBaseUrl,
   rotateRadioBrowserBaseUrl,
 } from "./radioBrowser.js";
-import { fetchStationsFromS3, writeStationsByCountryToS3, writeStationsToS3 } from "./s3.js";
+import { fetchStationsFromS3, scheduleStationsPersistence } from "./s3.js";
 
 export const SCHEMA_VERSION = 3;
 
@@ -26,18 +26,13 @@ const stationSchema = z.object({
   bitrate: z.coerce.number().nullable().optional(),
   codec: z.string().nullable().optional(),
   lastcheckok: z.coerce.number().nullable().optional(),
+  ssl_error: z.coerce.number().nullable().optional(),
   lastchecktime: z.string().nullable().optional(),
   lastchangetime: z.string().nullable().optional(),
   clickcount: z.coerce.number().nullable().optional(),
   clicktrend: z.coerce.number().nullable().optional(),
   votes: z.coerce.number().nullable().optional(),
   hls: z.coerce.number().nullable().optional(),
-});
-
-const countrySchema = z.object({
-  name: z.string().min(1),
-  iso_3166_1: z.string().nullable().optional(),
-  stationcount: z.union([z.string(), z.number()]),
 });
 
 class RadioBrowserRequestError extends Error {
@@ -114,36 +109,14 @@ function sanitizeUrl(rawUrl, { forceHttps = false, allowInsecure = false } = {})
 }
 
 function sanitizeStreamUrl(rawUrl) {
-  const httpsPreferred = sanitizeUrl(rawUrl, {
+  return sanitizeUrl(rawUrl, {
     forceHttps: true,
     allowInsecure: false,
-  });
-  if (httpsPreferred) {
-    return httpsPreferred;
-  }
-
-  const allowInsecureFallback =
-    config.allowInsecureTransports || !config.radioBrowser.enforceHttpsStreams;
-
-  if (!allowInsecureFallback) {
-    return null;
-  }
-
-  return sanitizeUrl(rawUrl, {
-    forceHttps: false,
-    allowInsecure: true,
   });
 }
 
 function selectStreamUrl(data) {
-  const candidates = [data.url_resolved, data.url];
-  for (const candidate of candidates) {
-    const sanitized = sanitizeStreamUrl(candidate);
-    if (sanitized) {
-      return sanitized;
-    }
-  }
-  return null;
+  return sanitizeStreamUrl(data.url_resolved);
 }
 
 function normalizeStation(station) {
@@ -154,7 +127,9 @@ function normalizeStation(station) {
   }
 
   const isOnline = data.lastcheckok === 1;
-  if (!isOnline) {
+  const hasSslError =
+    typeof data.ssl_error === "number" ? data.ssl_error !== 0 : false;
+  if (!isOnline || hasSslError) {
     return null;
   }
 
@@ -201,60 +176,24 @@ function buildDefaultHeaders() {
   };
 }
 
-function normalizeCountry(country) {
-  const data = countrySchema.parse(country);
-  const count = Number.parseInt(String(data.stationcount ?? "0"), 10);
-  return {
-    name: data.name,
-    code: data.iso_3166_1 ?? null,
-    stationCount: Number.isFinite(count) && count > 0 ? count : 0,
-  };
+async function buildStationsUrl({ baseUrl }) {
+  const url = await buildRadioBrowserUrl(config.radioBrowser.stationsPath, { baseUrl });
+  url.searchParams.set("hidebroken", "true");
+  url.searchParams.set("order", "clickcount");
+  url.searchParams.set("reverse", "true");
+  url.searchParams.set("lastcheckok", "1");
+  url.searchParams.set("ssl_error", "0");
+
+  if (Number.isFinite(config.radioBrowser.limit) && config.radioBrowser.limit > 0) {
+    url.searchParams.set("limit", String(config.radioBrowser.limit));
+  }
+
+  return url;
 }
 
-async function fetchCountries() {
+async function fetchStations() {
   return withRotatingRadioBrowserHost(async (baseUrl) => {
-    const url = await buildRadioBrowserUrl(config.radioBrowser.countriesPath, { baseUrl });
-
-    let response;
-    try {
-      response = await fetch(url, {
-        headers: buildDefaultHeaders(),
-      });
-    } catch (error) {
-      throw new RadioBrowserRequestError(
-        `Radio Browser countries request failed: ${error.message} for ${url.toString()}`,
-      );
-    }
-
-    if (!response.ok) {
-      throw new RadioBrowserRequestError(
-        `Radio Browser countries request failed: ${response.status} for ${url.toString()}`,
-      );
-    }
-
-    const payload = await response.json();
-    if (!Array.isArray(payload)) {
-      throw new Error("Unexpected countries payload from Radio Browser API");
-    }
-
-    return {
-      countries: payload.map(normalizeCountry),
-      requestUrl: url.toString(),
-    };
-  });
-}
-
-async function buildStationsByCountryUrl(countryName, { baseUrl }) {
-  const basePath = config.radioBrowser.stationsByCountryPath.replace(/\/$/, "");
-  return buildRadioBrowserUrl(`${basePath}/${encodeURIComponent(countryName)}`, { baseUrl });
-}
-
-async function fetchStationsForCountry(countryName) {
-  return withRotatingRadioBrowserHost(async (baseUrl) => {
-    const url = await buildStationsByCountryUrl(countryName, { baseUrl });
-    url.searchParams.set("hidebroken", "true");
-    url.searchParams.set("order", "clickcount");
-    url.searchParams.set("reverse", "true");
+    const url = await buildStationsUrl({ baseUrl });
 
     let response;
     try {
@@ -322,102 +261,190 @@ function buildCountryGroups(stations) {
   return groups;
 }
 
+async function validateStationStream(station) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.streamValidation.timeoutMs);
+
+  try {
+    const clean = async (response) => {
+      if (response?.body) {
+        try {
+          await response.body.cancel();
+        } catch (_error) {
+          /* ignore cancellation errors */
+        }
+      }
+    };
+
+    let response;
+    try {
+      response = await fetch(station.streamUrl, {
+        method: "HEAD",
+        redirect: "follow",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        return { ok: false, reason: "head-failed" };
+      }
+      throw error;
+    }
+
+    const needsBodyCheck =
+      response.status === 405 ||
+      response.status === 501 ||
+      response.status === 204 ||
+      (response.ok && response.headers.get("content-length") === "0");
+
+    if (!needsBodyCheck && !response.ok) {
+      await clean(response);
+      return { ok: false, reason: `status-${response.status}` };
+    }
+
+    let candidate = response;
+
+    if (needsBodyCheck || response.ok) {
+      await clean(response);
+      candidate = await fetch(station.streamUrl, {
+        method: "GET",
+        headers: { Range: "bytes=0-1" },
+        redirect: "follow",
+        signal: controller.signal,
+      });
+    }
+
+    if (!candidate.ok) {
+      await clean(candidate);
+      return { ok: false, reason: `status-${candidate.status}` };
+    }
+
+    const finalUrl = candidate.url ?? station.streamUrl;
+    if (!finalUrl.toLowerCase().startsWith("https://")) {
+      await clean(candidate);
+      return { ok: false, reason: "insecure-redirect" };
+    }
+
+    const contentType = candidate.headers.get("content-type") ?? "";
+    await clean(candidate);
+    return {
+      ok: true,
+      finalUrl,
+      contentType,
+    };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      return { ok: false, reason: "timeout" };
+    }
+    return { ok: false, reason: "network" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function validateStationStreams(stations) {
+  const concurrency = Math.max(1, config.streamValidation.concurrency);
+  const accepted = new Array(stations.length);
+  const dropCounts = new Map();
+
+  let index = 0;
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const currentIndex = index;
+      index += 1;
+      if (currentIndex >= stations.length) {
+        break;
+      }
+
+      const station = stations[currentIndex];
+      const result = await validateStationStream(station);
+      if (result.ok) {
+        const updatedStation = { ...station };
+        if (result.finalUrl && result.finalUrl !== station.streamUrl) {
+          updatedStation.streamUrl = result.finalUrl;
+        }
+        if (result.contentType && /mpegurl/i.test(result.contentType) && !station.hls) {
+          updatedStation.hls = true;
+        }
+        accepted[currentIndex] = updatedStation;
+      } else {
+        const reason = result.reason ?? "invalid";
+        dropCounts.set(reason, (dropCounts.get(reason) ?? 0) + 1);
+      }
+    }
+  });
+
+  await Promise.all(workers);
+
+  const filtered = accepted.filter(Boolean);
+  return {
+    stations: filtered,
+    dropped: stations.length - filtered.length,
+    reasons: Object.fromEntries(dropCounts),
+  };
+}
+
 async function fetchFromRadioBrowser() {
-  const { countries, requestUrl: countriesRequestUrl } = await fetchCountries();
-  const sortedCountries = countries
-    .filter((country) => country.stationCount > 0)
-    .sort((a, b) => b.stationCount - a.stationCount);
+  const { rawStations, requestUrl } = await fetchStations();
+  const requestUrls = [requestUrl];
 
   const stations = [];
-  const requestUrls = [countriesRequestUrl];
   let filteredStations = 0;
 
   const maxStations =
     Number.isFinite(config.radioBrowser.limit) && config.radioBrowser.limit > 0
       ? config.radioBrowser.limit
       : Number.POSITIVE_INFINITY;
-  const maxCountries =
-    Number.isFinite(config.radioBrowser.maxPages) && config.radioBrowser.maxPages > 0
-      ? config.radioBrowser.maxPages
-      : Number.POSITIVE_INFINITY;
-  const perCountryLimit =
-    Number.isFinite(config.radioBrowser.pageSize) && config.radioBrowser.pageSize > 0
-      ? Math.max(1, config.radioBrowser.pageSize)
-      : Number.POSITIVE_INFINITY;
-  const concurrency = Math.max(1, config.radioBrowser.countryConcurrency);
 
-  let processedCountries = 0;
-  let index = 0;
-
-  outer: while (index < sortedCountries.length) {
-    if (stations.length >= maxStations || processedCountries >= maxCountries) {
+  for (const station of rawStations) {
+    if (stations.length >= maxStations) {
       break;
     }
 
-    const remainingCountries =
-      maxCountries === Number.POSITIVE_INFINITY
-        ? sortedCountries.length - index
-        : Math.min(sortedCountries.length - index, maxCountries - processedCountries);
-
-    if (remainingCountries <= 0) {
-      break;
-    }
-
-    const batchSize = Math.min(concurrency, remainingCountries);
-    const batch = sortedCountries.slice(index, index + batchSize);
-    const results = await Promise.all(
-      batch.map((country) => fetchStationsForCountry(country.name)),
-    );
-
-    index += batch.length;
-    processedCountries += batch.length;
-
-    for (const { rawStations, requestUrl } of results) {
-      requestUrls.push(requestUrl);
-
-      const limitedStations =
-        perCountryLimit === Number.POSITIVE_INFINITY
-          ? rawStations
-          : rawStations.slice(0, perCountryLimit);
-
-      for (const station of limitedStations) {
-        if (stations.length >= maxStations) {
-          break outer;
-        }
-        const normalized = normalizeStation(station);
-        if (normalized) {
-          stations.push(normalized);
-        } else {
-          filteredStations += 1;
-        }
-      }
+    const normalized = normalizeStation(station);
+    if (normalized) {
+      stations.push(normalized);
+    } else {
+      filteredStations += 1;
     }
   }
 
-  if (stations.length === 0) {
+  let validationDrops = 0;
+  let finalStations = stations;
+  if (config.streamValidation.enabled) {
+    const { stations: validatedStations, dropped, reasons } =
+      await validateStationStreams(stations);
+    validationDrops = dropped;
+    finalStations = validatedStations;
+    if (validationDrops > 0) {
+      console.log("stream-validation", { dropped: validationDrops, reasons });
+    }
+  }
+
+  if (finalStations.length === 0) {
     throw new Error("Radio Browser API returned no stations");
   }
 
-  if (filteredStations > 0) {
-    console.log("filtered-stations", { dropped: filteredStations });
+  if (filteredStations > 0 || validationDrops > 0) {
+    console.log("filtered-stations", {
+      droppedNormalizing: filteredStations,
+      droppedValidation: validationDrops,
+    });
   }
 
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
-    source: countriesRequestUrl,
+    source: requestUrl,
     requests: requestUrls,
-    total: stations.length,
-    stations,
+    total: finalStations.length,
+    stations: finalStations,
   };
 
-  const countryGroups = buildCountryGroups(stations);
-  const serializedPayload = JSON.stringify(payload);
+  const countryGroups = buildCountryGroups(finalStations);
 
-  await Promise.all([
-    writeStationsToS3(payload, serializedPayload),
-    writeStationsByCountryToS3(payload, countryGroups),
-  ]);
+  scheduleStationsPersistence(payload, countryGroups);
   return payload;
 }
 
