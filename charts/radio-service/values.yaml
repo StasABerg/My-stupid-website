@@ -109,6 +109,17 @@ env:
   - name: ALLOW_INSECURE_TRANSPORT
     value: "true"
 
+initContainers:
+  - name: warm-cache
+    image:
+      registry: ghcr.io
+      repository: stasaberg/radio-service
+      tag: ""
+      pullPolicy: IfNotPresent
+    command:
+      - node
+      - src/refresh.js
+
 resources:
   requests:
     cpu: 1000m
