@@ -141,6 +141,42 @@ initContainers:
         cpu: 1500m
         memory: 2048Mi
 
+cronJob:
+  enabled: false
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  command:
+    - node
+    - src/refresh.js
+  env:
+    - name: STREAM_VALIDATION_ENABLED
+      value: "true"
+    - name: STREAM_VALIDATION_CONCURRENCY
+      value: "64"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1500m
+      memory: 2048Mi
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  image:
+    registry: ""
+    repository: ""
+    tag: ""
+    pullPolicy: ""
+
 resources:
   requests:
     cpu: 1000m
