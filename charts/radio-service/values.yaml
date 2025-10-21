@@ -114,7 +114,7 @@ env:
 initContainers: []
 
 cronJob:
-  enabled: false
+  enabled: true
   schedule: "0 2 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
