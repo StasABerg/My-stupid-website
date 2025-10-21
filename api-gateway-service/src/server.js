@@ -251,19 +251,13 @@ async function proxyRequest(req, res, target) {
         "Content-Type": "application/json",
         ...corsHeaders,
       });
-    } else {
-      res.statusCode = status;
-      for (const [key, value] of Object.entries(corsHeaders)) {
-        if (typeof value === "string") {
-          res.setHeader(key, value);
-        }
-      }
-      if (!res.hasHeader("Content-Type")) {
-        res.setHeader("Content-Type", "application/json");
-      }
     }
     if (!res.writableEnded) {
-      res.end(JSON.stringify({ error: "Upstream request failed" }));
+      if (!res.headersSent) {
+        res.end(JSON.stringify({ error: "Upstream request failed" }));
+      } else {
+        res.end();
+      }
     }
   } finally {
     clearTimeout(timeout);
