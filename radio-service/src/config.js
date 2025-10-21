@@ -63,6 +63,38 @@ const countryConcurrencyCandidate = numberFromEnv(
   4,
 );
 const countryConcurrency = countryConcurrencyCandidate > 0 ? countryConcurrencyCandidate : 4;
+
+function deriveTrustProxyValue(rawValue) {
+  const baseValue = trustProxyFromEnv(rawValue);
+  const clusterCidr = "10.42.0.0/16";
+
+  if (baseValue === false) {
+    return [clusterCidr];
+  }
+
+  if (baseValue === true) {
+    return true;
+  }
+
+  if (typeof baseValue === "number") {
+    return [baseValue, clusterCidr];
+  }
+
+  if (typeof baseValue === "string") {
+    const parsed = baseValue
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    parsed.push(clusterCidr);
+    return parsed;
+  }
+
+  if (Array.isArray(baseValue)) {
+    return [...baseValue, clusterCidr];
+  }
+
+  return [clusterCidr];
+}
 const apiDefaultPageSizeCandidate = numberFromEnv(process.env.API_DEFAULT_PAGE_SIZE, 50);
 const apiMaxPageSizeCandidate = numberFromEnv(process.env.API_MAX_PAGE_SIZE, 100);
 const apiDefaultPageSize =
@@ -71,7 +103,7 @@ const apiMaxPageSize = apiMaxPageSizeCandidate > 0 ? apiMaxPageSizeCandidate : 1
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
-  trustProxy: trustProxyFromEnv(process.env.TRUST_PROXY),
+  trustProxy: deriveTrustProxyValue(process.env.TRUST_PROXY),
   redisUrl: process.env.REDIS_URL,
   cacheKey: process.env.STATIONS_CACHE_KEY ?? "radio:stations:all",
   cacheTtlSeconds: numberFromEnv(process.env.STATIONS_CACHE_TTL, 900),

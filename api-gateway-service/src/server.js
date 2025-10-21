@@ -208,9 +208,22 @@ async function proxyRequest(req, res, target) {
     const body =
       req.method === "GET" || req.method === "HEAD" ? null : await readRequestBody(req);
 
+    const outgoingHeaders = sanitizeRequestHeaders(req.headers);
+    const clientIp = deriveClientIp(req);
+    if (clientIp) {
+      const cfKey = findHeaderKey(outgoingHeaders, "cf-connecting-ip");
+      if (cfKey) {
+        outgoingHeaders[cfKey] = clientIp;
+      } else {
+        outgoingHeaders["CF-Connecting-IP"] = clientIp;
+      }
+      outgoingHeaders["X-Real-IP"] = clientIp;
+    }
+    appendForwardedFor(outgoingHeaders, req.socket?.remoteAddress ?? null);
+
     const upstreamResponse = await fetch(targetUrl, {
       method: req.method,
-      headers: sanitizeRequestHeaders(req.headers),
+      headers: outgoingHeaders,
       body,
       signal: abort.signal,
     });
@@ -241,6 +254,65 @@ async function proxyRequest(req, res, target) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function deriveClientIp(req) {
+  const cf = req.headers["cf-connecting-ip"];
+  if (typeof cf === "string" && cf.trim().length > 0) {
+    return normalizeAddress(cf.trim());
+  }
+  if (Array.isArray(cf) && cf.length > 0) {
+    return normalizeAddress(cf[0].trim());
+  }
+
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim().length > 0) {
+    return normalizeAddress(forwarded.split(",")[0].trim());
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return normalizeAddress(forwarded[0].split(",")[0].trim());
+  }
+
+  return normalizeAddress(req.socket?.remoteAddress ?? null);
+}
+
+function findHeaderKey(headers, target) {
+  const lowerTarget = target.toLowerCase();
+  return Object.keys(headers).find((key) => key.toLowerCase() === lowerTarget) ?? null;
+}
+
+function appendForwardedFor(headers, remoteAddress) {
+  if (!remoteAddress) {
+    return;
+  }
+  const normalized = normalizeAddress(remoteAddress);
+  if (!normalized) {
+    return;
+  }
+  const existingKey = findHeaderKey(headers, "x-forwarded-for");
+  if (existingKey) {
+    const parts = headers[existingKey]
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    if (!parts.includes(normalized)) {
+      parts.push(normalized);
+    }
+    headers[existingKey] = parts.join(", ");
+  } else {
+    headers["X-Forwarded-For"] = normalized;
+  }
+}
+
+function normalizeAddress(address) {
+  if (!address) return null;
+  if (address.startsWith("::ffff:")) {
+    return address.slice(7);
+  }
+  if (address === "::1") {
+    return "127.0.0.1";
+  }
+  return address;
 }
 
 const server = http.createServer(async (req, res) => {
