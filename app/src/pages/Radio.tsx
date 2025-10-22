@@ -49,6 +49,7 @@ const MAX_VISIBLE = 120;
 const Radio = () => {
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("");
+  const [genre, setGenre] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [volume, setVolume] = useState(0.65);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -57,6 +58,7 @@ const Radio = () => {
   const { data, isLoading, isError } = useRadioStations({
     search: search.trim() || undefined,
     country: country || undefined,
+    genre: genre || undefined,
     limit: 400,
   });
 
@@ -99,6 +101,32 @@ const Radio = () => {
     });
   }, [data?.meta.countries, stations]);
 
+  const uniqueGenres = useMemo(() => {
+    const fromMeta = data?.meta.genres;
+    if (Array.isArray(fromMeta) && fromMeta.length > 0) {
+      return [...fromMeta].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
+      );
+    }
+
+    const seen = new Map<string, string>();
+    for (const station of stations) {
+      const tags = Array.isArray(station.tags) ? station.tags : [];
+      for (const tag of tags) {
+        const trimmed = tag.trim();
+        if (!trimmed) continue;
+        const lower = trimmed.toLowerCase();
+        if (!seen.has(lower)) {
+          seen.set(lower, trimmed);
+        }
+      }
+    }
+
+    return Array.from(seen.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [data?.meta.genres, stations]);
+
   const handleStationChange = (index: number) => {
     setSelectedIndex(index);
   };
@@ -114,6 +142,11 @@ const Radio = () => {
 
   const handleCountryChange = (value: string) => {
     setCountry(value);
+    setSelectedIndex(0);
+  };
+
+  const handleGenreChange = (value: string) => {
+    setGenre(value);
     setSelectedIndex(0);
   };
 
@@ -289,6 +322,9 @@ const Radio = () => {
                 country={country}
                 onCountryChange={handleCountryChange}
                 countries={uniqueCountries}
+                genre={genre}
+                onGenreChange={handleGenreChange}
+                genres={uniqueGenres}
                 volume={volume}
                 onVolumeChange={handleVolumeChange}
               />

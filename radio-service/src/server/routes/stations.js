@@ -1,3 +1,38 @@
+const MAX_GENRE_OPTIONS = 200;
+
+function buildGenreList(stations, { limit = MAX_GENRE_OPTIONS } = {}) {
+  const counts = new Map();
+
+  for (const station of stations) {
+    const tags = Array.isArray(station.tags) ? station.tags : [];
+    for (const tag of tags) {
+      const trimmed = tag?.toString().trim();
+      if (!trimmed) {
+        continue;
+      }
+      const normalized = trimmed.toLowerCase();
+      if (!counts.has(normalized)) {
+        counts.set(normalized, { label: trimmed, count: 0 });
+      }
+      counts.get(normalized).count += 1;
+    }
+  }
+
+  const sorted = Array.from(counts.values()).sort((a, b) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+  });
+
+  const limited =
+    Number.isFinite(limit) && limit > 0
+      ? sorted.slice(0, limit)
+      : sorted;
+
+  return limited.map((entry) => entry.label);
+}
+
 function buildStationsResponse({ stations, matches, totalMatches, meta, config }) {
   return {
     meta: {
@@ -14,12 +49,13 @@ function buildStationsResponse({ stations, matches, totalMatches, meta, config }
       origin: meta.origin,
       updatedAt: meta.updatedAt,
       countries: meta.countries,
+      genres: meta.genres,
     },
     items: matches,
   };
 }
 
-function filterStations(stations, { country, language, tag, search }) {
+function filterStations(stations, { country, language, tag, search, genre }) {
   return stations.filter((station) => {
     if (country) {
       const stationCountry = station.country?.toLowerCase();
@@ -39,6 +75,13 @@ function filterStations(stations, { country, language, tag, search }) {
     if (tag) {
       const tags = Array.isArray(station.tags) ? station.tags : [];
       if (!tags.some((item) => item.toLowerCase() === tag)) {
+        return false;
+      }
+    }
+
+    if (genre) {
+      const tags = Array.isArray(station.tags) ? station.tags : [];
+      if (!tags.some((item) => item.toLowerCase() === genre)) {
         return false;
       }
     }
@@ -87,6 +130,7 @@ export function registerStationsRoutes(
       const language = req.query.language?.toString().toLowerCase();
       const country = req.query.country?.toString().toLowerCase();
       const tag = req.query.tag?.toString().toLowerCase();
+      const genre = req.query.genre?.toString().toLowerCase();
       const search = req.query.search?.toString().toLowerCase();
 
       const { payload, cacheSource } = await stationsLoader({ forceRefresh });
@@ -100,7 +144,15 @@ export function registerStationsRoutes(
         ),
       ).sort((a, b) => a.localeCompare(b));
 
-      const filtered = filterStations(stations, { country, language, tag, search });
+      const availableGenres = buildGenreList(stations);
+
+      const filtered = filterStations(stations, {
+        country,
+        language,
+        tag,
+        search,
+        genre,
+      });
 
       const matches = [];
       let matchesSeen = 0;
@@ -134,6 +186,7 @@ export function registerStationsRoutes(
           origin: payload?.source ?? null,
           updatedAt: payload?.updatedAt,
           countries: availableCountries,
+          genres: availableGenres,
         },
         config,
       });

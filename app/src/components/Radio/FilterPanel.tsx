@@ -4,6 +4,9 @@ interface FilterPanelProps {
   country: string;
   onCountryChange: (value: string) => void;
   countries: string[];
+  genre: string;
+  onGenreChange: (value: string) => void;
+  genres: string[];
   volume: number;
   onVolumeChange: (value: number) => void;
 }
@@ -14,6 +17,9 @@ const FilterPanel = ({
   country,
   onCountryChange,
   countries,
+  genre,
+  onGenreChange,
+  genres,
   volume,
   onVolumeChange,
 }: FilterPanelProps) => (
@@ -51,6 +57,26 @@ const FilterPanel = ({
     >
       <option value="">All origins</option>
       {countries.map((item) => (
+        <option key={item} value={item}>
+          {item}
+        </option>
+      ))}
+    </select>
+
+    <label
+      htmlFor="station-genre"
+      className="mt-4 block text-[0.6rem] uppercase tracking-[0.25em] text-terminal-cyan"
+    >
+      Genre
+    </label>
+    <select
+      id="station-genre"
+      value={genre}
+      onChange={(event) => onGenreChange(event.target.value)}
+      className="mt-2 w-full border border-terminal-green/40 bg-black px-3 py-2 font-mono text-[0.75rem] text-terminal-white focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
+    >
+      <option value="">All genres</option>
+      {genres.map((item) => (
         <option key={item} value={item}>
           {item}
         </option>

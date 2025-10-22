@@ -49,6 +49,7 @@ export type StationsResponse = {
     cacheSource: string;
     updatedAt?: string;
     countries?: string[];
+    genres?: string[];
     origin?: string | null;
   };
   items: RadioStation[];
@@ -58,6 +59,7 @@ export type StationFilters = {
   country?: string;
   language?: string;
   tag?: string;
+  genre?: string;
   search?: string;
   limit?: number;
 };
@@ -69,6 +71,7 @@ async function fetchStations(filters: StationFilters): Promise<StationsResponse>
   if (filters.country) params.set("country", filters.country);
   if (filters.language) params.set("language", filters.language);
   if (filters.tag) params.set("tag", filters.tag);
+  if (filters.genre) params.set("genre", filters.genre);
   if (filters.search) params.set("search", filters.search);
 
   const response = await fetch(`${RADIO_API_BASE}/stations?${params.toString()}`);
