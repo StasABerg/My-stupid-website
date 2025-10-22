@@ -249,7 +249,7 @@ const Radio = () => {
     <div className="min-h-screen bg-black text-terminal-white px-2 sm:px-0">
       <TerminalWindow
         aria-label="Gitgud radio control center"
-        className="mx-auto min-h-screen w-full max-w-5xl"
+        className="min-h-screen w-full"
       >
         <TerminalHeader displayCwd="~/radio" />
         <div className="flex-1 overflow-y-auto p-3 sm:p-6 font-mono text-xs sm:text-sm space-y-6">
