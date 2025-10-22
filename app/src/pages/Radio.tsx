@@ -63,7 +63,12 @@ const Radio = () => {
   const stations = useMemo(() => data?.items ?? [], [data]);
   const displayStations = stations.slice(0, MAX_VISIBLE);
 
-  const activeStation = displayStations[selectedIndex] ?? fallbackStation;
+  const boundedSelectedIndex =
+    displayStations.length === 0
+      ? 0
+      : Math.min(selectedIndex, displayStations.length - 1);
+
+  const activeStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
   const proxiedStreamUrl = useMemo(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
       return null;
@@ -111,18 +116,6 @@ const Radio = () => {
     setCountry(value);
     setSelectedIndex(0);
   };
-
-  useEffect(() => {
-    if (displayStations.length === 0) {
-      if (selectedIndex !== 0) {
-        setSelectedIndex(0);
-      }
-      return;
-    }
-    if (selectedIndex >= displayStations.length) {
-      setSelectedIndex(0);
-    }
-  }, [displayStations.length, selectedIndex]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -243,16 +236,14 @@ const Radio = () => {
     Math.min(displayStations.length, MAX_VISIBLE),
   )}`;
 
-  const updatedAtDisplay = useMemo(() => {
-    if (!data?.meta.updatedAt) {
-      return undefined;
-    }
-    const parsed = new Date(data.meta.updatedAt);
-    if (Number.isNaN(parsed.getTime())) {
-      return data.meta.updatedAt;
-    }
-    return parsed.toLocaleString();
-  }, [data?.meta.updatedAt]);
+  const updatedAtValue = data?.meta.updatedAt;
+  let updatedAtDisplay: string | undefined;
+  if (updatedAtValue) {
+    const parsed = new Date(updatedAtValue);
+    updatedAtDisplay = Number.isNaN(parsed.getTime())
+      ? updatedAtValue
+      : parsed.toLocaleString();
+  }
 
   return (
     <div className="min-h-screen bg-black text-terminal-white px-2 sm:px-0">
@@ -269,13 +260,13 @@ const Radio = () => {
               <TerminalPrompt path="~/radio" command="radio status" />
               <StationInfoPanel
                 station={activeStation}
-                frequencyLabel={`${formatFrequency(selectedIndex)} FM`}
+                frequencyLabel={`${formatFrequency(boundedSelectedIndex)} FM`}
               />
 
               <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
               <ScannerControl
-                value={selectedIndex}
-                max={displayStations.length - 1}
+                value={boundedSelectedIndex}
+                max={Math.max(displayStations.length - 1, 0)}
                 onChange={handleStationChange}
                 minLabel={`${formatFrequency(0)} FM`}
                 maxLabel={maxFrequencyLabel}
@@ -284,7 +275,7 @@ const Radio = () => {
               <TerminalPrompt path="~/radio" command="radio presets --list" />
               <PresetButtons
                 stations={displayStations}
-                selectedIndex={selectedIndex}
+                selectedIndex={boundedSelectedIndex}
                 onSelect={handleStationChange}
                 colors={presetColors}
               />
@@ -314,7 +305,7 @@ const Radio = () => {
                 ) : (
                   <ol className="max-h-[45vh] sm:max-h-[55vh] lg:max-h-[65vh] overflow-y-auto divide-y divide-terminal-green/20">
                     {displayStations.map((station, index) => {
-                      const isSelected = index === selectedIndex;
+                      const isSelected = index === boundedSelectedIndex;
                       return (
                         <li key={station.id}>
                           <button

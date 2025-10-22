@@ -18,7 +18,7 @@ function TerminalPrompt({
   className = ""
 }: TerminalPromptProps) {
   return (
-    <div className={`mb-2 ${className}`}>
+    <div className={`mb-2 break-words ${className}`}>
       <span className="text-terminal-green">{user}@{host}</span>
       <span className="text-terminal-white">:</span>
       <span className="text-terminal-cyan">{path}</span>

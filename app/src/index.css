@@ -55,8 +55,11 @@ All colors MUST be HSL.
 }
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     @apply border-border;
+    box-sizing: border-box;
   }
 
   html,
@@ -69,6 +72,7 @@ All colors MUST be HSL.
     margin: 0;
     display: flex;
     flex-direction: column;
+    overflow-x: hidden;
     @apply bg-background text-foreground font-mono;
   }
 }
@@ -145,6 +149,7 @@ All colors MUST be HSL.
 
   .font-mono {
     letter-spacing: 0;
-    white-space: pre;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
   }
 }

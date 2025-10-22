@@ -8,7 +8,7 @@ function TerminalHeader({ displayCwd }: TerminalHeaderProps) {
       <span className="text-terminal-red">●</span>
       <span className="text-terminal-yellow">●</span>
       <span className="text-terminal-green">●</span>
-      <span className="ml-3 text-terminal-cyan truncate">
+      <span className="ml-3 flex-1 min-w-0 text-terminal-cyan truncate">
         sandbox@gitgud.qzz.io:{displayCwd} — isolated pod
       </span>
     </div>
