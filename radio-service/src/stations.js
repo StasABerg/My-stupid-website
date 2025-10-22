@@ -268,6 +268,17 @@ function buildCountryGroups(stations) {
   return groups;
 }
 
+function buildStationSignature(station) {
+  return [
+    station.streamUrl,
+    station.lastChangedAt ?? null,
+    station.lastCheckedAt ?? null,
+    station.clickCount ?? null,
+  ]
+    .map((value) => (value === null || value === undefined ? "" : String(value)))
+    .join("|");
+}
+
 async function validateStationStream(station) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.streamValidation.timeoutMs);
@@ -283,7 +294,13 @@ async function validateStationStream(station) {
       }
     };
 
-    const headers = { Range: "bytes=0-4095" };
+    const headers = {
+      Range: "bytes=0-4095",
+      "User-Agent": "my-stupid-website gitgud.qzz.io stasberg",
+      Accept: "*/*",
+      "Accept-Encoding": "gzip, deflate, br",
+      Connection: "keep-alive",
+    };
     let candidate;
     try {
       candidate = await fetch(station.streamUrl, {
@@ -411,18 +428,26 @@ async function validateStationStreams(stations, { redis } = {}) {
       }
 
       const station = stations[currentIndex];
+      const signature = buildStationSignature(station);
       const cacheEntry = cache?.get(station.streamUrl);
       if (cacheEntry && typeof cacheEntry.validatedAt === "number") {
-        if (now - cacheEntry.validatedAt <= cacheTtlMs) {
+        const isFresh = now - cacheEntry.validatedAt <= cacheTtlMs;
+        const signatureMatches = cacheEntry.signature === signature;
+        const cachedUrl = cacheEntry.finalUrl ?? station.streamUrl;
+        const isSecure = cachedUrl.toLowerCase().startsWith("https://");
+        if (isFresh && signatureMatches && isSecure) {
           const updatedStation = { ...station };
-          if (cacheEntry.finalUrl) {
+          if (cacheEntry.finalUrl && cacheEntry.finalUrl !== station.streamUrl) {
             updatedStation.streamUrl = cacheEntry.finalUrl;
           }
-          if (cacheEntry.forceHls === true) {
+          if (cacheEntry.forceHls === true && !updatedStation.hls) {
             updatedStation.hls = true;
           }
           accepted[currentIndex] = updatedStation;
           continue;
+        }
+        if (redis && cacheKey) {
+          cacheRemovals.add(station.streamUrl);
         }
       }
 
@@ -443,6 +468,7 @@ async function validateStationStreams(stations, { redis } = {}) {
               validatedAt: Date.now(),
               finalUrl: updatedStation.streamUrl,
               forceHls: updatedStation.hls === true,
+              signature,
             },
           });
         }
