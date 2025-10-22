@@ -1,6 +1,4 @@
-import { config } from "../../config/index.js";
-
-function buildStationsResponse({ stations, matches, totalMatches, meta }) {
+function buildStationsResponse({ stations, matches, totalMatches, meta, config }) {
   return {
     meta: {
       total: stations.length,
@@ -62,7 +60,10 @@ function filterStations(stations, { country, language, tag, search }) {
   });
 }
 
-export function registerStationsRoutes(app, { ensureRedis, stationsLoader, updateStations, redis }) {
+export function registerStationsRoutes(
+  app,
+  { config, ensureRedis, stationsLoader, updateStations, redis },
+) {
   app.get("/stations", async (req, res) => {
     try {
       await ensureRedis();
@@ -134,6 +135,7 @@ export function registerStationsRoutes(app, { ensureRedis, stationsLoader, updat
           updatedAt: payload?.updatedAt,
           countries: availableCountries,
         },
+        config,
       });
 
       res.json(response);

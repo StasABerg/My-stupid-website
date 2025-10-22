@@ -1,5 +1,4 @@
 import { fetchWithKeepAlive } from "../../http/client.js";
-import { config } from "../../config/index.js";
 import { pickForwardHeaders, rewritePlaylist, shouldTreatAsPlaylist } from "./utils.js";
 
 async function findStationById(stationsLoader, stationId) {
@@ -9,7 +8,7 @@ async function findStationById(stationsLoader, stationId) {
   return station ? { station, payload } : { station: null, payload };
 }
 
-export function registerStreamRoutes(app, { ensureRedis, stationsLoader }) {
+export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader }) {
   app.get("/stations/:stationId/stream", async (req, res) => {
     try {
       await ensureRedis();

@@ -255,13 +255,16 @@ const Radio = () => {
   }, [data?.meta.updatedAt]);
 
   return (
-    <div className="h-screen bg-black text-terminal-white">
-      <TerminalWindow aria-label="Gitgud radio control center">
+    <div className="min-h-screen bg-black text-terminal-white px-2 sm:px-0">
+      <TerminalWindow
+        aria-label="Gitgud radio control center"
+        className="mx-auto min-h-screen w-full max-w-5xl"
+      >
         <TerminalHeader displayCwd="~/radio" />
-        <div className="flex-1 overflow-y-auto p-3 sm:p-6 font-mono text-xs sm:text-sm">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 font-mono text-xs sm:text-sm space-y-6">
           <RadioHeader />
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div className="space-y-4">
               <TerminalPrompt path="~/radio" command="radio status" />
               <StationInfoPanel
@@ -309,7 +312,7 @@ const Radio = () => {
                     No stations found. Adjust filters or refresh the cache.
                   </p>
                 ) : (
-                  <ol className="max-h-[55vh] overflow-y-auto divide-y divide-terminal-green/20">
+                  <ol className="max-h-[45vh] sm:max-h-[55vh] lg:max-h-[65vh] overflow-y-auto divide-y divide-terminal-green/20">
                     {displayStations.map((station, index) => {
                       const isSelected = index === selectedIndex;
                       return (
@@ -317,18 +320,22 @@ const Radio = () => {
                           <button
                             type="button"
                             onClick={() => handleStationChange(index)}
-                            className={`flex w-full items-center gap-3 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                            className={`flex w-full flex-col gap-2 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow sm:flex-row sm:items-center ${
                               isSelected
                                 ? "bg-terminal-green/20 text-terminal-yellow"
                                 : "text-terminal-white hover:bg-terminal-green/10"
                             }`}
                           >
-                            <span className="w-4 text-terminal-cyan">{isSelected ? ">" : " "}</span>
-                            <span className="w-20 text-terminal-green">
+                            <span className="text-terminal-cyan sm:w-4 sm:text-base">
+                              {isSelected ? ">" : ""}
+                            </span>
+                            <span className="text-terminal-green text-[0.7rem] sm:w-20 sm:text-sm">
                               {`${formatFrequency(index)} FM`}
                             </span>
-                            <span className="flex-1 truncate">{station.name}</span>
-                            <span className="hidden md:block text-terminal-cyan">
+                            <span className="flex-1 truncate text-[0.75rem] sm:text-sm">
+                              {station.name}
+                            </span>
+                            <span className="hidden text-[0.7rem] text-terminal-cyan md:block">
                               {station.country ?? "Unknown"}
                             </span>
                           </button>
