@@ -13,4 +13,4 @@ COPY radio-service/src ./src
 RUN chown -R node:node /app
 USER node
 EXPOSE 4010
-CMD ["node", "src/server.js"]
+CMD ["node", "src/server/index.js"]
