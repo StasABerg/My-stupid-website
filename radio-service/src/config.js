@@ -107,7 +107,7 @@ const streamValidationEnabledFlag = booleanFromEnv(process.env.STREAM_VALIDATION
 const streamValidationEnabled = streamValidationEnabledFlag !== false;
 const streamValidationTimeoutCandidate = numberFromEnv(
   process.env.STREAM_VALIDATION_TIMEOUT_MS,
-  5000,
+  10000,
 );
 const streamValidationTimeoutMs =
   streamValidationTimeoutCandidate > 0 ? streamValidationTimeoutCandidate : 5000;
