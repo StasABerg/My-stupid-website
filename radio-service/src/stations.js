@@ -126,10 +126,23 @@ function selectStreamUrl(data) {
   return sanitizeStreamUrl(data.url_resolved);
 }
 
+function isBlockedDomain(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname.endsWith("stream.khz.se");
+  } catch (_error) {
+    return false;
+  }
+}
+
 function normalizeStation(station) {
   const data = stationSchema.parse(station);
   const streamUrl = selectStreamUrl(data);
   if (!streamUrl) {
+    return null;
+  }
+
+  if (isBlockedDomain(streamUrl)) {
     return null;
   }
 
@@ -293,6 +306,10 @@ async function validateStationStream(station) {
         }
       }
     };
+
+    if (isBlockedDomain(station.streamUrl)) {
+      return { ok: false, reason: "blocked-domain" };
+    }
 
     const headers = {
       Range: "bytes=0-4095",
