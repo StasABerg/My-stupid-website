@@ -1,4 +1,4 @@
-import { config } from "./config.js";
+import { config } from "./config/index.js";
 
 export async function readStationsFromCache(redis) {
   const raw = await redis.get(config.cacheKey);

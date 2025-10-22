@@ -4,7 +4,7 @@ import {
   notifyStationClick,
   refreshStations,
   sanitizePersistedStationsPayload,
-} from "./stations.js";
+} from "./stations/index.js";
 
 let inflightRefreshPromise = null;
 

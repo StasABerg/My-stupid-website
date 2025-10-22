@@ -1,4 +1,4 @@
-import { validateConfig } from "./config.js";
+import { validateConfig } from "./config/index.js";
 import { createRedisClient } from "./redis.js";
 import { updateStations } from "./service.js";
 

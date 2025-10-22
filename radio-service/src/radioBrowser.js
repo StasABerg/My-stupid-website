@@ -1,5 +1,5 @@
 import dns from "node:dns/promises";
-import { config } from "./config.js";
+import { config } from "./config/index.js";
 
 const RADIO_BROWSER_SRV_RECORD = "_api._tcp.radio-browser.info";
 
