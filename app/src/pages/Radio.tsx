@@ -332,7 +332,7 @@ const Radio = () => {
                             <span className="text-terminal-green text-[0.7rem] sm:w-20 sm:text-sm">
                               {`${formatFrequency(index)} FM`}
                             </span>
-                            <span className="flex-1 truncate text-[0.75rem] sm:text-sm">
+                            <span className="flex-1 whitespace-normal break-words text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
                               {station.name}
                             </span>
                             <span className="hidden text-[0.7rem] text-terminal-cyan md:block">

@@ -8,7 +8,7 @@ interface StationInfoPanelProps {
 const StationInfoPanel = ({ station, frequencyLabel }: StationInfoPanelProps) => (
   <section className="border border-terminal-green/40 rounded-md bg-black/70 p-4">
     <header className="flex flex-wrap items-baseline justify-between gap-2">
-      <h2 className="text-terminal-yellow text-lg sm:text-xl font-semibold">
+      <h2 className="text-terminal-yellow text-lg sm:text-xl font-semibold break-words">
         {station.name}
       </h2>
       <span className="text-terminal-green text-sm">{frequencyLabel}</span>
