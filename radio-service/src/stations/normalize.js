@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { config } from "../config/index.js";
 import { SCHEMA_VERSION, stationSchema } from "./schemas.js";
 import {
@@ -98,14 +99,23 @@ export function buildCountryGroups(stations) {
 }
 
 export function buildStationSignature(station) {
-  return [
-    station.streamUrl,
-    station.lastChangedAt ?? null,
-    station.lastCheckedAt ?? null,
-    station.clickCount ?? null,
-  ]
+  return [station.streamUrl, station.lastChangedAt ?? null]
     .map((value) => (value === null || value === undefined ? "" : String(value)))
     .join("|");
+}
+
+export function buildStationsFingerprint(stations) {
+  if (!Array.isArray(stations) || stations.length === 0) {
+    return "empty";
+  }
+
+  const hash = createHash("sha256");
+  for (const station of stations) {
+    hash.update(JSON.stringify(station));
+    hash.update("\n");
+  }
+
+  return hash.digest("hex");
 }
 
 export function sanitizePersistedStationRecord(station) {
