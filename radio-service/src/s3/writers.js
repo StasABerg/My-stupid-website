@@ -2,6 +2,8 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { config } from "../config/index.js";
 import { getS3Client } from "./client.js";
 
+let lastPersistedFingerprint = null;
+
 function parseMaxConcurrency(value, fallback) {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -112,11 +114,30 @@ export async function writeStationsByCountryToS3(_payload, countryGroups) {
   }
 }
 
-export function scheduleStationsPersistence(payload, countryGroups) {
+export function scheduleStationsPersistence(payload, countryGroups, options = {}) {
+  const { fingerprint, changed = true } = options;
+  const effectiveFingerprint = fingerprint ?? null;
+
+  const shouldPersist =
+    changed !== false ||
+    (effectiveFingerprint && effectiveFingerprint !== lastPersistedFingerprint);
+
+  if (!shouldPersist) {
+    return;
+  }
+
   Promise.all([
     writeStationsToS3(payload),
     writeStationsByCountryToS3(payload, countryGroups),
-  ]).catch((error) => {
-    console.error("stations-persistence-error", { message: error.message });
-  });
+  ])
+    .then(() => {
+      if (effectiveFingerprint) {
+        lastPersistedFingerprint = effectiveFingerprint;
+      } else if (changed !== false) {
+        lastPersistedFingerprint = JSON.stringify(payload?.stations ?? []);
+      }
+    })
+    .catch((error) => {
+      console.error("stations-persistence-error", { message: error.message });
+    });
 }

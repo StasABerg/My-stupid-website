@@ -44,7 +44,7 @@ const fallbackStation: RadioStation = {
   votes: 0,
 };
 
-const MAX_VISIBLE = 120;
+const PAGE_SIZE = 120;
 
 const Radio = () => {
   const [search, setSearch] = useState("");
@@ -52,18 +52,21 @@ const Radio = () => {
   const [genre, setGenre] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [volume, setVolume] = useState(0.65);
+  const [page, setPage] = useState(1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
 
-  const { data, isLoading, isError } = useRadioStations({
+  const { data, isLoading, isError, isFetching } = useRadioStations({
     search: search.trim() || undefined,
     country: country || undefined,
     genre: genre || undefined,
-    limit: 400,
+    limit: PAGE_SIZE,
+    page,
   });
 
   const stations = useMemo(() => data?.items ?? [], [data]);
-  const displayStations = stations.slice(0, MAX_VISIBLE);
+  const displayStations = stations;
+  const pageOffset = (page - 1) * PAGE_SIZE;
 
   const boundedSelectedIndex =
     displayStations.length === 0
@@ -71,6 +74,9 @@ const Radio = () => {
       : Math.min(selectedIndex, displayStations.length - 1);
 
   const activeStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
+  const globalSelectedIndex = pageOffset + boundedSelectedIndex;
+  const canGoPrev = page > 1;
+  const canGoNext = data?.meta.hasMore ?? false;
   const proxiedStreamUrl = useMemo(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
       return null;
@@ -138,15 +144,34 @@ const Radio = () => {
   const handleSearchChange = (value: string) => {
     setSearch(value);
     setSelectedIndex(0);
+    setPage(1);
   };
 
   const handleCountryChange = (value: string) => {
     setCountry(value);
     setSelectedIndex(0);
+    setPage(1);
   };
 
   const handleGenreChange = (value: string) => {
     setGenre(value);
+    setSelectedIndex(0);
+    setPage(1);
+  };
+
+  const handleNextPage = () => {
+    if (!canGoNext || isFetching) {
+      return;
+    }
+    setPage((current) => current + 1);
+    setSelectedIndex(0);
+  };
+
+  const handlePreviousPage = () => {
+    if (!canGoPrev || isFetching) {
+      return;
+    }
+    setPage((current) => Math.max(current - 1, 1));
     setSelectedIndex(0);
   };
 
@@ -261,13 +286,20 @@ const Radio = () => {
 
   const maxFrequencyLabel =
     displayStations.length > 0
-      ? `${formatFrequency(displayStations.length - 1)} FM`
-      : `${formatFrequency(0)} FM`;
+      ? `${formatFrequency(pageOffset + displayStations.length - 1)} FM`
+      : `${formatFrequency(pageOffset)} FM`;
 
-  const stationListCommand = `radio stations --limit ${Math.max(
-    0,
-    Math.min(displayStations.length, MAX_VISIBLE),
-  )}`;
+  let pageLabel = `Page ${page}`;
+  if (displayStations.length === 0 && !isFetching) {
+    pageLabel = `${pageLabel} • No results`;
+  } else if (canGoNext) {
+    pageLabel = `${pageLabel} • More available`;
+  }
+  const paginationStatus = isFetching ? `${pageLabel} • Loading…` : pageLabel;
+
+  const stationListCommandBase = `radio stations --limit ${PAGE_SIZE}`;
+  const stationListCommand =
+    page > 1 ? `${stationListCommandBase} --page ${page}` : stationListCommandBase;
 
   const updatedAtValue = data?.meta.updatedAt;
   let updatedAtDisplay: string | undefined;
@@ -293,7 +325,7 @@ const Radio = () => {
               <TerminalPrompt path="~/radio" command="radio status" />
               <StationInfoPanel
                 station={activeStation}
-                frequencyLabel={`${formatFrequency(boundedSelectedIndex)} FM`}
+                frequencyLabel={`${formatFrequency(globalSelectedIndex)} FM`}
               />
 
               <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
@@ -301,7 +333,7 @@ const Radio = () => {
                 value={boundedSelectedIndex}
                 max={Math.max(displayStations.length - 1, 0)}
                 onChange={handleStationChange}
-                minLabel={`${formatFrequency(0)} FM`}
+                minLabel={`${formatFrequency(pageOffset)} FM`}
                 maxLabel={maxFrequencyLabel}
               />
 
@@ -357,7 +389,7 @@ const Radio = () => {
                               {isSelected ? ">" : ""}
                             </span>
                             <span className="text-terminal-green text-[0.7rem] sm:w-20 sm:text-sm">
-                              {`${formatFrequency(index)} FM`}
+                              {`${formatFrequency(pageOffset + index)} FM`}
                             </span>
                             <span className="flex-1 whitespace-normal break-words text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
                               {station.name}
@@ -371,6 +403,35 @@ const Radio = () => {
                     })}
                   </ol>
                 )}
+                <footer className="flex items-center justify-between gap-2 border-t border-terminal-green/20 bg-black/60 px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={handlePreviousPage}
+                    disabled={!canGoPrev || isFetching}
+                    className={`rounded-sm border px-2 py-1 text-[0.6rem] uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                      !canGoPrev || isFetching
+                        ? "cursor-not-allowed border-terminal-green/10 text-terminal-white/30"
+                        : "border-terminal-green/40 text-terminal-green hover:bg-terminal-green/10"
+                    }`}
+                  >
+                    Prev Page
+                  </button>
+                  <span className="flex-1 text-center text-[0.6rem] uppercase tracking-[0.25em] text-terminal-cyan">
+                    {paginationStatus}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleNextPage}
+                    disabled={!canGoNext || isFetching}
+                    className={`rounded-sm border px-2 py-1 text-[0.6rem] uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                      !canGoNext || isFetching
+                        ? "cursor-not-allowed border-terminal-green/10 text-terminal-white/30"
+                        : "border-terminal-green/40 text-terminal-green hover:bg-terminal-green/10"
+                    }`}
+                  >
+                    Next Page
+                  </button>
+                </footer>
               </div>
             </div>
           </div>

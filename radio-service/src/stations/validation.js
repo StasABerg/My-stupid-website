@@ -128,13 +128,17 @@ export async function validateStationStreams(stations, { redis } = {}) {
   const accepted = new Array(stations.length);
   const dropCounts = new Map();
   const cacheKey = config.streamValidation.cacheKey;
-  const cacheTtlMs = config.streamValidation.cacheTtlSeconds * 1000;
-  const now = Date.now();
 
   const cache = await loadValidationCache(redis, cacheKey);
 
-  const cacheUpdates = [];
+  const cacheUpdates = new Map();
   const cacheRemovals = new Set();
+  const runtimeResults = new Map();
+
+  const recordDrop = (reason) => {
+    const key = reason ?? "invalid";
+    dropCounts.set(key, (dropCounts.get(key) ?? 0) + 1);
+  };
 
   let index = 0;
 
@@ -148,54 +152,110 @@ export async function validateStationStreams(stations, { redis } = {}) {
       }
 
       const station = stations[currentIndex];
+      const runtimeKey =
+        typeof station.streamUrl === "string" ? station.streamUrl : "";
       const signature = buildStationSignature(station);
       const cacheEntry = cache?.get(station.streamUrl);
+      const now = Date.now();
+
       if (cacheEntry && typeof cacheEntry.validatedAt === "number") {
-        const isFresh = now - cacheEntry.validatedAt <= cacheTtlMs;
+        const entryTtlSeconds =
+          typeof cacheEntry.ttlSeconds === "number" && cacheEntry.ttlSeconds > 0
+            ? cacheEntry.ttlSeconds
+            : config.streamValidation.cacheTtlSeconds;
+        const entryTtlMs = entryTtlSeconds * 1000;
+        const isFresh = now - cacheEntry.validatedAt <= entryTtlMs;
         const signatureMatches = cacheEntry.signature === signature;
         const cachedUrl = cacheEntry.finalUrl ?? station.streamUrl;
-        const isSecure = cachedUrl.toLowerCase().startsWith("https://");
-        if (isFresh && signatureMatches && isSecure) {
-          const updatedStation = { ...station };
-          if (cacheEntry.finalUrl && cacheEntry.finalUrl !== station.streamUrl) {
-            updatedStation.streamUrl = cacheEntry.finalUrl;
+        const isSecure = typeof cachedUrl === "string" && cachedUrl.toLowerCase().startsWith("https://");
+
+        if (isFresh && signatureMatches) {
+          if (cacheEntry.ok === false) {
+            recordDrop(cacheEntry.reason);
+            continue;
           }
-          if (cacheEntry.forceHls === true && !updatedStation.hls) {
-            updatedStation.hls = true;
+
+          if (isSecure) {
+            const updatedStation = { ...station };
+            if (cacheEntry.finalUrl && cacheEntry.finalUrl !== station.streamUrl) {
+              updatedStation.streamUrl = cacheEntry.finalUrl;
+            }
+            if (cacheEntry.forceHls === true && !updatedStation.hls) {
+              updatedStation.hls = true;
+            }
+            accepted[currentIndex] = updatedStation;
+            continue;
           }
-          accepted[currentIndex] = updatedStation;
-          continue;
         }
+
         if (redis && cacheKey) {
           cacheRemovals.add(station.streamUrl);
         }
       }
 
-      const result = await validateStationStream(station);
-      if (result.ok) {
+      let runtimePromise = runtimeResults.get(runtimeKey);
+      if (!runtimePromise) {
+        runtimePromise = (async () => {
+          const result = await validateStationStream(station);
+          if (result.ok) {
+            const validationTime = Date.now();
+            const forceHls = Boolean(result.contentType && /mpegurl/i.test(result.contentType));
+            const finalUrl = result.finalUrl && result.finalUrl !== station.streamUrl
+              ? result.finalUrl
+              : station.streamUrl;
+
+            return {
+              ok: true,
+              finalUrl,
+              forceHls,
+              cacheValue: {
+                ok: true,
+                validatedAt: validationTime,
+                finalUrl,
+                forceHls,
+                signature,
+                ttlSeconds: config.streamValidation.cacheTtlSeconds,
+              },
+            };
+          }
+
+          const reason = result.reason ?? "invalid";
+          const validationTime = Date.now();
+          return {
+            ok: false,
+            reason,
+            cacheValue: {
+              ok: false,
+              reason,
+              validatedAt: validationTime,
+              signature,
+              ttlSeconds: config.streamValidation.failureCacheTtlSeconds,
+            },
+          };
+        })();
+        runtimeResults.set(runtimeKey, runtimePromise);
+      }
+
+      const outcome = await runtimePromise;
+
+      if (outcome.ok) {
         const updatedStation = { ...station };
-        if (result.finalUrl && result.finalUrl !== station.streamUrl) {
-          updatedStation.streamUrl = result.finalUrl;
+        if (outcome.finalUrl && outcome.finalUrl !== station.streamUrl) {
+          updatedStation.streamUrl = outcome.finalUrl;
         }
-        if (result.contentType && /mpegurl/i.test(result.contentType) && !station.hls) {
+        if (outcome.forceHls && !updatedStation.hls) {
           updatedStation.hls = true;
         }
         accepted[currentIndex] = updatedStation;
-        if (redis && cacheKey) {
-          cacheUpdates.push({
-            streamUrl: station.streamUrl,
-            value: {
-              validatedAt: Date.now(),
-              finalUrl: updatedStation.streamUrl,
-              forceHls: updatedStation.hls === true,
-              signature,
-            },
-          });
-        }
       } else {
-        const reason = result.reason ?? "invalid";
-        dropCounts.set(reason, (dropCounts.get(reason) ?? 0) + 1);
-        if (redis && cacheKey) {
+        recordDrop(outcome.reason);
+      }
+
+      if (redis && cacheKey) {
+        if (outcome.cacheValue) {
+          cacheUpdates.set(station.streamUrl, outcome.cacheValue);
+          cacheRemovals.delete(station.streamUrl);
+        } else if (!cacheUpdates.has(station.streamUrl)) {
           cacheRemovals.add(station.streamUrl);
         }
       }
@@ -205,10 +265,15 @@ export async function validateStationStreams(stations, { redis } = {}) {
   await Promise.all(workers);
 
   const filtered = accepted.filter(Boolean);
+  const updates =
+    cacheUpdates.size > 0
+      ? Array.from(cacheUpdates.entries()).map(([streamUrl, value]) => ({ streamUrl, value }))
+      : [];
+
   await writeValidationCache({
     redis,
     cacheKey,
-    updates: cacheUpdates,
+    updates,
     removals: cacheRemovals,
     ttlSeconds: config.streamValidation.cacheTtlSeconds,
   });

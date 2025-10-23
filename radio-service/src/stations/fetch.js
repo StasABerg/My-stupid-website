@@ -5,8 +5,7 @@ import {
   rotateRadioBrowserBaseUrl,
 } from "../radioBrowser.js";
 import { fetchWithKeepAlive } from "../http/client.js";
-import { scheduleStationsPersistence } from "../s3/index.js";
-import { buildCountryGroups, normalizeStation } from "./normalize.js";
+import { buildCountryGroups, buildStationsFingerprint, normalizeStation } from "./normalize.js";
 import { SCHEMA_VERSION } from "./schemas.js";
 import { validateStationStreams } from "./validation.js";
 
@@ -156,8 +155,9 @@ export async function fetchFromRadioBrowser({ redis } = {}) {
 
   const countryGroups = buildCountryGroups(finalStations);
 
-  scheduleStationsPersistence(payload, countryGroups);
-  return payload;
+  const fingerprint = buildStationsFingerprint(finalStations);
+
+  return { payload, countryGroups, fingerprint };
 }
 
 async function buildStationClickUrl(stationUuid, { baseUrl }) {

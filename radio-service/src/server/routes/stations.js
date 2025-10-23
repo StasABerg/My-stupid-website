@@ -1,3 +1,5 @@
+import { ensureNormalizedStation } from "../../stations/normalize.js";
+
 const MAX_GENRE_OPTIONS = 200;
 
 function buildGenreList(stations, { limit = MAX_GENRE_OPTIONS } = {}) {
@@ -55,52 +57,73 @@ function buildStationsResponse({ stations, matches, totalMatches, meta, config }
   };
 }
 
-function filterStations(stations, { country, language, tag, search, genre }) {
-  return stations.filter((station) => {
-    if (country) {
-      const stationCountry = station.country?.toLowerCase();
-      const stationCountryCode = station.countryCode?.toLowerCase();
-      if (stationCountry !== country && stationCountryCode !== country) {
-        return false;
-      }
+function stationMatchesFilters(station, { country, language, tag, search, genre }) {
+  const normalized = ensureNormalizedStation(station);
+  if (!normalized) {
+    return false;
+  }
+
+  if (country) {
+    if (normalized.country !== country && normalized.countryCode !== country) {
+      return false;
+    }
+  }
+
+  if (language && !normalized.languagesSet.has(language)) {
+    return false;
+  }
+
+  if (tag && !normalized.tagsSet.has(tag)) {
+    return false;
+  }
+
+  if (genre && !normalized.tagsSet.has(genre)) {
+    return false;
+  }
+
+  if (search && !normalized.searchText.includes(search)) {
+    return false;
+  }
+
+  return true;
+}
+
+function collectStations(stations, filters, { offset, limit }) {
+  const matches = [];
+  let totalMatches = 0;
+  let hasMore = false;
+
+  const effectiveLimit = Number.isFinite(limit) && limit > 0 ? limit : 0;
+  const effectiveOffset = Number.isFinite(offset) && offset > 0 ? offset : 0;
+
+  for (const station of stations) {
+    if (!stationMatchesFilters(station, filters)) {
+      continue;
     }
 
-    if (language) {
-      const languages = Array.isArray(station.languages) ? station.languages : [];
-      if (!languages.some((item) => item.toLowerCase() === language)) {
-        return false;
-      }
+    const matchIndex = totalMatches;
+    totalMatches += 1;
+
+    if (effectiveLimit > 0 && matchIndex >= effectiveOffset && matches.length < effectiveLimit) {
+      matches.push(station);
+      continue;
     }
 
-    if (tag) {
-      const tags = Array.isArray(station.tags) ? station.tags : [];
-      if (!tags.some((item) => item.toLowerCase() === tag)) {
-        return false;
+    if (effectiveLimit === 0) {
+      if (matchIndex >= effectiveOffset) {
+        hasMore = true;
+        break;
       }
+      continue;
     }
 
-    if (genre) {
-      const tags = Array.isArray(station.tags) ? station.tags : [];
-      if (!tags.some((item) => item.toLowerCase() === genre)) {
-        return false;
-      }
+    if (matchIndex >= effectiveOffset + effectiveLimit) {
+      hasMore = true;
+      break;
     }
+  }
 
-    if (search) {
-      const nameMatch = station.name?.toLowerCase().includes(search) ?? false;
-      const tagMatch = (Array.isArray(station.tags) ? station.tags : []).some((item) =>
-        item.toLowerCase().includes(search),
-      );
-      const languageMatch = (Array.isArray(station.languages) ? station.languages : []).some(
-        (item) => item.toLowerCase().includes(search),
-      );
-      if (!nameMatch && !tagMatch && !languageMatch) {
-        return false;
-      }
-    }
-
-    return true;
-  });
+  return { matches, totalMatches, hasMore };
 }
 
 export function registerStationsRoutes(
@@ -146,31 +169,16 @@ export function registerStationsRoutes(
 
       const availableGenres = buildGenreList(stations);
 
-      const filtered = filterStations(stations, {
-        country,
-        language,
-        tag,
-        search,
-        genre,
-      });
-
-      const matches = [];
-      let matchesSeen = 0;
-      let hasMore = false;
-
-      for (const station of filtered) {
-        if (matchesSeen >= offset && matches.length < limit) {
-          matches.push(station);
-        } else if (matches.length >= limit && matchesSeen >= offset) {
-          hasMore = true;
-        }
-        matchesSeen += 1;
-      }
+      const { matches, totalMatches, hasMore } = collectStations(
+        stations,
+        { country, language, tag, search, genre },
+        { offset, limit },
+      );
 
       const response = buildStationsResponse({
         stations,
         matches,
-        totalMatches: matchesSeen,
+        totalMatches,
         meta: {
           hasMore,
           page,

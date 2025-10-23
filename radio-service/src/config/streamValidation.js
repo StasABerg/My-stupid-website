@@ -7,6 +7,10 @@ export function buildStreamValidationConfig(env) {
   const concurrencyCandidate = numberFromEnv(env.STREAM_VALIDATION_CONCURRENCY, 8);
   const cacheKey = env.STREAM_VALIDATION_CACHE_KEY ?? "radio:streams:validated";
   const cacheTtlCandidate = numberFromEnv(env.STREAM_VALIDATION_CACHE_TTL, 86400);
+  const failureCacheTtlCandidate = numberFromEnv(
+    env.STREAM_VALIDATION_FAILURE_CACHE_TTL,
+    3600,
+  );
 
   return {
     enabled,
@@ -14,6 +18,7 @@ export function buildStreamValidationConfig(env) {
     concurrency: concurrencyCandidate > 0 ? concurrencyCandidate : 8,
     cacheKey,
     cacheTtlSeconds: cacheTtlCandidate > 0 ? cacheTtlCandidate : 86400,
+    failureCacheTtlSeconds: failureCacheTtlCandidate > 0 ? failureCacheTtlCandidate : 3600,
   };
 }
 
@@ -26,5 +31,8 @@ export function validateStreamValidationConfig(config) {
   }
   if (!config.cacheKey || config.cacheKey.trim().length === 0) {
     throw new Error("STREAM_VALIDATION_CACHE_KEY must be provided.");
+  }
+  if (config.failureCacheTtlSeconds <= 0) {
+    throw new Error("STREAM_VALIDATION_FAILURE_CACHE_TTL must be greater than zero.");
   }
 }

@@ -4,6 +4,7 @@ import {
   notifyStationClick,
   refreshStations,
   sanitizePersistedStationsPayload,
+  scheduleStationsPersistence,
 } from "./stations/index.js";
 
 let inflightRefreshPromise = null;
@@ -12,9 +13,15 @@ function scheduleRefresh(redis) {
   if (!inflightRefreshPromise) {
     inflightRefreshPromise = (async () => {
       try {
-        const payload = await refreshStations({ redis });
+        const { payload, countryGroups, fingerprint } = await refreshStations({ redis });
         const serialized = JSON.stringify(payload);
-        await writeStationsToCache(redis, payload, serialized);
+        const cacheUpdated = await writeStationsToCache(redis, payload, serialized, {
+          fingerprint,
+        });
+        scheduleStationsPersistence(payload, countryGroups, {
+          fingerprint,
+          changed: cacheUpdated,
+        });
         return payload;
       } finally {
         inflightRefreshPromise = null;
