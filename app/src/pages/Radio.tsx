@@ -10,6 +10,7 @@ import {
 } from "@/components/Radio";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 const presetColors = [
   "text-terminal-green",
@@ -52,21 +53,40 @@ const Radio = () => {
   const [genre, setGenre] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [volume, setVolume] = useState(0.65);
-  const [page, setPage] = useState(1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const listRef = useRef<HTMLOListElement | null>(null);
+  const loadMoreRef = useRef<HTMLLIElement | null>(null);
 
-  const { data, isLoading, isError, isFetching } = useRadioStations({
-    search: search.trim() || undefined,
-    country: country || undefined,
-    genre: genre || undefined,
-    limit: PAGE_SIZE,
-    page,
-  });
+  const debouncedSearch = useDebouncedValue(search.trim(), 300);
 
-  const stations = useMemo(() => data?.items ?? [], [data]);
-  const displayStations = stations;
-  const pageOffset = (page - 1) * PAGE_SIZE;
+  const filters = useMemo(
+    () => ({
+      search: debouncedSearch || undefined,
+      country: country || undefined,
+      genre: genre || undefined,
+      limit: PAGE_SIZE,
+    }),
+    [debouncedSearch, country, genre],
+  );
+
+  const {
+    data,
+    isLoading,
+    isError,
+    isFetching,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useRadioStations(filters);
+
+  const pages = useMemo(() => data?.pages ?? [], [data]);
+  const displayStations = useMemo(
+    () => pages.flatMap((pageData) => pageData.items),
+    [pages],
+  );
+  const firstMeta = pages.length > 0 ? pages[0].meta : undefined;
+  const lastMeta = pages.length > 0 ? pages[pages.length - 1].meta : undefined;
 
   const boundedSelectedIndex =
     displayStations.length === 0
@@ -74,9 +94,7 @@ const Radio = () => {
       : Math.min(selectedIndex, displayStations.length - 1);
 
   const activeStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
-  const globalSelectedIndex = pageOffset + boundedSelectedIndex;
-  const canGoPrev = page > 1;
-  const canGoNext = data?.meta.hasMore ?? false;
+  const globalSelectedIndex = boundedSelectedIndex;
   const proxiedStreamUrl = useMemo(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
       return null;
@@ -89,13 +107,13 @@ const Radio = () => {
   }, [activeStation]);
 
   const uniqueCountries = useMemo(() => {
-    const fromMeta = data?.meta.countries;
+    const fromMeta = firstMeta?.countries;
     if (Array.isArray(fromMeta) && fromMeta.length > 0) {
       return fromMeta;
     }
 
     const seen = new Set<string>();
-    const options = stations
+    const options = displayStations
       .map((station) => station.country)
       .filter((value): value is string => Boolean(value));
 
@@ -105,10 +123,10 @@ const Radio = () => {
       seen.add(lower);
       return true;
     });
-  }, [data?.meta.countries, stations]);
+  }, [displayStations, firstMeta?.countries]);
 
   const uniqueGenres = useMemo(() => {
-    const fromMeta = data?.meta.genres;
+    const fromMeta = firstMeta?.genres;
     if (Array.isArray(fromMeta) && fromMeta.length > 0) {
       return [...fromMeta].sort((a, b) =>
         a.localeCompare(b, undefined, { sensitivity: "base" }),
@@ -116,7 +134,7 @@ const Radio = () => {
     }
 
     const seen = new Map<string, string>();
-    for (const station of stations) {
+    for (const station of displayStations) {
       const tags = Array.isArray(station.tags) ? station.tags : [];
       for (const tag of tags) {
         const trimmed = tag.trim();
@@ -131,9 +149,12 @@ const Radio = () => {
     return Array.from(seen.values()).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
-  }, [data?.meta.genres, stations]);
+  }, [displayStations, firstMeta?.genres]);
 
   const handleStationChange = (index: number) => {
+    if (index < 0 || index >= displayStations.length) {
+      return;
+    }
     setSelectedIndex(index);
   };
 
@@ -144,36 +165,48 @@ const Radio = () => {
   const handleSearchChange = (value: string) => {
     setSearch(value);
     setSelectedIndex(0);
-    setPage(1);
   };
 
   const handleCountryChange = (value: string) => {
     setCountry(value);
     setSelectedIndex(0);
-    setPage(1);
   };
 
   const handleGenreChange = (value: string) => {
     setGenre(value);
     setSelectedIndex(0);
-    setPage(1);
   };
 
-  const handleNextPage = () => {
-    if (!canGoNext || isFetching) {
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") {
       return;
     }
-    setPage((current) => current + 1);
-    setSelectedIndex(0);
-  };
 
-  const handlePreviousPage = () => {
-    if (!canGoPrev || isFetching) {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) {
       return;
     }
-    setPage((current) => Math.max(current - 1, 1));
-    setSelectedIndex(0);
-  };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+            fetchNextPage();
+          }
+        }
+      },
+      {
+        root: listRef.current ?? null,
+        rootMargin: "0px 0px 160px 0px",
+      },
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [displayStations.length, fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -286,22 +319,30 @@ const Radio = () => {
 
   const maxFrequencyLabel =
     displayStations.length > 0
-      ? `${formatFrequency(pageOffset + displayStations.length - 1)} FM`
-      : `${formatFrequency(pageOffset)} FM`;
+      ? `${formatFrequency(displayStations.length - 1)} FM`
+      : `${formatFrequency(0)} FM`;
 
-  let pageLabel = `Page ${page}`;
-  if (displayStations.length === 0 && !isFetching) {
-    pageLabel = `${pageLabel} • No results`;
-  } else if (canGoNext) {
-    pageLabel = `${pageLabel} • More available`;
-  }
-  const paginationStatus = isFetching ? `${pageLabel} • Loading…` : pageLabel;
-
+  const nextOffset = lastMeta ? lastMeta.offset + lastMeta.limit : displayStations.length;
   const stationListCommandBase = `radio stations --limit ${PAGE_SIZE}`;
   const stationListCommand =
-    page > 1 ? `${stationListCommandBase} --page ${page}` : stationListCommandBase;
+    nextOffset > 0
+      ? `${stationListCommandBase} --offset ${nextOffset}`
+      : stationListCommandBase;
 
-  const updatedAtValue = data?.meta.updatedAt;
+  const updatedAtValue = firstMeta?.updatedAt;
+
+  const directoryStatus = (() => {
+    if (displayStations.length === 0) {
+      return isFetching ? "Scanning…" : "No results";
+    }
+    if (isFetchingNextPage) {
+      return "Loading more stations…";
+    }
+    if (hasNextPage) {
+      return "Scroll to load more stations";
+    }
+    return "All stations loaded";
+  })();
   let updatedAtDisplay: string | undefined;
   if (updatedAtValue) {
     const parsed = new Date(updatedAtValue);
@@ -333,7 +374,7 @@ const Radio = () => {
                 value={boundedSelectedIndex}
                 max={Math.max(displayStations.length - 1, 0)}
                 onChange={handleStationChange}
-                minLabel={`${formatFrequency(pageOffset)} FM`}
+                minLabel={`${formatFrequency(0)} FM`}
                 maxLabel={maxFrequencyLabel}
               />
 
@@ -371,7 +412,10 @@ const Radio = () => {
                     No stations found. Adjust filters or refresh the cache.
                   </p>
                 ) : (
-                  <ol className="max-h-[45vh] sm:max-h-[55vh] lg:max-h-[65vh] overflow-y-auto divide-y divide-terminal-green/20">
+                  <ol
+                    ref={listRef}
+                    className="max-h-[45vh] sm:max-h-[55vh] lg:max-h-[65vh] overflow-y-auto divide-y divide-terminal-green/20"
+                  >
                     {displayStations.map((station, index) => {
                       const isSelected = index === boundedSelectedIndex;
                       return (
@@ -389,7 +433,7 @@ const Radio = () => {
                               {isSelected ? ">" : ""}
                             </span>
                             <span className="text-terminal-green text-[0.7rem] sm:w-20 sm:text-sm">
-                              {`${formatFrequency(pageOffset + index)} FM`}
+                              {`${formatFrequency(index)} FM`}
                             </span>
                             <span className="flex-1 whitespace-normal break-words text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
                               {station.name}
@@ -401,49 +445,26 @@ const Radio = () => {
                         </li>
                       );
                     })}
+                    <li
+                      ref={loadMoreRef}
+                      className="px-3 py-3 text-center text-[0.6rem] uppercase tracking-[0.2em] text-terminal-cyan/80"
+                    >
+                      {directoryStatus}
+                    </li>
                   </ol>
                 )}
-                <footer className="flex items-center justify-between gap-2 border-t border-terminal-green/20 bg-black/60 px-3 py-2">
-                  <button
-                    type="button"
-                    onClick={handlePreviousPage}
-                    disabled={!canGoPrev || isFetching}
-                    className={`rounded-sm border px-2 py-1 text-[0.6rem] uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
-                      !canGoPrev || isFetching
-                        ? "cursor-not-allowed border-terminal-green/10 text-terminal-white/30"
-                        : "border-terminal-green/40 text-terminal-green hover:bg-terminal-green/10"
-                    }`}
-                  >
-                    Prev Page
-                  </button>
-                  <span className="flex-1 text-center text-[0.6rem] uppercase tracking-[0.25em] text-terminal-cyan">
-                    {paginationStatus}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleNextPage}
-                    disabled={!canGoNext || isFetching}
-                    className={`rounded-sm border px-2 py-1 text-[0.6rem] uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
-                      !canGoNext || isFetching
-                        ? "cursor-not-allowed border-terminal-green/10 text-terminal-white/30"
-                        : "border-terminal-green/40 text-terminal-green hover:bg-terminal-green/10"
-                    }`}
-                  >
-                    Next Page
-                  </button>
-                </footer>
               </div>
             </div>
           </div>
 
           <StatusFooter
-            isLoading={isLoading}
+            isLoading={isLoading && displayStations.length === 0}
             isError={isError}
             visibleCount={displayStations.length}
-            totalCount={data?.meta.total}
-            cacheSource={data?.meta.cacheSource}
+            totalCount={firstMeta?.filtered ?? firstMeta?.total}
+            cacheSource={firstMeta?.cacheSource}
             updatedAt={updatedAtDisplay}
-            origin={data?.meta.origin}
+            origin={firstMeta?.origin}
           />
         </div>
       </TerminalWindow>
