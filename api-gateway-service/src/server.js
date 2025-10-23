@@ -234,12 +234,18 @@ async function proxyRequest(req, res, target) {
     }
     appendForwardedFor(outgoingHeaders, req.socket?.remoteAddress ?? null);
 
-    const upstreamResponse = await fetch(targetUrl, {
+    const fetchOptions = {
       method: req.method,
       headers: outgoingHeaders,
-      body,
       signal: abort.signal,
-    });
+    };
+
+    if (body != null) {
+      fetchOptions.body = body;
+      fetchOptions.duplex = "half";
+    }
+
+    const upstreamResponse = await fetch(targetUrl, fetchOptions);
 
     const corsHeaders = buildCorsHeaders(req.headers.origin);
     const headers = sanitizeResponseHeaders(upstreamResponse.headers);
