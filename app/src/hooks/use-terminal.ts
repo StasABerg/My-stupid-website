@@ -30,6 +30,21 @@ const API_BASE =
   import.meta.env.VITE_TERMINAL_API_BASE ??
   resolveTerminalApiBase();
 
+const SERVICE_AUTH_HEADER = (() => {
+  const token = import.meta.env.VITE_SERVICE_AUTH_TOKEN?.toString().trim();
+  return token ? `Bearer ${token}` : null;
+})();
+
+const buildAuthHeaders = (base?: Record<string, string>) => {
+  if (!SERVICE_AUTH_HEADER) {
+    return base;
+  }
+  return {
+    ...(base ?? {}),
+    Authorization: SERVICE_AUTH_HEADER,
+  };
+};
+
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
   if (!virtualPath || virtualPath === "/") return "~";
   if (virtualPath === "/home/demo") return "~";
@@ -90,7 +105,8 @@ export function useTerminal() {
       try {
         const response = await fetch(`${API_BASE}/info`, {
           method: "GET",
-          headers: { "Content-Type": "application/json" },
+          headers: buildAuthHeaders({ "Content-Type": "application/json" }),
+          credentials: "include",
         });
 
         if (!response.ok) {
@@ -206,8 +222,9 @@ export function useTerminal() {
         setIsSubmitting(true);
         const response = await fetch(`${API_BASE}/execute`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: buildAuthHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),
+          credentials: "include",
         });
 
         let payload: ExecuteResponse | null = null;

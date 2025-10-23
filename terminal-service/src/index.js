@@ -52,6 +52,15 @@ const SANDBOX_ENV = {
   LC_ALL: "C.UTF-8",
 };
 
+const SERVICE_AUTH_TOKEN = (process.env.SERVICE_AUTH_TOKEN ?? process.env.STATIONS_REFRESH_TOKEN ?? "").trim();
+if (!SERVICE_AUTH_TOKEN) {
+  console.error(
+    "terminal-service: SERVICE_AUTH_TOKEN or STATIONS_REFRESH_TOKEN must be configured to secure the API.",
+  );
+  process.exit(1);
+}
+const EXPECTED_AUTHORIZATION = `Bearer ${SERVICE_AUTH_TOKEN}`;
+
 const allowedOrigins = (process.env.CORS_ALLOW_ORIGIN ?? "")
   .split(",")
   .map((value) => value.trim())
@@ -108,6 +117,33 @@ function ensureCorsAllowed(req, res) {
     return false;
   }
   return true;
+}
+
+function extractAuthorizationHeader(req) {
+  const raw = req.headers?.authorization;
+  if (!raw) {
+    return null;
+  }
+  if (Array.isArray(raw)) {
+    return raw[0] ?? null;
+  }
+  return raw;
+}
+
+function ensureAuthorized(req, res) {
+  const provided = extractAuthorizationHeader(req);
+  if (typeof provided === "string" && provided.trim() === EXPECTED_AUTHORIZATION) {
+    return true;
+  }
+
+  const corsHeaders = buildCorsHeaders(req);
+  res.writeHead(401, {
+    "Content-Type": "application/json",
+    "WWW-Authenticate": "Bearer",
+    ...corsHeaders,
+  });
+  res.end(JSON.stringify({ message: "Unauthorized" }));
+  return false;
 }
 
 function sanitizeVirtualPath(input) {
@@ -644,6 +680,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (!ensureCorsAllowed(req, res)) {
+      return;
+    }
+
+    const pathname = req.url ? new URL(req.url, "http://localhost").pathname : "";
+    const isHealthCheck = req.method === "GET" && pathname === "/healthz";
+
+    if (!isHealthCheck && !ensureAuthorized(req, res)) {
       return;
     }
 

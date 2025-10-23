@@ -63,6 +63,16 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
           {{- end }}
+          {{- if .Values.serviceAuth.value }}
+            - name: SERVICE_AUTH_TOKEN
+              value: "{{ .Values.serviceAuth.value }}"
+          {{- else if .Values.serviceAuth.existingSecret }}
+            - name: SERVICE_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.serviceAuth.existingSecret }}
+                  key: {{ default "SERVICE_AUTH_TOKEN" .Values.serviceAuth.secretKey }}
+          {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

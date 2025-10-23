@@ -54,9 +54,18 @@ spec:
             - name: http
               containerPort: {{ $containerPort }}
               protocol: TCP
-          {{- with .Values.env }}
+          {{- $envList := list }}
+          {{- range $index, $item := (default (list) .Values.env) }}
+          {{- $envList = append $envList $item }}
+          {{- end }}
+          {{- if .Values.serviceAuth.value }}
+          {{- $envList = append $envList (dict "name" "SERVICE_AUTH_TOKEN" "value" .Values.serviceAuth.value) }}
+          {{- else if .Values.serviceAuth.existingSecret }}
+          {{- $envList = append $envList (dict "name" "SERVICE_AUTH_TOKEN" "valueFrom" (dict "secretKeyRef" (dict "name" .Values.serviceAuth.existingSecret "key" (default "SERVICE_AUTH_TOKEN" .Values.serviceAuth.secretKey)))) }}
+          {{- end }}
+          {{- if $envList }}
           env:
-            {{- toYaml . | nindent 12 }}
+            {{- toYaml $envList | nindent 12 }}
           {{- end }}
           {{- with .Values.envFrom }}
           envFrom:

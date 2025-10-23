@@ -14,3 +14,7 @@ env:
     value: /api/terminal
   - name: VITE_RADIO_DEFAULT_LIMIT
     value: "200"
+
+serviceAuth:
+  existingSecret: radio-service-env-dev
+  secretKey: STATIONS_REFRESH_TOKEN

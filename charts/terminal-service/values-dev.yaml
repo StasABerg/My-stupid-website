@@ -9,3 +9,7 @@ env:
   MAX_PAYLOAD_BYTES: "2048"
   MAX_OUTPUT_BYTES: "16384"
   CORS_ALLOW_ORIGIN: "https://dev.gitgud.qzz.io"
+
+serviceAuth:
+  existingSecret: radio-service-env-dev
+  secretKey: STATIONS_REFRESH_TOKEN

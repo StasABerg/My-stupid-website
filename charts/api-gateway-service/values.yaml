@@ -47,6 +47,11 @@ terminalService:
 
 allowOrigins: []
 
+serviceAuth:
+  existingSecret: ""
+  secretKey: ""
+  value: ""
+
 resources:
   requests:
     cpu: 50m

@@ -16,6 +16,8 @@ const radioBrowser = buildRadioBrowserConfig(process.env, allowInsecureTransport
 const api = buildApiConfig(process.env);
 const streamProxy = buildStreamProxyConfig(process.env);
 const streamValidation = buildStreamValidationConfig(process.env);
+const refreshToken = process.env.STATIONS_REFRESH_TOKEN ?? "";
+const serviceAuthToken = process.env.SERVICE_AUTH_TOKEN ?? refreshToken;
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
@@ -28,7 +30,8 @@ export const config = {
   api,
   streamProxy,
   streamValidation,
-  refreshToken: process.env.STATIONS_REFRESH_TOKEN ?? "",
+  refreshToken,
+  serviceAuthToken,
   allowInsecureTransports,
 };
 
@@ -59,6 +62,12 @@ export function validateConfig() {
   if (!config.refreshToken) {
     throw new Error(
       "STATIONS_REFRESH_TOKEN must be configured to protect the refresh endpoint.",
+    );
+  }
+
+  if (!config.serviceAuthToken) {
+    throw new Error(
+      "SERVICE_AUTH_TOKEN or STATIONS_REFRESH_TOKEN must be configured to protect service endpoints.",
     );
   }
 }

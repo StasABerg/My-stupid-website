@@ -1,5 +1,9 @@
-export function registerClickRoutes(app, { recordStationClick }) {
-  app.post("/stations/:stationId/click", async (req, res) => {
+import { createServiceAuthMiddleware } from "../middleware/serviceAuth.js";
+
+export function registerClickRoutes(app, { recordStationClick, config }) {
+  const requireServiceAuth = createServiceAuthMiddleware(config.serviceAuthToken);
+
+  app.post("/stations/:stationId/click", requireServiceAuth, async (req, res) => {
     try {
       const stationId = req.params.stationId?.toString().trim() ?? "";
       if (!stationId) {

@@ -56,6 +56,16 @@ spec:
               value: "http://{{ .Values.radioService.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.radioService.port }}"
             - name: TERMINAL_SERVICE_URL
               value: "http://{{ .Values.terminalService.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.terminalService.port }}"
+            {{- if .Values.serviceAuth.value }}
+            - name: SERVICE_AUTH_TOKEN
+              value: "{{ .Values.serviceAuth.value }}"
+            {{- else if .Values.serviceAuth.existingSecret }}
+            - name: SERVICE_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.serviceAuth.existingSecret }}
+                  key: {{ default "SERVICE_AUTH_TOKEN" .Values.serviceAuth.secretKey }}
+            {{- end }}
             {{- if .Values.allowOrigins }}
             - name: CORS_ALLOW_ORIGINS
               value: "{{ join "," .Values.allowOrigins }}"

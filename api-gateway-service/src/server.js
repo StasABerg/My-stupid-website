@@ -8,6 +8,21 @@ const TERMINAL_PREFIX = "/terminal";
 
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 
+if (!config.serviceAuthToken) {
+  console.error(
+    "api-gateway-service: SERVICE_AUTH_TOKEN or STATIONS_REFRESH_TOKEN must be configured to secure upstream access.",
+  );
+  process.exit(1);
+}
+
+const EXPECTED_AUTHORIZATION = `Bearer ${config.serviceAuthToken}`;
+const SERVICE_COOKIE_NAME = "serviceAuthToken";
+const NORMALIZED_COOKIE_NAME = SERVICE_COOKIE_NAME.toLowerCase();
+const EXPECTED_COOKIE_VALUES = new Set([
+  config.serviceAuthToken,
+  EXPECTED_AUTHORIZATION,
+]);
+
 function log(message, details = {}) {
   const payload = {
     ts: new Date().toISOString(),
@@ -151,6 +166,77 @@ function sanitizeResponseHeaders(headers) {
   return result;
 }
 
+function extractAuthorizationHeader(headers) {
+  const raw = headers?.authorization;
+  if (!raw) {
+    return null;
+  }
+  if (Array.isArray(raw)) {
+    return raw[0] ?? null;
+  }
+  return raw;
+}
+
+function parseCookies(headerValue) {
+  if (!headerValue) {
+    return [];
+  }
+  const list = Array.isArray(headerValue) ? headerValue : [headerValue];
+  return list
+    .flatMap((item) =>
+      item
+        .split(";")
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0),
+    )
+    .map((item) => {
+      const [name, ...rest] = item.split("=");
+      return {
+        name: (name ?? "").trim().toLowerCase(),
+        value: rest.join("="),
+      };
+    });
+}
+
+function extractServiceCookie(headers) {
+  const raw = headers?.cookie;
+  if (!raw) {
+    return null;
+  }
+  const cookies = parseCookies(raw);
+  for (const cookie of cookies) {
+    if (cookie.name === NORMALIZED_COOKIE_NAME) {
+      try {
+        return decodeURIComponent(cookie.value ?? "").trim();
+      } catch {
+        return (cookie.value ?? "").trim();
+      }
+    }
+  }
+  return null;
+}
+
+function ensureAuthorized(req, res) {
+  const provided = extractAuthorizationHeader(req.headers);
+  if (typeof provided === "string" && provided.trim() === EXPECTED_AUTHORIZATION) {
+    return true;
+  }
+
+  const cookieToken = extractServiceCookie(req.headers);
+  if (cookieToken && EXPECTED_COOKIE_VALUES.has(cookieToken)) {
+    return true;
+  }
+
+  const corsHeaders = buildCorsHeaders(req.headers.origin);
+  res.writeHead(401, {
+    "Content-Type": "application/json",
+    "WWW-Authenticate": "Bearer",
+    ...corsHeaders,
+  });
+  res.end(JSON.stringify({ error: "Unauthorized" }));
+  return false;
+}
+
 if (ALLOWED_SERVICE_HOSTNAMES.size === 0) {
   console.error("api-gateway-service: No allowed service hostnames configured; refusing to start.");
   process.exit(1);
@@ -222,6 +308,12 @@ async function proxyRequest(req, res, target) {
     const body = buildProxyRequestBody(req, abort.signal);
 
     const outgoingHeaders = sanitizeRequestHeaders(req.headers);
+    const authKey = findHeaderKey(outgoingHeaders, "authorization");
+    if (authKey) {
+      outgoingHeaders[authKey] = EXPECTED_AUTHORIZATION;
+    } else {
+      outgoingHeaders.Authorization = EXPECTED_AUTHORIZATION;
+    }
     const clientIp = deriveClientIp(req);
     if (clientIp) {
       const cfKey = findHeaderKey(outgoingHeaders, "cf-connecting-ip");
@@ -370,6 +462,10 @@ const server = http.createServer(async (req, res) => {
       ...corsHeaders,
     });
     res.end(JSON.stringify({ error: "Not Found" }));
+    return;
+  }
+
+  if (!ensureAuthorized(req, res)) {
     return;
   }
 

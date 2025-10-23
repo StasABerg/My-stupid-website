@@ -55,6 +55,11 @@ env:
   MAX_OUTPUT_BYTES: "16384"
   CORS_ALLOW_ORIGIN: "https://gitgud.qzz.io,https://dev.gitgud.qzz.io"
 
+serviceAuth:
+  existingSecret: ""
+  secretKey: ""
+  value: ""
+
 volumeMounts:
   - name: sandbox-data
     mountPath: /sandbox

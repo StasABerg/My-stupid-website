@@ -1,4 +1,5 @@
 import { fetchWithKeepAlive } from "../../http/client.js";
+import { createServiceAuthMiddleware } from "../middleware/serviceAuth.js";
 import { pickForwardHeaders, rewritePlaylist, shouldTreatAsPlaylist } from "./utils.js";
 
 async function findStationById(stationsLoader, stationId) {
@@ -9,7 +10,9 @@ async function findStationById(stationsLoader, stationId) {
 }
 
 export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader }) {
-  app.get("/stations/:stationId/stream", async (req, res) => {
+  const requireServiceAuth = createServiceAuthMiddleware(config.serviceAuthToken);
+
+  app.get("/stations/:stationId/stream", requireServiceAuth, async (req, res) => {
     try {
       await ensureRedis();
       const stationId = req.params.stationId?.trim();
@@ -70,7 +73,7 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
     }
   });
 
-  app.get("/stations/:stationId/stream/segment", async (req, res) => {
+  app.get("/stations/:stationId/stream/segment", requireServiceAuth, async (req, res) => {
     try {
       await ensureRedis();
       const stationId = req.params.stationId?.trim();
