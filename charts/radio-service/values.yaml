@@ -106,6 +106,12 @@ env:
         name: radio-service-env
         key: STATIONS_REFRESH_TOKEN
         optional: true
+  - name: SERVICE_AUTH_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: radio-service-env
+        key: STATIONS_REFRESH_TOKEN
+        optional: true
   - name: ALLOW_INSECURE_TRANSPORT
     value: "true"
   - name: STREAM_VALIDATION_CONCURRENCY

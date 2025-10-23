@@ -103,6 +103,6 @@ env:
     value: "200"
 
 serviceAuth:
-  existingSecret: ""
-  secretKey: ""
+  existingSecret: radio-service-env
+  secretKey: STATIONS_REFRESH_TOKEN
   value: ""

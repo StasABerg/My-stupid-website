@@ -60,8 +60,10 @@ spec:
           {{- end }}
           {{- if .Values.serviceAuth.value }}
           {{- $envList = append $envList (dict "name" "SERVICE_AUTH_TOKEN" "value" .Values.serviceAuth.value) }}
+          {{- $envList = append $envList (dict "name" "STATIONS_REFRESH_TOKEN" "value" .Values.serviceAuth.value) }}
           {{- else if .Values.serviceAuth.existingSecret }}
           {{- $envList = append $envList (dict "name" "SERVICE_AUTH_TOKEN" "valueFrom" (dict "secretKeyRef" (dict "name" .Values.serviceAuth.existingSecret "key" (default "SERVICE_AUTH_TOKEN" .Values.serviceAuth.secretKey)))) }}
+          {{- $envList = append $envList (dict "name" "STATIONS_REFRESH_TOKEN" "valueFrom" (dict "secretKeyRef" (dict "name" .Values.serviceAuth.existingSecret "key" (default "STATIONS_REFRESH_TOKEN" .Values.serviceAuth.secretKey)))) }}
           {{- end }}
           {{- if $envList }}
           env:
