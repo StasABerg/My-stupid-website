@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 const DEFAULT_LIMIT = Number.parseInt(
   import.meta.env.VITE_RADIO_DEFAULT_LIMIT ?? "200",
@@ -69,7 +69,6 @@ export type StationFilters = {
   genre?: string;
   search?: string;
   limit?: number;
-  page?: number;
   offset?: number;
 };
 
@@ -82,7 +81,6 @@ async function fetchStations(filters: StationFilters): Promise<StationsResponse>
   if (filters.tag) params.set("tag", filters.tag);
   if (filters.genre) params.set("genre", filters.genre);
   if (filters.search) params.set("search", filters.search);
-  if (filters.page && filters.page > 0) params.set("page", String(filters.page));
   if (filters.offset && filters.offset > 0) params.set("offset", String(filters.offset));
 
   const response = await fetch(`${RADIO_API_BASE}/stations?${params.toString()}`);
@@ -93,10 +91,18 @@ async function fetchStations(filters: StationFilters): Promise<StationsResponse>
 }
 
 export function useRadioStations(filters: StationFilters) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["radio-stations", filters],
-    queryFn: () => fetchStations(filters),
+    queryFn: ({ pageParam = 0 }) =>
+      fetchStations({ ...filters, offset: typeof pageParam === "number" ? pageParam : 0 }),
     staleTime: 1000 * 60 * 5,
-    keepPreviousData: true,
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.meta.hasMore) {
+        return undefined;
+      }
+      const nextOffset = lastPage.meta.offset + lastPage.meta.limit;
+      return Number.isFinite(nextOffset) ? nextOffset : undefined;
+    },
   });
 }
