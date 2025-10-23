@@ -28,4 +28,10 @@ function gen(r) {
   r.return(200, xml);
 }
 
-export default { gen };
+function serviceAuthToken(r) {
+  var token = ngx.env.SERVICE_AUTH_TOKEN || ngx.env.STATIONS_REFRESH_TOKEN || "";
+  token = token.trim();
+  return token;
+}
+
+export default { gen, serviceAuthToken };
