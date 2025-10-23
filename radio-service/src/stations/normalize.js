@@ -10,6 +10,78 @@ import {
   sanitizeUrl,
 } from "./sanitize.js";
 
+const NORMALIZED_STATION_KEY = Symbol.for("radio.station.normalized");
+
+function toNormalizedString(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const trimmed = value.toString().trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  return trimmed.toLowerCase();
+}
+
+function normalizeStringList(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    const normalized = toNormalizedString(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function buildNormalizedStationMetadata(station) {
+  const name = toNormalizedString(station.name) ?? "";
+  const country = toNormalizedString(station.country);
+  const countryCode = toNormalizedString(station.countryCode);
+  const languages = normalizeStringList(station.languages ?? []);
+  const tags = normalizeStringList(station.tags ?? []);
+  const searchParts = [];
+  if (name) {
+    searchParts.push(name);
+  }
+  searchParts.push(...tags, ...languages);
+
+  return {
+    country,
+    countryCode,
+    name,
+    languages,
+    languagesSet: new Set(languages),
+    tags,
+    tagsSet: new Set(tags),
+    searchText: searchParts.join(" "),
+  };
+}
+
+export function ensureNormalizedStation(station) {
+  if (!station || typeof station !== "object") {
+    return null;
+  }
+
+  if (!station[NORMALIZED_STATION_KEY]) {
+    const normalized = buildNormalizedStationMetadata(station);
+    Object.defineProperty(station, NORMALIZED_STATION_KEY, {
+      value: normalized,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  }
+
+  return station[NORMALIZED_STATION_KEY];
+}
+
 export function normalizeStation(station) {
   const data = stationSchema.parse(station);
   const streamUrl = selectStreamUrl(data);
@@ -31,7 +103,7 @@ export function normalizeStation(station) {
   const homepage = sanitizeStationUrl(data.homepage ?? null);
   const favicon = sanitizeStationUrl(data.favicon ?? null);
 
-  return {
+  const normalizedStation = {
     id: data.stationuuid,
     name: data.name,
     streamUrl,
@@ -56,6 +128,10 @@ export function normalizeStation(station) {
     clickTrend: typeof data.clicktrend === "number" ? data.clicktrend : 0,
     votes: typeof data.votes === "number" ? data.votes : 0,
   };
+
+  ensureNormalizedStation(normalizedStation);
+
+  return normalizedStation;
 }
 
 export function slugify(value) {
@@ -135,13 +211,17 @@ export function sanitizePersistedStationRecord(station) {
   const homepage = sanitizeStationUrl(station.homepage ?? null);
   const favicon = sanitizeStationUrl(station.favicon ?? null);
 
-  return {
+  const sanitizedStation = {
     ...station,
     streamUrl,
     homepage: homepage ?? null,
     favicon: favicon ?? null,
     isOnline: true,
   };
+
+  ensureNormalizedStation(sanitizedStation);
+
+  return sanitizedStation;
 }
 
 export function sanitizePersistedStationsPayload(payload) {
@@ -150,6 +230,10 @@ export function sanitizePersistedStationsPayload(payload) {
   }
 
   if (payload.schemaVersion === SCHEMA_VERSION) {
+    const stations = Array.isArray(payload.stations) ? payload.stations : [];
+    for (const station of stations) {
+      ensureNormalizedStation(station);
+    }
     return payload;
   }
 

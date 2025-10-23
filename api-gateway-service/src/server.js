@@ -1,4 +1,5 @@
 import http from "node:http";
+import { Readable } from "node:stream";
 import { config } from "./config.js";
 
 const ALLOWED_SERVICE_HOSTNAMES = new Set(config.allowedServiceHostnames);
@@ -180,21 +181,25 @@ try {
   process.exit(1);
 }
 
-function readRequestBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (chunk) => {
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      if (chunks.length === 0) {
-        resolve(null);
-      } else {
-        resolve(Buffer.concat(chunks));
-      }
-    });
-    req.on("error", reject);
-  });
+function buildProxyRequestBody(req, signal) {
+  if (req.method === "GET" || req.method === "HEAD") {
+    return null;
+  }
+
+  if (signal.aborted) {
+    req.destroy(new Error("Request aborted"));
+    return null;
+  }
+
+  signal.addEventListener(
+    "abort",
+    () => {
+      req.destroy(new Error("Request aborted"));
+    },
+    { once: true },
+  );
+
+  return Readable.toWeb(req);
 }
 
 async function proxyRequest(req, res, target) {
@@ -214,8 +219,7 @@ async function proxyRequest(req, res, target) {
   const timeout = setTimeout(() => abort.abort(), config.requestTimeoutMs);
 
   try {
-    const body =
-      req.method === "GET" || req.method === "HEAD" ? null : await readRequestBody(req);
+    const body = buildProxyRequestBody(req, abort.signal);
 
     const outgoingHeaders = sanitizeRequestHeaders(req.headers);
     const clientIp = deriveClientIp(req);
