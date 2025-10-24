@@ -1,5 +1,4 @@
 import { ensureNormalizedStation } from "../../stations/normalize.js";
-import { createServiceAuthMiddleware } from "../middleware/serviceAuth.js";
 
 const MAX_GENRE_OPTIONS = 200;
 
@@ -131,9 +130,7 @@ export function registerStationsRoutes(
   app,
   { config, ensureRedis, stationsLoader, updateStations, redis },
 ) {
-  const requireServiceAuth = createServiceAuthMiddleware(config.serviceAuthToken);
-
-  app.get("/stations", requireServiceAuth, async (req, res) => {
+  app.get("/stations", async (req, res) => {
     try {
       await ensureRedis();
       const forceRefresh = req.query.refresh === "true";
@@ -209,7 +206,17 @@ export function registerStationsRoutes(
     }
   });
 
-  app.post("/stations/refresh", requireServiceAuth, async (_req, res) => {
+  function requireRefreshAuth(req, res, next) {
+    const authorization = req.get("authorization") ?? "";
+    const expected = `Bearer ${config.refreshToken}`;
+    if (authorization !== expected) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
+  }
+
+  app.post("/stations/refresh", requireRefreshAuth, async (_req, res) => {
     try {
       await ensureRedis();
       const { payload, cacheSource } = await updateStations(redis);

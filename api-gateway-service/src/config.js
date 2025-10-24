@@ -18,11 +18,6 @@ function splitList(value) {
     .filter((item) => item.length > 0);
 }
 
-function extractServiceToken(env) {
-  const token = env.SERVICE_AUTH_TOKEN ?? env.STATIONS_REFRESH_TOKEN ?? "";
-  return token.trim();
-}
-
 function extractHostname(value) {
   try {
     return new URL(value).hostname;
@@ -48,5 +43,4 @@ export const config = {
   requestTimeoutMs: parsePort(process.env.UPSTREAM_TIMEOUT_MS, 10000),
   allowOrigins: splitList(process.env.CORS_ALLOW_ORIGINS),
   allowedServiceHostnames,
-  serviceAuthToken: extractServiceToken(process.env),
 };

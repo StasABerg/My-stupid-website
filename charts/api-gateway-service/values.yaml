@@ -47,11 +47,6 @@ terminalService:
 
 allowOrigins: []
 
-serviceAuth:
-  existingSecret: radio-service-env
-  secretKey: STATIONS_REFRESH_TOKEN
-  value: ""
-
 resources:
   requests:
     cpu: 50m
