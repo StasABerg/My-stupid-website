@@ -16,8 +16,8 @@ const radioBrowser = buildRadioBrowserConfig(process.env, allowInsecureTransport
 const api = buildApiConfig(process.env);
 const streamProxy = buildStreamProxyConfig(process.env);
 const streamValidation = buildStreamValidationConfig(process.env);
-const refreshToken = process.env.STATIONS_REFRESH_TOKEN ?? "";
-const serviceAuthToken = process.env.SERVICE_AUTH_TOKEN ?? refreshToken;
+const refreshToken = (process.env.STATIONS_REFRESH_TOKEN ?? "").trim();
+const serviceAuthToken = (process.env.SERVICE_AUTH_TOKEN ?? refreshToken).trim();
 
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
