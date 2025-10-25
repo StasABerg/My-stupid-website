@@ -1,39 +1,6 @@
 import { ensureNormalizedStation } from "../../stations/normalize.js";
-
-const MAX_GENRE_OPTIONS = 200;
-
-function buildGenreList(stations, { limit = MAX_GENRE_OPTIONS } = {}) {
-  const counts = new Map();
-
-  for (const station of stations) {
-    const tags = Array.isArray(station.tags) ? station.tags : [];
-    for (const tag of tags) {
-      const trimmed = tag?.toString().trim();
-      if (!trimmed) {
-        continue;
-      }
-      const normalized = trimmed.toLowerCase();
-      if (!counts.has(normalized)) {
-        counts.set(normalized, { label: trimmed, count: 0 });
-      }
-      counts.get(normalized).count += 1;
-    }
-  }
-
-  const sorted = Array.from(counts.values()).sort((a, b) => {
-    if (b.count !== a.count) {
-      return b.count - a.count;
-    }
-    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
-  });
-
-  const limited =
-    Number.isFinite(limit) && limit > 0
-      ? sorted.slice(0, limit)
-      : sorted;
-
-  return limited.map((entry) => entry.label);
-}
+import { ensureProcessedStations } from "../../stations/processedPayload.js";
+import { parseStationsQuery } from "./stationsQuery.js";
 
 function buildStationsResponse({ stations, matches, totalMatches, meta, config }) {
   return {
@@ -88,40 +55,102 @@ function stationMatchesFilters(station, { country, language, tag, search, genre 
   return true;
 }
 
-function collectStations(stations, filters, { offset, limit }) {
-  const matches = [];
-  let totalMatches = 0;
-  let hasMore = false;
-
-  const effectiveLimit = Number.isFinite(limit) && limit > 0 ? limit : 0;
-  const effectiveOffset = Number.isFinite(offset) && offset > 0 ? offset : 0;
-
-  for (const station of stations) {
-    if (!stationMatchesFilters(station, filters)) {
-      continue;
-    }
-
-    const matchIndex = totalMatches;
-    totalMatches += 1;
-
-    if (effectiveLimit > 0 && matchIndex >= effectiveOffset && matches.length < effectiveLimit) {
-      matches.push(station);
-      continue;
-    }
-
-    if (effectiveLimit === 0) {
-      if (matchIndex >= effectiveOffset) {
-        hasMore = true;
-        break;
-      }
-      continue;
-    }
-
-    if (matchIndex >= effectiveOffset + effectiveLimit) {
-      hasMore = true;
-      break;
-    }
+function intersectCandidateLists(lists) {
+  if (lists.length === 0) {
+    return [];
   }
+
+  const ordered = [...lists].sort((a, b) => a.length - b.length);
+  const [first, ...rest] = ordered;
+  if (rest.length === 0) {
+    return first.slice();
+  }
+
+  const restSets = rest.map((list) => new Set(list));
+  return first.filter((station) => restSets.every((set) => set.has(station)));
+}
+
+function filterBySearch(candidates, processed, search) {
+  if (!search) {
+    return candidates;
+  }
+
+  return candidates.filter((station) => {
+    const index = processed.stationIndex.get(station);
+    if (index === undefined) {
+      return false;
+    }
+    const text = processed.searchTexts[index] ?? "";
+    return text.includes(search);
+  });
+}
+
+function collectStations(processed, filters, { offset, limit }) {
+  const candidateLists = [];
+  const { index } = processed;
+
+  if (filters.country) {
+    const matches = index.byCountry.get(filters.country);
+    if (!matches) {
+      return { matches: [], totalMatches: 0, hasMore: false };
+    }
+    candidateLists.push(matches);
+  }
+
+  if (filters.language) {
+    const matches = index.byLanguage.get(filters.language);
+    if (!matches) {
+      return { matches: [], totalMatches: 0, hasMore: false };
+    }
+    candidateLists.push(matches);
+  }
+
+  if (filters.tag) {
+    const matches = index.byTag.get(filters.tag);
+    if (!matches) {
+      return { matches: [], totalMatches: 0, hasMore: false };
+    }
+    candidateLists.push(matches);
+  }
+
+  if (filters.genre) {
+    const matches = index.byTag.get(filters.genre);
+    if (!matches) {
+      return { matches: [], totalMatches: 0, hasMore: false };
+    }
+    candidateLists.push(matches);
+  }
+
+  let candidates;
+  if (candidateLists.length === 0) {
+    candidates = processed.stations;
+  } else {
+    candidates = intersectCandidateLists(candidateLists);
+  }
+
+  if (!candidates || candidates.length === 0) {
+    return { matches: [], totalMatches: 0, hasMore: false };
+  }
+
+  let filtered = filterBySearch(candidates, processed, filters.search);
+
+  if (filters.country || filters.language || filters.tag || filters.genre || filters.search) {
+    filtered = filtered.filter((station) => stationMatchesFilters(station, filters));
+  }
+
+  const totalMatches = filtered.length;
+
+  if (!Number.isFinite(limit) || limit <= 0) {
+    const start = Math.min(offset, filtered.length);
+    const matches = start > 0 ? filtered.slice(start) : filtered.slice();
+    const hasMore = start > 0 && matches.length > 0;
+    return { matches, totalMatches, hasMore };
+  }
+
+  const start = Math.min(offset, filtered.length);
+  const end = Math.min(start + limit, filtered.length);
+  const matches = filtered.slice(start, end);
+  const hasMore = end < filtered.length;
 
   return { matches, totalMatches, hasMore };
 }
@@ -133,62 +162,43 @@ export function registerStationsRoutes(
   app.get("/stations", async (req, res) => {
     try {
       await ensureRedis();
-      const forceRefresh = req.query.refresh === "true";
-      const rawLimit = req.query.limit?.toString().toLowerCase();
-      const parsedLimit = Number.parseInt(rawLimit ?? "", 10);
-      const limit =
-        rawLimit === "all"
-          ? config.api.maxPageSize
-          : Number.isFinite(parsedLimit) && parsedLimit > 0
-            ? Math.min(parsedLimit, config.api.maxPageSize)
-            : config.api.defaultPageSize;
-      const offsetParam = Number.parseInt(req.query.offset ?? "", 10);
-      const pageParam = Number.parseInt(req.query.page ?? "", 10);
-      const fallbackPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
-      const offsetCandidate =
-        Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : (fallbackPage - 1) * limit;
-      const offset = Math.max(0, offsetCandidate);
-      const page = limit > 0 ? Math.floor(offset / limit) + 1 : 1;
+      const parsedQuery = parseStationsQuery(req.query, { config });
+      if (!parsedQuery.ok) {
+        res.status(400).json({
+          error: "Invalid query parameters",
+          details: parsedQuery.errors,
+        });
+        return;
+      }
 
-      const language = req.query.language?.toString().toLowerCase();
-      const country = req.query.country?.toString().toLowerCase();
-      const tag = req.query.tag?.toString().toLowerCase();
-      const genre = req.query.genre?.toString().toLowerCase();
-      const search = req.query.search?.toString().toLowerCase();
+      const {
+        value: {
+          forceRefresh,
+          pagination: { limit, offset, page, requestedLimit },
+          filters: { country, language, tag, search, genre },
+        },
+      } = parsedQuery;
 
       const { payload, cacheSource } = await stationsLoader({ forceRefresh });
-      const stations = Array.isArray(payload?.stations) ? payload.stations : [];
-
-      const availableCountries = Array.from(
-        new Set(
-          stations
-            .map((station) => station.country?.toString().trim() ?? "")
-            .filter((value) => value.length > 0),
-        ),
-      ).sort((a, b) => a.localeCompare(b));
-
-      const availableGenres = buildGenreList(stations);
+      const processed = await ensureProcessedStations(payload);
+      const availableCountries = processed.countries;
+      const availableGenres = processed.genres;
 
       const { matches, totalMatches, hasMore } = collectStations(
-        stations,
+        processed,
         { country, language, tag, search, genre },
         { offset, limit },
       );
 
       const response = buildStationsResponse({
-        stations,
+        stations: processed.stations,
         matches,
         totalMatches,
         meta: {
           hasMore,
           page,
           limit,
-          requestedLimit:
-            rawLimit === "all"
-              ? "all"
-              : Number.isFinite(parsedLimit) && parsedLimit > 0
-                ? parsedLimit
-                : null,
+          requestedLimit,
           offset,
           cacheSource,
           origin: payload?.source ?? null,

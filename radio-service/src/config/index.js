@@ -23,6 +23,7 @@ export const config = {
   redisUrl: process.env.REDIS_URL,
   cacheKey: process.env.STATIONS_CACHE_KEY ?? "radio:stations:all",
   cacheTtlSeconds: numberFromEnv(process.env.STATIONS_CACHE_TTL, 900),
+  memoryCacheTtlSeconds: numberFromEnv(process.env.STATIONS_MEMORY_CACHE_TTL, 5),
   s3,
   radioBrowser,
   api,
@@ -60,5 +61,12 @@ export function validateConfig() {
     throw new Error(
       "STATIONS_REFRESH_TOKEN must be configured to protect the refresh endpoint.",
     );
+  }
+
+  if (
+    Number.isFinite(config.memoryCacheTtlSeconds) &&
+    config.memoryCacheTtlSeconds < 0
+  ) {
+    throw new Error("STATIONS_MEMORY_CACHE_TTL must be zero or a positive integer.");
   }
 }
