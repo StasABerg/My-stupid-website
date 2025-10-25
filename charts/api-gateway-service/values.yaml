@@ -47,6 +47,14 @@ terminalService:
 
 allowOrigins: []
 
+session:
+  cookieName: gateway.sid
+  maxAgeSeconds: 43200
+  secretValue: ""
+  secretRef: "radio-service-env"
+  secretRefKey: STATIONS_REFRESH_TOKEN
+  secretOptional: true
+
 resources:
   requests:
     cpu: 50m

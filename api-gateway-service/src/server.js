@@ -1,10 +1,14 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { config } from "./config.js";
 
 const ALLOWED_SERVICE_HOSTNAMES = new Set(config.allowedServiceHostnames);
 const RADIO_PREFIX = "/radio";
 const TERMINAL_PREFIX = "/terminal";
+const SESSION_COOKIE_NAME = config.session.cookieName;
+const SESSION_MAX_AGE_MS = config.session.maxAgeMs;
+const SESSION_SECRET = config.session.secret;
 
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 
@@ -18,16 +22,22 @@ function log(message, details = {}) {
 }
 
 function buildCorsHeaders(origin) {
-  if (!origin) return { Vary: "Origin" };
-
   const allowed = config.allowOrigins;
   const wildcard = allowed.includes("*");
+  if (!origin) {
+    const headers = { Vary: "Origin" };
+    if (allowed.length === 0 || wildcard) {
+      return headers;
+    }
+    return headers;
+  }
+
   if (allowed.length === 0 || wildcard || allowed.includes(origin)) {
     const headers = {
       Vary: "Origin",
       "Access-Control-Allow-Origin": wildcard ? "*" : origin,
       "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,PATCH,OPTIONS",
-      "Access-Control-Allow-Headers": "authorization,content-type",
+      "Access-Control-Allow-Headers": "authorization,content-type,x-gateway-csrf",
     };
 
     if (!wildcard) {
@@ -38,6 +48,17 @@ function buildCorsHeaders(origin) {
   }
 
   return { Vary: "Origin" };
+}
+
+function isOriginAllowed(origin) {
+  const allowed = config.allowOrigins;
+  if (allowed.length === 0 || allowed.includes("*")) {
+    return true;
+  }
+  if (!origin) {
+    return false;
+  }
+  return allowed.includes(origin);
 }
 
 function handlePreflight(req, res) {
@@ -181,6 +202,133 @@ try {
   process.exit(1);
 }
 
+function deriveClientIdentifier(req) {
+  const ip = deriveClientIp(req) ?? "";
+  const uaHeader = req.headers["user-agent"];
+  const userAgent =
+    typeof uaHeader === "string" && uaHeader.length > 0
+      ? uaHeader
+      : Array.isArray(uaHeader) && uaHeader.length > 0
+        ? uaHeader[0]
+        : "";
+  return `${ip}|${userAgent}`;
+}
+
+function parseCookies(headerValue) {
+  const cookies = {};
+  if (!headerValue) {
+    return cookies;
+  }
+  const parts = Array.isArray(headerValue) ? headerValue : [headerValue];
+  for (const part of parts) {
+    const segments = part.split(";").map((segment) => segment.trim());
+    for (const segment of segments) {
+      if (!segment) continue;
+      const eqIndex = segment.indexOf("=");
+      if (eqIndex === -1) continue;
+      const name = segment.slice(0, eqIndex).trim();
+      const value = segment.slice(eqIndex + 1).trim();
+      if (name) {
+        cookies[name] = value;
+      }
+    }
+  }
+  return cookies;
+}
+
+function serializeSessionCookie(nonce, timestamp, signature) {
+  const parts = [
+    `${SESSION_COOKIE_NAME}=${nonce}.${timestamp}.${signature}`,
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Strict",
+    `Max-Age=${Math.floor(SESSION_MAX_AGE_MS / 1000)}`,
+  ];
+  return parts.join("; ");
+}
+
+function createSessionSignature(nonce, timestamp, clientId) {
+  const hmac = crypto.createHmac("sha256", SESSION_SECRET);
+  hmac.update(nonce);
+  hmac.update("|");
+  hmac.update(String(timestamp));
+  hmac.update("|");
+  hmac.update(clientId);
+  return hmac.digest("hex");
+}
+
+function timingSafeEqualHex(a, b) {
+  try {
+    const bufA = Buffer.from(a, "hex");
+    const bufB = Buffer.from(b, "hex");
+    if (bufA.length !== bufB.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
+function issueSession(req) {
+  const clientId = deriveClientIdentifier(req);
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const issuedAt = Date.now();
+  const signature = createSessionSignature(nonce, issuedAt, clientId);
+  const cookie = serializeSessionCookie(nonce, issuedAt, signature);
+  return {
+    token: nonce,
+    cookie,
+    expiresAt: issuedAt + SESSION_MAX_AGE_MS,
+  };
+}
+
+function extractHeaderValue(headers, target) {
+  const key = findHeaderKey(headers, target);
+  if (!key) return null;
+  const raw = headers[key];
+  if (Array.isArray(raw)) {
+    return raw.length > 0 ? raw[0] : null;
+  }
+  return typeof raw === "string" ? raw : null;
+}
+
+function validateSession(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  const rawValue = cookies[SESSION_COOKIE_NAME];
+  if (!rawValue) {
+    return { ok: false, statusCode: 401, error: "Session required" };
+  }
+
+  const [nonce, timestampStr, signature] = rawValue.split(".");
+  if (!nonce || !timestampStr || !signature) {
+    return { ok: false, statusCode: 401, error: "Invalid session" };
+  }
+
+  const timestamp = Number.parseInt(timestampStr, 10);
+  if (!Number.isFinite(timestamp)) {
+    return { ok: false, statusCode: 401, error: "Invalid session" };
+  }
+
+  if (Date.now() - timestamp > SESSION_MAX_AGE_MS) {
+    return { ok: false, statusCode: 401, error: "Session expired" };
+  }
+
+  const clientId = deriveClientIdentifier(req);
+  const expectedSignature = createSessionSignature(nonce, timestamp, clientId);
+  if (!timingSafeEqualHex(signature, expectedSignature)) {
+    return { ok: false, statusCode: 401, error: "Session verification failed" };
+  }
+
+  const csrfToken = extractHeaderValue(req.headers, "x-gateway-csrf");
+  if (!csrfToken || csrfToken !== nonce) {
+    return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
+  }
+
+  return { ok: true, session: { nonce, timestamp } };
+}
+
 function buildProxyRequestBody(req, signal) {
   if (req.method === "GET" || req.method === "HEAD") {
     return null;
@@ -202,7 +350,7 @@ function buildProxyRequestBody(req, signal) {
   return Readable.toWeb(req);
 }
 
-async function proxyRequest(req, res, target) {
+async function proxyRequest(req, res, target, session, corsHeaders) {
   const parsed = new URL(req.url ?? "/", "http://localhost");
   const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
   const allowedHostname = new URL(target.baseUrl).hostname;
@@ -223,6 +371,9 @@ async function proxyRequest(req, res, target) {
 
     const outgoingHeaders = sanitizeRequestHeaders(req.headers);
     const clientIp = deriveClientIp(req);
+    if (session?.nonce) {
+      outgoingHeaders["X-Gateway-Session"] = session.nonce;
+    }
     if (clientIp) {
       const cfKey = findHeaderKey(outgoingHeaders, "cf-connecting-ip");
       if (cfKey) {
@@ -247,7 +398,6 @@ async function proxyRequest(req, res, target) {
 
     const upstreamResponse = await fetch(targetUrl, fetchOptions);
 
-    const corsHeaders = buildCorsHeaders(req.headers.origin);
     const headers = sanitizeResponseHeaders(upstreamResponse.headers);
 
     res.writeHead(upstreamResponse.status, {
@@ -262,7 +412,6 @@ async function proxyRequest(req, res, target) {
     }
     res.end();
   } catch (error) {
-    const corsHeaders = buildCorsHeaders(req.headers.origin);
     const status = error.name === "AbortError" ? 504 : 502;
     log("proxy-error", { status, error: error.message, target: target.baseUrl });
     if (!res.headersSent) {
@@ -362,6 +511,43 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/session") {
+    const originAllowed = isOriginAllowed(req.headers.origin ?? null);
+    const corsHeaders = buildCorsHeaders(req.headers.origin);
+
+    if (!originAllowed) {
+      res.writeHead(403, {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      });
+      res.end(JSON.stringify({ error: "Origin not allowed" }));
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.writeHead(405, {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      });
+      res.end(JSON.stringify({ error: "Method Not Allowed" }));
+      return;
+    }
+
+    const sessionResponse = issueSession(req);
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Set-Cookie": sessionResponse.cookie,
+      ...corsHeaders,
+    });
+    res.end(
+      JSON.stringify({
+        csrfToken: sessionResponse.token,
+        expiresAt: sessionResponse.expiresAt,
+      }),
+    );
+    return;
+  }
+
   const target = determineTarget(url.pathname);
   if (!target) {
     const corsHeaders = buildCorsHeaders(req.headers.origin);
@@ -373,7 +559,27 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  await proxyRequest(req, res, target);
+  const corsHeaders = buildCorsHeaders(req.headers.origin);
+  if (!isOriginAllowed(req.headers.origin ?? null)) {
+    res.writeHead(403, {
+      "Content-Type": "application/json",
+      ...corsHeaders,
+    });
+    res.end(JSON.stringify({ error: "Origin not allowed" }));
+    return;
+  }
+
+  const sessionValidation = validateSession(req);
+  if (!sessionValidation.ok) {
+    res.writeHead(sessionValidation.statusCode, {
+      "Content-Type": "application/json",
+      ...corsHeaders,
+    });
+    res.end(JSON.stringify({ error: sessionValidation.error }));
+    return;
+  }
+
+  await proxyRequest(req, res, target, sessionValidation.session, corsHeaders);
 });
 
 server.listen(config.port, () => {

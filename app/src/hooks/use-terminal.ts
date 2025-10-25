@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { authorizedFetch } from "@/lib/gateway-session";
+
 type ExecuteResponse = {
   command: string;
   output: string[];
@@ -88,7 +90,7 @@ export function useTerminal() {
 
     const bootstrap = async () => {
       try {
-        const response = await fetch(`${API_BASE}/info`, {
+        const response = await authorizedFetch(`${API_BASE}/info`, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
@@ -204,7 +206,7 @@ export function useTerminal() {
 
       try {
         setIsSubmitting(true);
-        const response = await fetch(`${API_BASE}/execute`, {
+        const response = await authorizedFetch(`${API_BASE}/execute`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),
