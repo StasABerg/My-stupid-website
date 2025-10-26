@@ -1,5 +1,7 @@
-import { GlideClient } from "@valkey/valkey-glide";
+import { GlideClient, Logger } from "@valkey/valkey-glide";
 import { config } from "./config/index.js";
+
+Logger.init("OFF");
 
 function buildClientOptions() {
   const url = new URL(config.redisUrl);
@@ -29,17 +31,7 @@ function buildClientOptions() {
 }
 
 export async function createRedisClient() {
-  const quietLogger = {
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  };
-
-  const client = await GlideClient.createClient({
-    ...buildClientOptions(),
-    logger: quietLogger,
-  });
+  const client = await GlideClient.createClient(buildClientOptions());
   client.on("error", (error) => {
     console.error("redis-error", { message: error.message });
   });
