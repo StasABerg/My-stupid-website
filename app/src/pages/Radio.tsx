@@ -41,7 +41,7 @@ const fallbackStation: RadioStation = {
   clickCount: 0,
 };
 
-const PAGE_SIZE = 120;
+const PAGE_SIZE = 40;
 
 const Radio = () => {
   const [search, setSearch] = useState("");
@@ -318,7 +318,9 @@ const Radio = () => {
       ? `${formatFrequency(displayStations.length - 1)} FM`
       : `${formatFrequency(0)} FM`;
 
-  const nextOffset = lastMeta ? lastMeta.offset + lastMeta.limit : displayStations.length;
+  const nextOffset = lastMeta
+    ? lastMeta.offset + lastMeta.limit
+    : displayStations.length;
   const stationListCommandBase = `radio stations --limit ${PAGE_SIZE}`;
   const stationListCommand =
     nextOffset > 0
@@ -457,8 +459,13 @@ const Radio = () => {
             isLoading={isLoading && displayStations.length === 0}
             isError={isError}
             visibleCount={displayStations.length}
-            totalCount={firstMeta?.filtered ?? firstMeta?.total}
-            cacheSource={firstMeta?.cacheSource}
+            totalCount={
+              firstMeta?.matches ??
+              firstMeta?.filtered ??
+              firstMeta?.total ??
+              displayStations.length
+            }
+            cacheSource={lastMeta?.cacheSource ?? firstMeta?.cacheSource}
             updatedAt={updatedAtDisplay}
             origin={firstMeta?.origin}
           />

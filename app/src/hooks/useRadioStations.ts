@@ -3,7 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/gateway-session";
 
 const DEFAULT_LIMIT = Number.parseInt(
-  import.meta.env.VITE_RADIO_DEFAULT_LIMIT ?? "200",
+  import.meta.env.VITE_RADIO_DEFAULT_LIMIT ?? "40",
   10,
 );
 
