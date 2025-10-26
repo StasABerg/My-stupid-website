@@ -1,5 +1,6 @@
 import Hls from "hls.js";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Heart } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   FilterPanel,
   PresetButtons,
@@ -8,8 +9,10 @@ import {
   StationInfoPanel,
   StatusFooter,
 } from "@/components/Radio";
+import { toast } from "@/components/ui/use-toast";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
+import { useRadioFavorites } from "@/hooks/useRadioFavorites";
 import { authorizedFetch } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
@@ -48,6 +51,7 @@ const Radio = () => {
   const [country, setCountry] = useState("");
   const [genre, setGenre] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [presetStationOverride, setPresetStationOverride] = useState<RadioStation | null>(null);
   const [volume, setVolume] = useState(0.65);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -76,6 +80,16 @@ const Radio = () => {
     isFetchingNextPage,
   } = useRadioStations(filters);
 
+  const {
+    favorites,
+    favoriteIds,
+    maxSlots: maxFavoriteSlots,
+    isLoading: favoritesLoading,
+    isSaving: isSavingFavorite,
+    toggleFavorite,
+    removeFavorite,
+  } = useRadioFavorites();
+
   const pages = useMemo(() => data?.pages ?? [], [data]);
   const displayStations = useMemo(
     () => pages.flatMap((pageData) => pageData.items),
@@ -89,8 +103,14 @@ const Radio = () => {
       ? 0
       : Math.min(selectedIndex, displayStations.length - 1);
 
-  const activeStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
-  const globalSelectedIndex = boundedSelectedIndex;
+  const activeDirectoryStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
+  const activeStation = presetStationOverride ?? activeDirectoryStation;
+  const activeStationIndex = useMemo(
+    () => displayStations.findIndex((station) => station.id === activeStation.id),
+    [activeStation.id, displayStations],
+  );
+  const frequencyLabel =
+    activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const proxiedStreamUrl = useMemo(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
       return null;
@@ -147,10 +167,26 @@ const Radio = () => {
     );
   }, [displayStations, firstMeta?.genres]);
 
+  useEffect(() => {
+    if (!presetStationOverride) {
+      return;
+    }
+    const existsInFavorites = favorites.some(
+      (station) => station.id === presetStationOverride.id,
+    );
+    const existsInDirectory = displayStations.some(
+      (station) => station.id === presetStationOverride.id,
+    );
+    if (!existsInFavorites && !existsInDirectory) {
+      setPresetStationOverride(null);
+    }
+  }, [displayStations, favorites, presetStationOverride]);
+
   const handleStationChange = (index: number) => {
     if (index < 0 || index >= displayStations.length) {
       return;
     }
+    setPresetStationOverride(null);
     setSelectedIndex(index);
   };
 
@@ -171,6 +207,93 @@ const Radio = () => {
   const handleGenreChange = (value: string) => {
     setGenre(value);
     setSelectedIndex(0);
+  };
+
+  const handlePresetSelect = (stationId: string) => {
+    const presetStation =
+      favorites.find((station) => station.id === stationId) ??
+      displayStations.find((station) => station.id === stationId);
+    if (!presetStation) {
+      toast({
+        title: "Preset unavailable",
+        description: "That station is no longer available in the directory.",
+        variant: "destructive",
+      });
+      setPresetStationOverride(null);
+      return;
+    }
+
+    const indexInDirectory = displayStations.findIndex((station) => station.id === stationId);
+    if (indexInDirectory !== -1) {
+      setPresetStationOverride(null);
+      handleStationChange(indexInDirectory);
+      return;
+    }
+
+    setPresetStationOverride(presetStation);
+  };
+
+  const handleFavoriteToggle = async (station: RadioStation) => {
+    if (!favoriteIds.has(station.id) && favorites.length >= maxFavoriteSlots) {
+      toast({
+        title: "All presets in use",
+        description: "Remove a favorite before adding a new one.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await toggleFavorite(station.id);
+      if (presetStationOverride?.id === station.id && favoriteIds.has(station.id)) {
+        setPresetStationOverride(null);
+      }
+    } catch (error) {
+      const status = (error as Error & { status?: number }).status;
+      if (status === 409) {
+        toast({
+          title: "All presets in use",
+          description: "Remove a favorite before adding a new one.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to update favorites.";
+      toast({
+        title: "Preset update failed",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePresetRemove = async (stationId: string) => {
+    try {
+      await removeFavorite(stationId);
+      if (presetStationOverride?.id === stationId) {
+        setPresetStationOverride(null);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to update favorites.";
+      toast({
+        title: "Preset update failed",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDirectoryKeyDown = (event: KeyboardEvent<HTMLDivElement>, index: number) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleStationChange(index);
+    }
   };
 
   useEffect(() => {
@@ -364,12 +487,12 @@ const Radio = () => {
               <TerminalPrompt path="~/radio" command="radio status" />
               <StationInfoPanel
                 station={activeStation}
-                frequencyLabel={`${formatFrequency(globalSelectedIndex)} FM`}
+                frequencyLabel={frequencyLabel}
               />
 
               <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
               <ScannerControl
-                value={boundedSelectedIndex}
+                value={activeStationIndex !== -1 ? activeStationIndex : boundedSelectedIndex}
                 max={Math.max(displayStations.length - 1, 0)}
                 onChange={handleStationChange}
                 minLabel={`${formatFrequency(0)} FM`}
@@ -378,10 +501,13 @@ const Radio = () => {
 
               <TerminalPrompt path="~/radio" command="radio presets --list" />
               <PresetButtons
-                stations={displayStations}
-                selectedIndex={boundedSelectedIndex}
-                onSelect={handleStationChange}
+                favorites={favorites}
+                selectedStationId={activeStation.id ?? null}
+                onSelect={handlePresetSelect}
+                onRemove={handlePresetRemove}
                 colors={presetColors}
+                maxSlots={maxFavoriteSlots}
+                isLoading={favoritesLoading}
               />
             </div>
 
@@ -415,13 +541,17 @@ const Radio = () => {
                     className="max-h-[45vh] sm:max-h-[55vh] lg:max-h-[65vh] overflow-y-auto divide-y divide-terminal-green/20"
                   >
                     {displayStations.map((station, index) => {
-                      const isSelected = index === boundedSelectedIndex;
+                      const isSelected = station.id === activeStation.id;
+                      const isFavorite = favoriteIds.has(station.id);
                       return (
                         <li key={station.id}>
-                          <button
-                            type="button"
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={isSelected}
                             onClick={() => handleStationChange(index)}
-                            className={`flex w-full flex-col gap-2 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow sm:flex-row sm:items-center ${
+                            onKeyDown={(event) => handleDirectoryKeyDown(event, index)}
+                            className={`flex w-full flex-col items-start gap-2 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow sm:flex-row sm:items-center ${
                               isSelected
                                 ? "bg-terminal-green/20 text-terminal-yellow"
                                 : "text-terminal-white hover:bg-terminal-green/10"
@@ -433,13 +563,39 @@ const Radio = () => {
                             <span className="text-terminal-green text-[0.7rem] sm:w-20 sm:text-sm">
                               {`${formatFrequency(index)} FM`}
                             </span>
+                            <button
+                              type="button"
+                              aria-label={
+                                isFavorite
+                                  ? `Remove ${station.name} from presets`
+                                  : `Add ${station.name} to presets`
+                              }
+                              aria-pressed={isFavorite}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                event.preventDefault();
+                                void handleFavoriteToggle(station);
+                              }}
+                              disabled={isSavingFavorite}
+                              className={`rounded-full border border-terminal-green/30 p-1 transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                                isFavorite
+                                  ? "text-terminal-red"
+                                  : "text-terminal-white/70 hover:text-terminal-yellow"
+                              } ${isSavingFavorite ? "opacity-60" : ""}`}
+                            >
+                              <Heart
+                                className="h-3.5 w-3.5"
+                                fill={isFavorite ? "currentColor" : "none"}
+                                aria-hidden="true"
+                              />
+                            </button>
                             <span className="flex-1 whitespace-normal break-words text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
                               {station.name}
                             </span>
                             <span className="hidden text-[0.7rem] text-terminal-cyan md:block">
                               {station.country ?? "Unknown"}
                             </span>
-                          </button>
+                          </div>
                         </li>
                       );
                     })}

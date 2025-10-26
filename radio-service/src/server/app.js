@@ -5,6 +5,7 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerStationsRoutes } from "./routes/stations.js";
 import { registerClickRoutes } from "./routes/click.js";
 import { registerStreamRoutes } from "./routes/stream.js";
+import { registerFavoritesRoutes } from "./routes/favorites.js";
 
 function createStationsLoader({ redis, ensureRedis, loadStations }) {
   return async function stationsLoader({ forceRefresh = false } = {}) {
@@ -41,6 +42,11 @@ export function createApp(deps) {
   registerStreamRoutes(app, {
     config,
     ensureRedis,
+    stationsLoader,
+  });
+  registerFavoritesRoutes(app, {
+    ensureRedis,
+    redis,
     stationsLoader,
   });
 
