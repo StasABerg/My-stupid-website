@@ -1,5 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 
+import { authorizedFetch } from "@/lib/gateway-session";
+
 const DEFAULT_LIMIT = Number.parseInt(
   import.meta.env.VITE_RADIO_DEFAULT_LIMIT ?? "200",
   10,
@@ -83,7 +85,7 @@ async function fetchStations(filters: StationFilters): Promise<StationsResponse>
   if (filters.search) params.set("search", filters.search);
   if (filters.offset && filters.offset > 0) params.set("offset", String(filters.offset));
 
-  const response = await fetch(`${RADIO_API_BASE}/stations?${params.toString()}`);
+  const response = await authorizedFetch(`${RADIO_API_BASE}/stations?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to load stations: ${response.status}`);
   }

@@ -10,6 +10,7 @@ import {
 } from "@/components/Radio";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
+import { authorizedFetch } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 const presetColors = [
@@ -308,7 +309,7 @@ const Radio = () => {
     const controller = new AbortController();
     const url = `${RADIO_API_BASE}/stations/${encodeURIComponent(activeStation.id)}/click`;
 
-    fetch(url, { method: "POST", signal: controller.signal }).catch(() => {
+    authorizedFetch(url, { method: "POST", signal: controller.signal }).catch(() => {
       /* ignore click tracking errors */
     });
 

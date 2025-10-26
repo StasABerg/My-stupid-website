@@ -8,3 +8,8 @@ radioService:
 
 terminalService:
   name: my-stupid-website-terminal
+
+session:
+  secretRef: "radio-service-env-dev"
+  secretRefKey: STATIONS_REFRESH_TOKEN
+  secretOptional: true

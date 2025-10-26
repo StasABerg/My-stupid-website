@@ -60,6 +60,23 @@ spec:
             - name: CORS_ALLOW_ORIGINS
               value: "{{ join "," .Values.allowOrigins }}"
             {{- end }}
+            - name: SESSION_COOKIE_NAME
+              value: "{{ .Values.session.cookieName }}"
+            - name: SESSION_MAX_AGE_SECONDS
+              value: "{{ .Values.session.maxAgeSeconds }}"
+            {{- if .Values.session.secretRef }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.session.secretRef }}
+                  key: {{ .Values.session.secretRefKey }}
+                  {{- if .Values.session.secretOptional }}
+                  optional: true
+                  {{- end }}
+            {{- else if .Values.session.secretValue }}
+            - name: SESSION_SECRET
+              value: "{{ .Values.session.secretValue }}"
+            {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
