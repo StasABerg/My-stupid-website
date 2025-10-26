@@ -66,6 +66,8 @@ export function createCache(config) {
         : null;
 
   if (!createClient) {
+    console.error("[api-gateway] valkey-glide export keys:", Object.keys(valkeyGlide || {}));
+    console.error("[api-gateway] valkey-glide typeof:", typeof valkeyGlide);
     throw new Error("Unable to resolve createClient from @valkey/valkey-glide");
   }
   const ttlSeconds = Math.max(config.ttlSeconds ?? 0, 0);

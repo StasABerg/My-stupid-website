@@ -9,6 +9,8 @@ const createClient =
       : null;
 
 if (!createClient) {
+  console.error("[radio-service] valkey-glide export keys:", Object.keys(valkeyGlide || {}));
+  console.error("[radio-service] valkey-glide typeof:", typeof valkeyGlide);
   throw new Error("Unable to resolve createClient from @valkey/valkey-glide");
 }
 
