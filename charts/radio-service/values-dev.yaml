@@ -19,12 +19,6 @@ env:
         name: radio-service-env-dev
         key: STATIONS_CACHE_KEY
         optional: true
-  - name: STATIONS_CACHE_TTL
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env-dev
-        key: STATIONS_CACHE_TTL
-        optional: true
   - name: MINIO_ENDPOINT
     valueFrom:
       secretKeyRef:
