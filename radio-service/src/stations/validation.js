@@ -88,6 +88,11 @@ export async function validateStationStream(station) {
       return { ok: false, reason: "insecure-redirect" };
     }
 
+    if (isBlockedDomain(finalUrl)) {
+      await clean(candidate);
+      return { ok: false, reason: "blocked-domain" };
+    }
+
     const contentType = candidate.headers.get("content-type") ?? "";
 
     const lowerType = contentType.toLowerCase().split(";")[0].trim();
