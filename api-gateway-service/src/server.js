@@ -11,6 +11,9 @@ const SESSION_COOKIE_NAME = config.session.cookieName;
 const SESSION_MAX_AGE_MS = config.session.maxAgeMs;
 const SESSION_SECRET = config.session.secret;
 
+const ABSOLUTE_URL_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
+const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
+
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 const cache = createCache(config.cache);
 
@@ -112,6 +115,33 @@ function containsTraversal(value) {
   );
 }
 
+function parseRequestUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || rawUrl.length === 0) {
+    return { ok: false, statusCode: 400, error: "Missing request URL", reason: "missing" };
+  }
+  if (CONTROL_CHAR_PATTERN.test(rawUrl) || rawUrl.includes("\\")) {
+    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "invalid-characters" };
+  }
+  if (ABSOLUTE_URL_PATTERN.test(rawUrl) || rawUrl.startsWith("//")) {
+    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "absolute-form" };
+  }
+  let parsed;
+  try {
+    parsed = new URL(rawUrl, "http://localhost");
+  } catch {
+    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "parse-failed" };
+  }
+  if (
+    parsed.hostname !== "localhost" ||
+    parsed.port ||
+    parsed.username ||
+    parsed.password
+  ) {
+    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "unexpected-authority" };
+  }
+  return { ok: true, url: parsed };
+}
+
 function sanitizePath(prefix, rawSuffix) {
   if (!VALID_PREFIXES.includes(prefix)) {
     return null;
@@ -197,8 +227,8 @@ function shouldCacheRequest(req, target) {
   return false;
 }
 
-function buildCacheKey(req, target) {
-  const parsed = new URL(req.url ?? "/", "http://localhost");
+function buildCacheKey(req, target, parsedUrl) {
+  const parsed = parsedUrl ?? new URL(req.url ?? "/", "http://localhost");
   const params = Array.from(parsed.searchParams.entries()).sort(([a], [b]) =>
     a.localeCompare(b),
   );
@@ -386,8 +416,8 @@ function buildProxyRequestBody(req, signal) {
   return Readable.toWeb(req);
 }
 
-async function proxyRequest(req, res, target, session, corsHeaders, cacheOptions) {
-  const parsed = new URL(req.url ?? "/", "http://localhost");
+async function proxyRequest(req, res, target, session, corsHeaders, cacheOptions, parsedUrl) {
+  const parsed = parsedUrl ?? new URL(req.url ?? "/", "http://localhost");
   const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
   const allowedHostname = new URL(target.baseUrl).hostname;
   if (
@@ -553,13 +583,18 @@ function normalizeAddress(address) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (!req.url) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Missing request URL" }));
+  const parsedUrlResult = parseRequestUrl(req.url);
+  if (!parsedUrlResult.ok) {
+    log("blocked-invalid-request-url", {
+      reason: parsedUrlResult.reason,
+      rawUrl: req.url ?? null,
+    });
+    res.writeHead(parsedUrlResult.statusCode, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: parsedUrlResult.error }));
     return;
   }
 
-  const url = new URL(req.url, "http://localhost");
+  const url = parsedUrlResult.url;
 
   if (req.method === "OPTIONS") {
     handlePreflight(req, res);
@@ -641,7 +676,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const cacheable = shouldCacheRequest(req, target);
-  const cacheKey = cacheable ? buildCacheKey(req, target) : null;
+  const cacheKey = cacheable ? buildCacheKey(req, target, url) : null;
   if (cacheable && cacheKey) {
     try {
       const cachedRaw = await cache.get(cacheKey);
@@ -660,10 +695,18 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  await proxyRequest(req, res, target, sessionValidation.session, corsHeaders, {
-    cacheable,
-    cacheKey,
-  });
+  await proxyRequest(
+    req,
+    res,
+    target,
+    sessionValidation.session,
+    corsHeaders,
+    {
+      cacheable,
+      cacheKey,
+    },
+    url,
+  );
 });
 
 server.listen(config.port, () => {
