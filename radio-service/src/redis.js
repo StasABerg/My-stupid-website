@@ -1,7 +1,16 @@
 import valkeyGlide from "@valkey/valkey-glide";
 import { config } from "./config/index.js";
 
-const { createClient } = valkeyGlide;
+const createClient =
+  typeof valkeyGlide === "function"
+    ? valkeyGlide
+    : typeof valkeyGlide?.createClient === "function"
+      ? valkeyGlide.createClient
+      : null;
+
+if (!createClient) {
+  throw new Error("Unable to resolve createClient from @valkey/valkey-glide");
+}
 
 export function createRedisClient() {
   const useTls = config.redisUrl.startsWith("rediss://");

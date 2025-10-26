@@ -58,7 +58,16 @@ class MemoryCache {
 }
 
 export function createCache(config) {
-  const { createClient } = valkeyGlide;
+  const createClient =
+    typeof valkeyGlide === "function"
+      ? valkeyGlide
+      : typeof valkeyGlide?.createClient === "function"
+        ? valkeyGlide.createClient
+        : null;
+
+  if (!createClient) {
+    throw new Error("Unable to resolve createClient from @valkey/valkey-glide");
+  }
   const ttlSeconds = Math.max(config.ttlSeconds ?? 0, 0);
   const maxEntries = Math.max(config.memory?.maxEntries ?? 200, 10);
 
