@@ -1,4 +1,3 @@
-import { TimeUnit } from "@valkey/valkey-glide";
 import { config } from "./config/index.js";
 import { buildStationsFingerprint } from "./stations/normalize.js";
 
@@ -47,9 +46,7 @@ export async function writeStationsToCache(
   }
 
   if (ttl > 0) {
-    await redis.set(config.cacheKey, body, {
-      expiry: { type: TimeUnit.Seconds, count: ttl },
-    });
+    await redis.set(config.cacheKey, body, "EX", ttl);
   } else {
     await redis.set(config.cacheKey, body);
   }
