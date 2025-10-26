@@ -1,4 +1,11 @@
-import { GlideClient, Logger, TimeUnit } from "@valkey/valkey-glide";
+if (!process.env.GLIDE_LOGGER_DIRECTORY) {
+  process.env.GLIDE_LOGGER_DIRECTORY = "/tmp";
+}
+if (!process.env.GLIDE_LOGGER_SOCKET_PATH) {
+  process.env.GLIDE_LOGGER_SOCKET_PATH = `/tmp/valkey-glide-${process.pid}.sock`;
+}
+
+const { GlideClient, Logger, TimeUnit } = await import("@valkey/valkey-glide");
 
 function log(event, details = {}) {
   console.log(
@@ -85,10 +92,16 @@ function buildClientOptions(redisUrl, config) {
 
 export function createCache(config) {
   try {
-    Logger.setLoggerConfig("OFF", undefined, { useSharedLogger: false, logToConsole: false });
+    Logger.setLoggerConfig("OFF", undefined, {
+      useSharedLogger: false,
+      logToConsole: true,
+    });
   } catch (error) {
     try {
-      Logger.init("OFF", undefined, { useSharedLogger: false, logToConsole: false });
+      Logger.init("OFF", undefined, {
+        useSharedLogger: false,
+        logToConsole: true,
+      });
     } catch (innerError) {
       log("valkey-logger-init-error", { message: innerError.message || error.message });
     }
