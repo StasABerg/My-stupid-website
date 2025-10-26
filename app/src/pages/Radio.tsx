@@ -1,6 +1,6 @@
 import Hls from "hls.js";
 import { Heart } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   FilterPanel,
   PresetButtons,
@@ -87,6 +87,7 @@ const Radio = () => {
     isLoading: favoritesLoading,
     isSaving: isSavingFavorite,
     toggleFavorite,
+    removeFavorite,
   } = useRadioFavorites();
 
   const pages = useMemo(() => data?.pages ?? [], [data]);
@@ -266,6 +267,32 @@ const Radio = () => {
         description: message,
         variant: "destructive",
       });
+    }
+  };
+
+  const handlePresetRemove = async (stationId: string) => {
+    try {
+      await removeFavorite(stationId);
+      if (presetStationOverride?.id === stationId) {
+        setPresetStationOverride(null);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to update favorites.";
+      toast({
+        title: "Preset update failed",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDirectoryKeyDown = (event: KeyboardEvent<HTMLDivElement>, index: number) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleStationChange(index);
     }
   };
 
@@ -477,6 +504,7 @@ const Radio = () => {
                 favorites={favorites}
                 selectedStationId={activeStation.id ?? null}
                 onSelect={handlePresetSelect}
+                onRemove={handlePresetRemove}
                 colors={presetColors}
                 maxSlots={maxFavoriteSlots}
                 isLoading={favoritesLoading}
@@ -516,11 +544,14 @@ const Radio = () => {
                       const isSelected = station.id === activeStation.id;
                       const isFavorite = favoriteIds.has(station.id);
                       return (
-                        <li key={station.id} className="relative">
-                          <button
-                            type="button"
+                        <li key={station.id}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={isSelected}
                             onClick={() => handleStationChange(index)}
-                            className={`flex w-full flex-col gap-2 px-3 py-2 pr-9 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow sm:flex-row sm:items-center ${
+                            onKeyDown={(event) => handleDirectoryKeyDown(event, index)}
+                            className={`flex w-full flex-col items-start gap-2 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow sm:flex-row sm:items-center ${
                               isSelected
                                 ? "bg-terminal-green/20 text-terminal-yellow"
                                 : "text-terminal-white hover:bg-terminal-green/10"
@@ -532,38 +563,39 @@ const Radio = () => {
                             <span className="text-terminal-green text-[0.7rem] sm:w-20 sm:text-sm">
                               {`${formatFrequency(index)} FM`}
                             </span>
+                            <button
+                              type="button"
+                              aria-label={
+                                isFavorite
+                                  ? `Remove ${station.name} from presets`
+                                  : `Add ${station.name} to presets`
+                              }
+                              aria-pressed={isFavorite}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                event.preventDefault();
+                                void handleFavoriteToggle(station);
+                              }}
+                              disabled={isSavingFavorite}
+                              className={`rounded-full border border-terminal-green/30 p-1 transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                                isFavorite
+                                  ? "text-terminal-red"
+                                  : "text-terminal-white/70 hover:text-terminal-yellow"
+                              } ${isSavingFavorite ? "opacity-60" : ""}`}
+                            >
+                              <Heart
+                                className="h-3.5 w-3.5"
+                                fill={isFavorite ? "currentColor" : "none"}
+                                aria-hidden="true"
+                              />
+                            </button>
                             <span className="flex-1 whitespace-normal break-words text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
                               {station.name}
                             </span>
                             <span className="hidden text-[0.7rem] text-terminal-cyan md:block">
                               {station.country ?? "Unknown"}
                             </span>
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={
-                              isFavorite
-                                ? `Remove ${station.name} from presets`
-                                : `Add ${station.name} to presets`
-                            }
-                            aria-pressed={isFavorite}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleFavoriteToggle(station);
-                            }}
-                            disabled={isSavingFavorite}
-                            className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-terminal-green/30 p-1 transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
-                              isFavorite
-                                ? "text-terminal-red"
-                                : "text-terminal-white/70 hover:text-terminal-yellow"
-                            } ${isSavingFavorite ? "opacity-60" : ""}`}
-                          >
-                            <Heart
-                              className="h-3.5 w-3.5"
-                              fill={isFavorite ? "currentColor" : "none"}
-                              aria-hidden="true"
-                            />
-                          </button>
+                          </div>
                         </li>
                       );
                     })}
