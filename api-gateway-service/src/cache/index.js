@@ -1,4 +1,4 @@
-import { GlideClient } from "@valkey/valkey-glide";
+import { GlideClient, TimeUnit } from "@valkey/valkey-glide";
 
 function log(event, details = {}) {
   console.log(
@@ -57,26 +57,33 @@ class MemoryCache {
   }
 }
 
-export function createCache(config) {
-  const valkeyModule = await import("@valkey/valkey-glide");
-  const createClient =
-    typeof valkeyModule.createClient === "function"
-      ? valkeyModule.createClient
-      : typeof valkeyModule.default === "function"
-        ? valkeyModule.default
-        : typeof valkeyModule.default?.createClient === "function"
-          ? valkeyModule.default.createClient
-          : null;
-
-  if (!createClient) {
-    const exportedKeys = Object.keys(valkeyModule || {});
-    const defaultKeys = Object.keys(valkeyModule?.default || {});
-    throw new Error(
-      `Unable to resolve createClient from @valkey/valkey-glide (exports: ${exportedKeys.join(
-        ", ",
-      )}; default exports: ${defaultKeys.join(", ")})`,
-    );
+function buildClientOptions(redisUrl, config) {
+  const url = new URL(redisUrl);
+  const port = url.port ? Number.parseInt(url.port, 10) : 6379;
+  const options = {
+    addresses: [{ host: url.hostname, port }],
+  };
+  if (url.username) {
+    options.username = decodeURIComponent(url.username);
   }
+  if (url.password) {
+    options.password = decodeURIComponent(url.password);
+  }
+  if (url.pathname && url.pathname !== "/") {
+    const db = Number.parseInt(url.pathname.slice(1), 10);
+    if (Number.isFinite(db) && db >= 0) {
+      options.database = db;
+    }
+  }
+  if (url.protocol === "rediss:") {
+    options.tls = {
+      rejectUnauthorized: config.redis.tlsRejectUnauthorized !== false,
+    };
+  }
+  return options;
+}
+
+export function createCache(config) {
   const ttlSeconds = Math.max(config.ttlSeconds ?? 0, 0);
   const maxEntries = Math.max(config.memory?.maxEntries ?? 200, 10);
 
@@ -88,37 +95,23 @@ export function createCache(config) {
   if (config.redis?.enabled) {
     const redisUrl = config.redis.url;
     try {
-      const useTls = redisUrl.startsWith("rediss://");
-      const client = new GlideClient(redisUrl, {
-        tls: useTls
-          ? {
-              rejectUnauthorized: config.redis.tlsRejectUnauthorized !== false,
-            }
-          : undefined,
+      const clientPromise = GlideClient.createClient(buildClientOptions(redisUrl, config));
+      const wrappedClientPromise = clientPromise.then((client) => {
+        client.on("error", (error) => log("cache-redis-error", { message: error.message }));
+        log("cache-redis-ready", { keyPrefix: config.redis.keyPrefix });
+        return client;
       });
-      client.on("error", (error) => log("cache-redis-error", { message: error.message }));
-      client.on("ready", () => log("cache-redis-ready", { keyPrefix: config.redis.keyPrefix }));
-
       const keyPrefix = config.redis.keyPrefix ?? "gateway:cache:";
-      let connectPromise = null;
-      const ensureConnected = async () => {
-        if (client.isReady) {
-          return;
-        }
-        if (!connectPromise) {
-          connectPromise = client.connect().finally(() => {
-            connectPromise = null;
-          });
-        }
-        await connectPromise;
-      };
-
       return {
         async get(key) {
-          await ensureConnected();
-          const cached = await client.get(`${keyPrefix}${key}`);
-          if (cached !== null) {
-            return cached;
+          try {
+            const client = await wrappedClientPromise;
+            const cached = await client.get(`${keyPrefix}${key}`);
+            if (cached !== null) {
+              return cached;
+            }
+          } catch (error) {
+            log("cache-redis-get-error", { message: error.message });
           }
           if (memoryCache) {
             return memoryCache.get(key);
@@ -129,18 +122,24 @@ export function createCache(config) {
           if (memoryCache) {
             await memoryCache.set(key, value, ttlSeconds);
           }
-          await ensureConnected();
-          await client.set(`${keyPrefix}${key}`, value, {
-            EX: Math.max(ttl ?? ttlSeconds, 1),
-          });
+          try {
+            const client = await wrappedClientPromise;
+            const effectiveTtl = Math.max(ttl ?? ttlSeconds, 0);
+            if (effectiveTtl > 0) {
+              await client.set(`${keyPrefix}${key}`, value, {
+                expiry: { type: TimeUnit.Seconds, count: effectiveTtl },
+              });
+            } else {
+              await client.set(`${keyPrefix}${key}`, value);
+            }
+          } catch (error) {
+            log("cache-redis-set-error", { message: error.message });
+          }
         },
         async shutdown() {
           try {
-            if (client.isOpen || client.isReady) {
-              await client.quit();
-            } else {
-              await client.disconnect();
-            }
+            const client = await wrappedClientPromise;
+            await client.close();
           } catch (error) {
             log("cache-redis-shutdown-error", { message: error.message });
           }
