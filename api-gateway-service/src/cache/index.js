@@ -1,4 +1,4 @@
-import { GlideClient, TimeUnit } from "@valkey/valkey-glide";
+import { GlideClient, Logger, TimeUnit } from "@valkey/valkey-glide";
 
 function log(event, details = {}) {
   console.log(
@@ -95,7 +95,10 @@ export function createCache(config) {
   if (config.redis?.enabled) {
     const redisUrl = config.redis.url;
     try {
-      const clientPromise = GlideClient.createClient(buildClientOptions(redisUrl, config));
+      const clientPromise = GlideClient.createClient({
+        ...buildClientOptions(redisUrl, config),
+        logger: Logger.disabled(),
+      });
       const wrappedClientPromise = clientPromise.then((client) => {
         client.on("error", (error) => log("cache-redis-error", { message: error.message }));
         log("cache-redis-ready", { keyPrefix: config.redis.keyPrefix });
