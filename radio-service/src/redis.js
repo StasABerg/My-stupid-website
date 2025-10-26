@@ -1,7 +1,15 @@
 import { GlideClient, Logger } from "@valkey/valkey-glide";
 import { config } from "./config/index.js";
 
-Logger.init("OFF");
+try {
+  Logger.setLoggerConfig("OFF", undefined, { useSharedLogger: false, logToConsole: false });
+} catch (error) {
+  try {
+    Logger.init("OFF", undefined, { useSharedLogger: false, logToConsole: false });
+  } catch (innerError) {
+    console.warn("valkey-logger-init-error", innerError.message || error.message);
+  }
+}
 
 function buildClientOptions() {
   const url = new URL(config.redisUrl);

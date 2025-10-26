@@ -84,7 +84,15 @@ function buildClientOptions(redisUrl, config) {
 }
 
 export function createCache(config) {
-  Logger.init("OFF");
+  try {
+    Logger.setLoggerConfig("OFF", undefined, { useSharedLogger: false, logToConsole: false });
+  } catch (error) {
+    try {
+      Logger.init("OFF", undefined, { useSharedLogger: false, logToConsole: false });
+    } catch (innerError) {
+      log("valkey-logger-init-error", { message: innerError.message || error.message });
+    }
+  }
   const ttlSeconds = Math.max(config.ttlSeconds ?? 0, 0);
   const maxEntries = Math.max(config.memory?.maxEntries ?? 200, 10);
 
