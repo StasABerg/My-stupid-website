@@ -7,8 +7,8 @@ COPY --chown=node:node api-gateway-service/package.json ./package.json
 RUN chown -R node:node /app
 USER node
 
-RUN --mount=type=cache,target=/home/node/.npm npm install --package-lock-only --no-audit --no-fund
-RUN --mount=type=cache,target=/home/node/.npm npm ci --omit=dev --no-audit --no-fund
+RUN npm install --package-lock-only --no-audit --no-fund
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY --chown=node:node api-gateway-service/src ./src
 

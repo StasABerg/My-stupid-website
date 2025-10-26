@@ -3,7 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { authorizedFetch } from "@/lib/gateway-session";
 
 const DEFAULT_LIMIT = Number.parseInt(
-  import.meta.env.VITE_RADIO_DEFAULT_LIMIT ?? "200",
+  import.meta.env.VITE_RADIO_DEFAULT_LIMIT ?? "40",
   10,
 );
 
@@ -32,16 +32,11 @@ export type RadioStation = {
   state: string | null;
   languages: string[];
   tags: string[];
-  coordinates: { lat: number; lon: number } | null;
   bitrate: number | null;
   codec: string | null;
   hls: boolean;
   isOnline: boolean;
-  lastCheckedAt: string | null;
-  lastChangedAt: string | null;
   clickCount: number;
-  clickTrend: number;
-  votes: number;
 };
 
 export type StationsResponse = {

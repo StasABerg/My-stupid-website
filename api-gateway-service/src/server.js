@@ -2,6 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { config } from "./config.js";
+import { createCache } from "./cache/index.js";
 
 const ALLOWED_SERVICE_HOSTNAMES = new Set(config.allowedServiceHostnames);
 const RADIO_PREFIX = "/radio";
@@ -11,6 +12,7 @@ const SESSION_MAX_AGE_MS = config.session.maxAgeMs;
 const SESSION_SECRET = config.session.secret;
 
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
+const cache = createCache(config.cache);
 
 function log(message, details = {}) {
   const payload = {
@@ -136,6 +138,7 @@ function determineTarget(pathname) {
     return {
       baseUrl: config.radioServiceUrl,
       path: sanitized,
+      service: "radio",
     };
   }
 
@@ -146,6 +149,7 @@ function determineTarget(pathname) {
     return {
       baseUrl: config.terminalServiceUrl,
       path: sanitized,
+      service: "terminal",
     };
   }
 
@@ -170,6 +174,38 @@ function sanitizeResponseHeaders(headers) {
     result[key] = value;
   });
   return result;
+}
+
+function sanitizeHeadersForCache(headers) {
+  const filtered = { ...headers };
+  for (const key of Object.keys(filtered)) {
+    const lower = key.toLowerCase();
+    if (lower === "set-cookie" || lower === "set-cookie2" || lower === "content-length") {
+      delete filtered[key];
+    }
+  }
+  return filtered;
+}
+
+function shouldCacheRequest(req, target) {
+  if (req.method !== "GET" || !target) {
+    return false;
+  }
+  if (target.service === "radio" && target.path.startsWith("/stations")) {
+    return true;
+  }
+  return false;
+}
+
+function buildCacheKey(req, target) {
+  const parsed = new URL(req.url ?? "/", "http://localhost");
+  const params = Array.from(parsed.searchParams.entries()).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const serialized =
+    params.length > 0 ? params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&") : "";
+  const suffix = serialized.length > 0 ? `?${serialized}` : "";
+  return `${target.service}:${target.path}${suffix}`;
 }
 
 if (ALLOWED_SERVICE_HOSTNAMES.size === 0) {
@@ -350,7 +386,7 @@ function buildProxyRequestBody(req, signal) {
   return Readable.toWeb(req);
 }
 
-async function proxyRequest(req, res, target, session, corsHeaders) {
+async function proxyRequest(req, res, target, session, corsHeaders, cacheOptions) {
   const parsed = new URL(req.url ?? "/", "http://localhost");
   const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
   const allowedHostname = new URL(target.baseUrl).hostname;
@@ -399,18 +435,43 @@ async function proxyRequest(req, res, target, session, corsHeaders) {
     const upstreamResponse = await fetch(targetUrl, fetchOptions);
 
     const headers = sanitizeResponseHeaders(upstreamResponse.headers);
-
-    res.writeHead(upstreamResponse.status, {
+    const cacheable =
+      cacheOptions?.cacheable &&
+      (upstreamResponse.status === 200 || upstreamResponse.status === 204) &&
+      typeof headers["content-type"] === "string" &&
+      headers["content-type"].includes("application/json");
+    const bufferedChunks = cacheable ? [] : null;
+    const responseHeaders = {
       ...headers,
       ...corsHeaders,
-    });
+      "X-Cache": cacheOptions?.cacheable ? "MISS" : "BYPASS",
+    };
+
+    res.writeHead(upstreamResponse.status, responseHeaders);
 
     if (upstreamResponse.body) {
       for await (const chunk of upstreamResponse.body) {
         res.write(chunk);
+        if (bufferedChunks) {
+          bufferedChunks.push(Buffer.from(chunk));
+        }
       }
     }
     res.end();
+
+    if (bufferedChunks && cacheOptions?.cacheKey) {
+      try {
+        const payloadBuffer = Buffer.concat(bufferedChunks);
+        const cacheRecord = JSON.stringify({
+          status: upstreamResponse.status,
+          headers: sanitizeHeadersForCache(headers),
+          body: payloadBuffer.toString("utf8"),
+        });
+        await cache.set(cacheOptions.cacheKey, cacheRecord, config.cache.ttlSeconds);
+      } catch (error) {
+        log("cache-store-error", { message: error.message });
+      }
+    }
   } catch (error) {
     const status = error.name === "AbortError" ? 504 : 502;
     log("proxy-error", { status, error: error.message, target: target.baseUrl });
@@ -579,7 +640,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  await proxyRequest(req, res, target, sessionValidation.session, corsHeaders);
+  const cacheable = shouldCacheRequest(req, target);
+  const cacheKey = cacheable ? buildCacheKey(req, target) : null;
+  if (cacheable && cacheKey) {
+    try {
+      const cachedRaw = await cache.get(cacheKey);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        res.writeHead(cached.status ?? 200, {
+          ...(cached.headers ?? {}),
+          ...corsHeaders,
+          "X-Cache": "HIT",
+        });
+        res.end(cached.body ?? "");
+        return;
+      }
+    } catch (error) {
+      log("cache-read-error", { message: error.message });
+    }
+  }
+
+  await proxyRequest(req, res, target, sessionValidation.session, corsHeaders, {
+    cacheable,
+    cacheKey,
+  });
 });
 
 server.listen(config.port, () => {
@@ -591,8 +675,14 @@ server.listen(config.port, () => {
 });
 
 const shutdown = () => {
-  server.close(() => {
-    process.exit(0);
+  server.close(async () => {
+    try {
+      await cache.shutdown();
+    } catch (error) {
+      log("cache-shutdown-error", { message: error.message });
+    } finally {
+      process.exit(0);
+    }
   });
 };
 

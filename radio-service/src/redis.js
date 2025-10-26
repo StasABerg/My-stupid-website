@@ -10,6 +10,5 @@ export function createRedisClient() {
   client.on("error", (error) => {
     console.error("redis-error", { message: error.message });
   });
-
   return client;
 }

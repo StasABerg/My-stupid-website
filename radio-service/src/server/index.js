@@ -28,9 +28,12 @@ const server = app.listen(config.port, () => {
 
 function shutdown() {
   server.close(() => {
-    redis.quit().finally(() => {
-      process.exit(0);
-    });
+    redis
+      .quit()
+      .catch(() => redis.disconnect())
+      .finally(() => {
+        process.exit(0);
+      });
   });
 }
 

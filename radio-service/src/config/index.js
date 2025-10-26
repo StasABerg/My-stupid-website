@@ -17,13 +17,19 @@ const api = buildApiConfig(process.env);
 const streamProxy = buildStreamProxyConfig(process.env);
 const streamValidation = buildStreamValidationConfig(process.env);
 
+const cacheTtlSeconds = Math.max(numberFromEnv(process.env.STATIONS_CACHE_TTL, 0), 0);
+const memoryCacheTtlSeconds = Math.max(
+  numberFromEnv(process.env.STATIONS_MEMORY_CACHE_TTL, 5),
+  0,
+);
+
 export const config = {
   port: numberFromEnv(process.env.PORT, 4010),
   trustProxy: deriveTrustProxyValue(process.env.TRUST_PROXY),
   redisUrl: process.env.REDIS_URL,
   cacheKey: process.env.STATIONS_CACHE_KEY ?? "radio:stations:all",
-  cacheTtlSeconds: numberFromEnv(process.env.STATIONS_CACHE_TTL, 900),
-  memoryCacheTtlSeconds: numberFromEnv(process.env.STATIONS_MEMORY_CACHE_TTL, 5),
+  cacheTtlSeconds,
+  memoryCacheTtlSeconds,
   s3,
   radioBrowser,
   api,
@@ -51,10 +57,8 @@ export function validateConfig() {
     throw new Error(`Invalid REDIS_URL provided: ${error.message}`);
   }
 
-  if (redisUrl.protocol !== "rediss:" && config.allowInsecureTransports !== true) {
-    throw new Error(
-      "REDIS_URL must use TLS (rediss://). Set ALLOW_INSECURE_TRANSPORT=true to bypass in trusted environments.",
-    );
+  if (redisUrl.protocol !== "redis:" && redisUrl.protocol !== "rediss:") {
+    throw new Error(`REDIS_URL must use redis:// or rediss://. Received: ${config.redisUrl}`);
   }
 
   if (!config.refreshToken) {
@@ -63,10 +67,7 @@ export function validateConfig() {
     );
   }
 
-  if (
-    Number.isFinite(config.memoryCacheTtlSeconds) &&
-    config.memoryCacheTtlSeconds < 0
-  ) {
-    throw new Error("STATIONS_MEMORY_CACHE_TTL must be zero or a positive integer.");
+  if (!Number.isFinite(config.cacheTtlSeconds)) {
+    throw new Error("STATIONS_CACHE_TTL must be a finite number.");
   }
 }

@@ -2,10 +2,30 @@ import { ensureNormalizedStation } from "../../stations/normalize.js";
 import { ensureProcessedStations } from "../../stations/processedPayload.js";
 import { parseStationsQuery } from "./stationsQuery.js";
 
-function buildStationsResponse({ stations, matches, totalMatches, meta, config }) {
+function projectStationForClient(station) {
+  return {
+    id: station.id,
+    name: station.name,
+    streamUrl: station.streamUrl,
+    homepage: station.homepage ?? null,
+    favicon: station.favicon ?? null,
+    country: station.country ?? null,
+    countryCode: station.countryCode ?? null,
+    state: station.state ?? null,
+    languages: Array.isArray(station.languages) ? station.languages : [],
+    tags: Array.isArray(station.tags) ? station.tags.slice(0, 12) : [],
+    bitrate: station.bitrate ?? null,
+    codec: station.codec ?? null,
+    hls: Boolean(station.hls),
+    isOnline: Boolean(station.isOnline),
+    clickCount: station.clickCount ?? 0,
+  };
+}
+
+function buildStationsResponse({ totalStations, matches, totalMatches, meta, config }) {
   return {
     meta: {
-      total: stations.length,
+      total: totalStations,
       filtered: matches.length,
       matches: totalMatches,
       hasMore: meta.hasMore,
@@ -20,7 +40,7 @@ function buildStationsResponse({ stations, matches, totalMatches, meta, config }
       countries: meta.countries,
       genres: meta.genres,
     },
-    items: matches,
+    items: matches.map(projectStationForClient),
   };
 }
 
@@ -191,7 +211,7 @@ export function registerStationsRoutes(
       );
 
       const response = buildStationsResponse({
-        stations: processed.stations,
+        totalStations: processed.stations.length,
         matches,
         totalMatches,
         meta: {
@@ -209,6 +229,7 @@ export function registerStationsRoutes(
         config,
       });
 
+      res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
       res.json(response);
     } catch (error) {
       console.error("stations-error", { message: error.message });

@@ -55,6 +55,16 @@ session:
   secretRefKey: STATIONS_REFRESH_TOKEN
   secretOptional: true
 
+cache:
+  ttlSeconds: 60
+  memory:
+    enabled: true
+    maxEntries: 200
+  redis:
+    secretName: radio-service-env
+    secretKey: REDIS_URL
+    optional: true
+
 resources:
   requests:
     cpu: 50m
