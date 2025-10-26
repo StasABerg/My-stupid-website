@@ -1,7 +1,5 @@
 import { GlideClient, Logger, TimeUnit } from "@valkey/valkey-glide";
 
-Logger.init("OFF");
-
 function log(event, details = {}) {
   console.log(
     JSON.stringify({
@@ -86,6 +84,7 @@ function buildClientOptions(redisUrl, config) {
 }
 
 export function createCache(config) {
+  Logger.init("OFF");
   const ttlSeconds = Math.max(config.ttlSeconds ?? 0, 0);
   const maxEntries = Math.max(config.memory?.maxEntries ?? 200, 10);
 
