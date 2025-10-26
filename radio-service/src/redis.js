@@ -1,26 +1,11 @@
-import valkeyGlide from "@valkey/valkey-glide";
+import { GlideClient } from "@valkey/valkey-glide";
 import { config } from "./config/index.js";
-
-const createClient =
-  typeof valkeyGlide === "function"
-    ? valkeyGlide
-    : typeof valkeyGlide?.createClient === "function"
-      ? valkeyGlide.createClient
-      : null;
-
-if (!createClient) {
-  console.error("[radio-service] valkey-glide export keys:", Object.keys(valkeyGlide || {}));
-  console.error("[radio-service] valkey-glide typeof:", typeof valkeyGlide);
-  throw new Error("Unable to resolve createClient from @valkey/valkey-glide");
-}
 
 export function createRedisClient() {
   const useTls = config.redisUrl.startsWith("rediss://");
-  const client = createClient({
-    url: config.redisUrl,
-    socket: useTls
+  const client = new GlideClient(config.redisUrl, {
+    tls: useTls
       ? {
-          tls: true,
           rejectUnauthorized: config.allowInsecureTransports !== true,
         }
       : undefined,

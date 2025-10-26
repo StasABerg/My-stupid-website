@@ -1,4 +1,4 @@
-import valkeyGlide from "@valkey/valkey-glide";
+import { GlideClient } from "@valkey/valkey-glide";
 
 function log(event, details = {}) {
   console.log(
@@ -58,17 +58,24 @@ class MemoryCache {
 }
 
 export function createCache(config) {
+  const valkeyModule = await import("@valkey/valkey-glide");
   const createClient =
-    typeof valkeyGlide === "function"
-      ? valkeyGlide
-      : typeof valkeyGlide?.createClient === "function"
-        ? valkeyGlide.createClient
-        : null;
+    typeof valkeyModule.createClient === "function"
+      ? valkeyModule.createClient
+      : typeof valkeyModule.default === "function"
+        ? valkeyModule.default
+        : typeof valkeyModule.default?.createClient === "function"
+          ? valkeyModule.default.createClient
+          : null;
 
   if (!createClient) {
-    console.error("[api-gateway] valkey-glide export keys:", Object.keys(valkeyGlide || {}));
-    console.error("[api-gateway] valkey-glide typeof:", typeof valkeyGlide);
-    throw new Error("Unable to resolve createClient from @valkey/valkey-glide");
+    const exportedKeys = Object.keys(valkeyModule || {});
+    const defaultKeys = Object.keys(valkeyModule?.default || {});
+    throw new Error(
+      `Unable to resolve createClient from @valkey/valkey-glide (exports: ${exportedKeys.join(
+        ", ",
+      )}; default exports: ${defaultKeys.join(", ")})`,
+    );
   }
   const ttlSeconds = Math.max(config.ttlSeconds ?? 0, 0);
   const maxEntries = Math.max(config.memory?.maxEntries ?? 200, 10);
@@ -81,12 +88,13 @@ export function createCache(config) {
   if (config.redis?.enabled) {
     const redisUrl = config.redis.url;
     try {
-      const socketOptions = redisUrl.startsWith("rediss://")
-        ? { tls: true, rejectUnauthorized: config.redis.tlsRejectUnauthorized !== false }
-        : undefined;
-      const client = createClient({
-        url: redisUrl,
-        socket: socketOptions,
+      const useTls = redisUrl.startsWith("rediss://");
+      const client = new GlideClient(redisUrl, {
+        tls: useTls
+          ? {
+              rejectUnauthorized: config.redis.tlsRejectUnauthorized !== false,
+            }
+          : undefined,
       });
       client.on("error", (error) => log("cache-redis-error", { message: error.message }));
       client.on("ready", () => log("cache-redis-ready", { keyPrefix: config.redis.keyPrefix }));
