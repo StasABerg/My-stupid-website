@@ -46,7 +46,9 @@ export async function writeStationsToCache(
   }
 
   if (ttl > 0) {
-    await redis.set(config.cacheKey, body, "EX", ttl);
+    await redis.set(config.cacheKey, body, {
+      EX: ttl,
+    });
   } else {
     await redis.set(config.cacheKey, body);
   }

@@ -108,8 +108,6 @@ export const config = {
         process.env.CACHE_REDIS_TLS_REJECT_UNAUTHORIZED,
         true,
       ),
-      enableOfflineQueue: parseBoolean(process.env.CACHE_REDIS_OFFLINE_QUEUE, false),
-      lazyConnect: parseBoolean(process.env.CACHE_REDIS_LAZY_CONNECT, false),
     },
   },
 };

@@ -51,10 +51,8 @@ export function validateConfig() {
     throw new Error(`Invalid REDIS_URL provided: ${error.message}`);
   }
 
-  if (redisUrl.protocol !== "rediss:" && config.allowInsecureTransports !== true) {
-    throw new Error(
-      "REDIS_URL must use TLS (rediss://). Set ALLOW_INSECURE_TRANSPORT=true to bypass in trusted environments.",
-    );
+  if (redisUrl.protocol !== "redis:" && redisUrl.protocol !== "rediss:") {
+    throw new Error(`REDIS_URL must use redis:// or rediss://. Received: ${config.redisUrl}`);
   }
 
   if (!config.refreshToken) {

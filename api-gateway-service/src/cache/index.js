@@ -1,4 +1,4 @@
-import { createClient } from "@valkey/valkey-glide";
+import valkeyGlide from "@valkey/valkey-glide";
 
 function log(event, details = {}) {
   console.log(
@@ -58,6 +58,7 @@ class MemoryCache {
 }
 
 export function createCache(config) {
+  const { createClient } = valkeyGlide;
   const ttlSeconds = Math.max(config.ttlSeconds ?? 0, 0);
   const maxEntries = Math.max(config.memory?.maxEntries ?? 200, 10);
 
@@ -69,25 +70,36 @@ export function createCache(config) {
   if (config.redis?.enabled) {
     const redisUrl = config.redis.url;
     try {
+      const socketOptions = redisUrl.startsWith("rediss://")
+        ? { tls: true, rejectUnauthorized: config.redis.tlsRejectUnauthorized !== false }
+        : undefined;
       const client = createClient({
         url: redisUrl,
-        socket: {
-          tls: redisUrl.startsWith("rediss://"),
-          rejectUnauthorized: config.redis.tlsRejectUnauthorized !== false,
-        },
-        lazyConnect: config.redis.lazyConnect ?? false,
+        socket: socketOptions,
       });
       client.on("error", (error) => log("cache-redis-error", { message: error.message }));
       client.on("ready", () => log("cache-redis-ready", { keyPrefix: config.redis.keyPrefix }));
 
       const keyPrefix = config.redis.keyPrefix ?? "gateway:cache:";
+      let connectPromise = null;
+      const ensureConnected = async () => {
+        if (client.isReady) {
+          return;
+        }
+        if (!connectPromise) {
+          connectPromise = client.connect().finally(() => {
+            connectPromise = null;
+          });
+        }
+        await connectPromise;
+      };
 
       return {
         async get(key) {
-          await client.connect();
-          const cached = await client.getBuffer(`${keyPrefix}${key}`);
+          await ensureConnected();
+          const cached = await client.get(`${keyPrefix}${key}`);
           if (cached !== null) {
-            return cached.toString("utf8");
+            return cached;
           }
           if (memoryCache) {
             return memoryCache.get(key);
@@ -98,13 +110,22 @@ export function createCache(config) {
           if (memoryCache) {
             await memoryCache.set(key, value, ttlSeconds);
           }
-          await client.connect();
+          await ensureConnected();
           await client.set(`${keyPrefix}${key}`, value, {
             EX: Math.max(ttl ?? ttlSeconds, 1),
           });
         },
         async shutdown() {
-          await Promise.all([client.quit(), memoryCache?.shutdown?.()]);
+          try {
+            if (client.isOpen || client.isReady) {
+              await client.quit();
+            } else {
+              await client.disconnect();
+            }
+          } catch (error) {
+            log("cache-redis-shutdown-error", { message: error.message });
+          }
+          await memoryCache?.shutdown?.();
         },
       };
     } catch (error) {

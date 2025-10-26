@@ -1,14 +1,18 @@
-import { createClient } from "@valkey/valkey-glide";
+import valkeyGlide from "@valkey/valkey-glide";
 import { config } from "./config/index.js";
 
+const { createClient } = valkeyGlide;
+
 export function createRedisClient() {
+  const useTls = config.redisUrl.startsWith("rediss://");
   const client = createClient({
     url: config.redisUrl,
-    lazyConnect: true,
-    socket: {
-      tls: config.redisUrl.startsWith("rediss://"),
-      rejectUnauthorized: config.allowInsecureTransports !== true,
-    },
+    socket: useTls
+      ? {
+          tls: true,
+          rejectUnauthorized: config.allowInsecureTransports !== true,
+        }
+      : undefined,
   });
 
   client.on("error", (error) => {

@@ -96,14 +96,6 @@ spec:
             - name: CACHE_REDIS_URL
               value: "{{ .Values.cache.redis.url }}"
             {{- end }}
-            {{- if hasKey .Values.cache.redis "lazyConnect" }}
-            - name: CACHE_REDIS_LAZY_CONNECT
-              value: {{ ternary "true" "false" (default false .Values.cache.redis.lazyConnect) | quote }}
-            {{- end }}
-            {{- if hasKey .Values.cache.redis "enableOfflineQueue" }}
-            - name: CACHE_REDIS_OFFLINE_QUEUE
-              value: {{ ternary "true" "false" (default false .Values.cache.redis.enableOfflineQueue) | quote }}
-            {{- end }}
             {{- if hasKey .Values.cache.redis "tlsRejectUnauthorized" }}
             - name: CACHE_REDIS_TLS_REJECT_UNAUTHORIZED
               value: {{ ternary "true" "false" (default true .Values.cache.redis.tlsRejectUnauthorized) | quote }}

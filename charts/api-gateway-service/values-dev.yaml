@@ -23,6 +23,3 @@ cache:
     secretName: radio-service-env-dev
     secretKey: REDIS_URL
     optional: true
-    lazyConnect: false
-    enableOfflineQueue: false
-    tlsRejectUnauthorized: true
