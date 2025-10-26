@@ -4,7 +4,8 @@ import { updateStations } from "./service.js";
 
 async function main() {
   validateConfig();
-  const redis = await createRedisClient();
+  const redis = createRedisClient();
+  await redis.connect();
   const { payload } = await updateStations(redis);
   console.log(
     JSON.stringify({
@@ -13,7 +14,7 @@ async function main() {
       updatedAt: payload.updatedAt,
     }),
   );
-  await redis.close();
+  await redis.quit();
 }
 
 main().catch((error) => {

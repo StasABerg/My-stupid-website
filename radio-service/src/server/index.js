@@ -5,10 +5,12 @@ import { createApp } from "./app.js";
 
 validateConfig();
 
-const redis = await createRedisClient();
+const redis = createRedisClient();
 
 async function ensureRedis() {
-  return redis;
+  if (redis.status !== "ready") {
+    await redis.connect();
+  }
 }
 
 const app = createApp({
@@ -27,10 +29,8 @@ const server = app.listen(config.port, () => {
 function shutdown() {
   server.close(() => {
     redis
-      .close()
-      .catch((error) => {
-        console.error("redis-close-error", { message: error.message });
-      })
+      .quit()
+      .catch(() => redis.disconnect())
       .finally(() => {
         process.exit(0);
       });
