@@ -1,5 +1,55 @@
-let cachedToken: { value: string; expiresAt: number } | null = null;
+type CachedToken = { value: string; expiresAt: number };
+
+let cachedToken: CachedToken | null = null;
 let pending: Promise<string> | null = null;
+
+const STORAGE_KEY = "gateway.session";
+
+function readStoredToken(): CachedToken | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage?.getItem(STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof parsed.value === "string" &&
+      typeof parsed.expiresAt === "number"
+    ) {
+      return parsed as CachedToken;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
+
+function persistToken(token: CachedToken | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    if (token) {
+      window.localStorage?.setItem(STORAGE_KEY, JSON.stringify(token));
+    } else {
+      window.localStorage?.removeItem(STORAGE_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+const storedToken = readStoredToken();
+if (storedToken && storedToken.expiresAt > Date.now()) {
+  cachedToken = storedToken;
+} else if (storedToken) {
+  persistToken(null);
+}
 
 const SESSION_ENDPOINT = "/api/session";
 
@@ -33,6 +83,7 @@ async function requestNewSession(): Promise<string> {
       : Date.now() + 1000 * 60 * 30;
 
   cachedToken = { value: payload.csrfToken, expiresAt };
+  persistToken(cachedToken);
   return payload.csrfToken;
 }
 
@@ -66,6 +117,7 @@ export async function authorizedFetch(input: RequestInfo | URL, init: RequestIni
   if (response.status === 401 || response.status === 403) {
     // Invalidate and retry once
     cachedToken = null;
+    persistToken(null);
     if (!pending) {
       pending = requestNewSession().finally(() => {
         pending = null;

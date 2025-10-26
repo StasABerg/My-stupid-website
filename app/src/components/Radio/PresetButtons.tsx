@@ -64,7 +64,10 @@ const PresetButtons = ({
               <button
                 type="button"
                 aria-label={`Remove ${station.name} from presets`}
-                onClick={() => onRemove(station.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemove(station.id);
+                }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-terminal-green/30 p-1 text-terminal-red transition hover:text-terminal-yellow focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
               >
                 <Heart className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true" />
