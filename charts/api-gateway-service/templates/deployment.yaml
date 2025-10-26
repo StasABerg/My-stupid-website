@@ -77,6 +77,37 @@ spec:
             - name: SESSION_SECRET
               value: "{{ .Values.session.secretValue }}"
             {{- end }}
+            - name: CACHE_TTL_SECONDS
+              value: "{{ .Values.cache.ttlSeconds | default 60 }}"
+            - name: CACHE_MEMORY_MAX_ENTRIES
+              value: "{{ .Values.cache.memory.maxEntries | default 200 }}"
+            - name: CACHE_MEMORY_ENABLED
+              value: {{ ternary "true" "false" (default true .Values.cache.memory.enabled) | quote }}
+            {{- if .Values.cache.redis.secretName }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.cache.redis.secretName }}
+                  key: {{ .Values.cache.redis.secretKey }}
+                  {{- if .Values.cache.redis.optional }}
+                  optional: true
+                  {{- end }}
+            {{- else if .Values.cache.redis.url }}
+            - name: CACHE_REDIS_URL
+              value: "{{ .Values.cache.redis.url }}"
+            {{- end }}
+            {{- if hasKey .Values.cache.redis "lazyConnect" }}
+            - name: CACHE_REDIS_LAZY_CONNECT
+              value: {{ ternary "true" "false" (default false .Values.cache.redis.lazyConnect) | quote }}
+            {{- end }}
+            {{- if hasKey .Values.cache.redis "enableOfflineQueue" }}
+            - name: CACHE_REDIS_OFFLINE_QUEUE
+              value: {{ ternary "true" "false" (default false .Values.cache.redis.enableOfflineQueue) | quote }}
+            {{- end }}
+            {{- if hasKey .Values.cache.redis "tlsRejectUnauthorized" }}
+            - name: CACHE_REDIS_TLS_REJECT_UNAUTHORIZED
+              value: {{ ternary "true" "false" (default true .Values.cache.redis.tlsRejectUnauthorized) | quote }}
+            {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}

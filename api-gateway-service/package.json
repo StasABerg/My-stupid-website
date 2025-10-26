@@ -6,5 +6,7 @@
   "scripts": {
     "start": "node src/server.js"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@valkey/valkey-glide": "^2.1.1"
+  }
 }

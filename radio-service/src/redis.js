@@ -1,10 +1,14 @@
-import Redis from "ioredis";
+import { createClient } from "@valkey/valkey-glide";
 import { config } from "./config/index.js";
 
 export function createRedisClient() {
-  const client = new Redis(config.redisUrl, {
+  const client = createClient({
+    url: config.redisUrl,
     lazyConnect: true,
-    maxRetriesPerRequest: 2,
+    socket: {
+      tls: config.redisUrl.startsWith("rediss://"),
+      rejectUnauthorized: config.allowInsecureTransports !== true,
+    },
   });
 
   client.on("error", (error) => {

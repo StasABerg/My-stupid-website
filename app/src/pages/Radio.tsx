@@ -34,16 +34,11 @@ const fallbackStation: RadioStation = {
   state: null,
   languages: [],
   tags: [],
-  coordinates: null,
   bitrate: null,
   codec: null,
   hls: false,
   isOnline: false,
-  lastCheckedAt: null,
-  lastChangedAt: null,
   clickCount: 0,
-  clickTrend: 0,
-  votes: 0,
 };
 
 const PAGE_SIZE = 120;

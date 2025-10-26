@@ -13,3 +13,16 @@ session:
   secretRef: "radio-service-env-dev"
   secretRefKey: STATIONS_REFRESH_TOKEN
   secretOptional: true
+
+cache:
+  ttlSeconds: 30
+  memory:
+    enabled: true
+    maxEntries: 100
+  redis:
+    secretName: radio-service-env-dev
+    secretKey: REDIS_URL
+    optional: true
+    lazyConnect: false
+    enableOfflineQueue: false
+    tlsRejectUnauthorized: true

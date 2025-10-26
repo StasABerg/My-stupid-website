@@ -7,6 +7,7 @@ const DEFAULT_RADIO_BASE_URL =
 const DEFAULT_TERMINAL_BASE_URL =
   process.env.TERMINAL_SERVICE_URL ??
   "http://my-stupid-website-terminal.my-stupid-website.svc.cluster.local:80";
+const DEFAULT_CACHE_TTL_SECONDS = 60;
 
 function parsePort(value, fallback) {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -60,6 +61,26 @@ function parseDurationSeconds(value, fallbackSeconds) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackSeconds;
 }
 
+function parseBoolean(value, fallback) {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y"].includes(normalized)) return true;
+    if (["false", "0", "no", "n"].includes(normalized)) return false;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  return fallback;
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+const redisUrlFromEnv = process.env.CACHE_REDIS_URL ?? process.env.REDIS_URL ?? "";
+const cacheRedisEnabled = typeof redisUrlFromEnv === "string" && redisUrlFromEnv.trim().length > 0;
+
 export const config = {
   port: parsePort(process.env.PORT, DEFAULT_PORT),
   radioServiceUrl,
@@ -71,5 +92,24 @@ export const config = {
     cookieName: process.env.SESSION_COOKIE_NAME?.trim() || "gateway.sid",
     secret: deriveSessionSecret(process.env.SESSION_SECRET),
     maxAgeMs: parseDurationSeconds(process.env.SESSION_MAX_AGE_SECONDS, 60 * 60 * 12) * 1000,
+  },
+  cache: {
+    ttlSeconds: parseDurationSeconds(process.env.CACHE_TTL_SECONDS, DEFAULT_CACHE_TTL_SECONDS),
+    memory: {
+      maxEntries: parsePositiveInt(process.env.CACHE_MEMORY_MAX_ENTRIES, 200),
+      enabled: parseBoolean(process.env.CACHE_MEMORY_ENABLED, true),
+    },
+    redis: {
+      enabled: cacheRedisEnabled,
+      url: cacheRedisEnabled ? redisUrlFromEnv.trim() : "",
+      keyPrefix: process.env.CACHE_KEY_PREFIX?.trim() || "gateway:cache:",
+      connectTimeoutMs: parsePositiveInt(process.env.CACHE_REDIS_CONNECT_TIMEOUT_MS, 5000),
+      tlsRejectUnauthorized: parseBoolean(
+        process.env.CACHE_REDIS_TLS_REJECT_UNAUTHORIZED,
+        true,
+      ),
+      enableOfflineQueue: parseBoolean(process.env.CACHE_REDIS_OFFLINE_QUEUE, false),
+      lazyConnect: parseBoolean(process.env.CACHE_REDIS_LAZY_CONNECT, false),
+    },
   },
 };
