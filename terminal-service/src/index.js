@@ -722,14 +722,23 @@ function handleOptions(req, res) {
 async function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let buffer = "";
+    let tooLarge = false;
+
+    req.setEncoding("utf8");
     req.on("data", (chunk) => {
+      if (tooLarge) {
+        return;
+      }
       buffer += chunk;
       if (buffer.length > MAX_PAYLOAD_BYTES) {
-        reject(new Error("Payload too large"));
-        req.destroy();
+        tooLarge = true;
       }
     });
     req.on("end", () => {
+      if (tooLarge) {
+        reject(new Error("Payload too large"));
+        return;
+      }
       if (!buffer) {
         resolve({});
         return;
@@ -797,7 +806,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.url === "/execute" && req.method === "POST") {
-      const body = await parseJsonBody(req);
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to parse request body";
+        const status = message === "Payload too large" ? 413 : 400;
+        res.writeHead(status, {
+          "Content-Type": "application/json",
+          ...buildCorsHeaders(req),
+        });
+        res.end(JSON.stringify({ message }));
+        return;
+      }
+
       const response = await handleExecute(body);
       res.writeHead(response.status, {
         "Content-Type": "application/json",
@@ -813,7 +836,8 @@ const server = http.createServer(async (req, res) => {
     });
     res.end(JSON.stringify({ message: "Not Found" }));
   } catch (error) {
-    log("Request failed", { error: error.message });
+    const message = error instanceof Error ? error.message : String(error);
+    log("Request failed", { error: message });
     res.writeHead(500, {
       "Content-Type": "application/json",
       ...buildCorsHeaders(req),
