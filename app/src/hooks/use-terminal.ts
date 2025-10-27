@@ -26,26 +26,33 @@ const RAW_TERMINAL_BASE =
   (import.meta.env.VITE_TERMINAL_API_BASE_URL ?? import.meta.env.VITE_TERMINAL_API_BASE ?? FALLBACK_TERMINAL_BASE)
     .trim() || FALLBACK_TERMINAL_BASE;
 
-function resolveTerminalBaseUrl(): URL {
-  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
-  try {
-    return new URL(RAW_TERMINAL_BASE.endsWith("/") ? RAW_TERMINAL_BASE : `${RAW_TERMINAL_BASE}/`, origin);
-  } catch {
-    return new URL(FALLBACK_TERMINAL_BASE, origin);
-  }
+if (import.meta.env.DEV) {
+  console.debug("terminal-service.base", { raw: RAW_TERMINAL_BASE, fallback: FALLBACK_TERMINAL_BASE });
 }
 
 function buildTerminalUrl(path: string): string {
-  const base = resolveTerminalBaseUrl();
-  const normalizedBaseHref = base.href.endsWith("/") ? base.href : `${base.href}/`;
   const segment = path.replace(/^\/+/, "");
-  const resolved = new URL(segment, normalizedBaseHref);
+  const base = RAW_TERMINAL_BASE;
 
-  if (typeof window !== "undefined" && resolved.origin === window.location.origin) {
-    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  if (base.startsWith("http://") || base.startsWith("https://")) {
+    try {
+      const baseUrl = new URL(base.endsWith("/") ? base : `${base}/`);
+      baseUrl.pathname = `${baseUrl.pathname.replace(/\/+$/, "")}/${segment}`;
+      return baseUrl.toString();
+    } catch {
+      // fall through to relative handling if the URL is malformed
+    }
   }
 
-  return resolved.toString();
+  const normalizedBase = (base.startsWith("/") ? base : `/${base}`).replace(/\/+$/, "");
+  const relativePath = `${normalizedBase}/${segment}`;
+
+  if (typeof window !== "undefined") {
+    return relativePath;
+  }
+
+  const origin = "http://localhost";
+  return new URL(relativePath, origin).toString();
 }
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
@@ -106,13 +113,26 @@ export function useTerminal() {
 
     const bootstrap = async () => {
       try {
-        const response = await authorizedFetch(buildTerminalUrl("info"), {
+        const infoUrl = buildTerminalUrl("info");
+        if (import.meta.env.DEV) {
+          console.debug("terminal-service.request", { url: infoUrl, method: "GET" });
+        }
+
+        const response = await authorizedFetch(infoUrl, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
 
         if (!response.ok) {
-          throw new Error(`status ${response.status}`);
+          const errorPayload = await response
+            .clone()
+            .text()
+            .catch(() => "<unable to parse>");
+          const error = new Error(`status ${response.status}`);
+          if (import.meta.env.DEV) {
+            console.error("terminal-service.info_error", { url: infoUrl, status: response.status, body: errorPayload });
+          }
+          throw error;
         }
 
         const payload = await response.json();
@@ -222,7 +242,16 @@ export function useTerminal() {
 
       try {
         setIsSubmitting(true);
-        const response = await authorizedFetch(buildTerminalUrl("execute"), {
+        const executeUrl = buildTerminalUrl("execute");
+        if (import.meta.env.DEV) {
+          console.debug("terminal-service.request", {
+            url: executeUrl,
+            method: "POST",
+            body: { input: raw, cwd: previousVirtualCwd },
+          });
+        }
+
+        const response = await authorizedFetch(executeUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),
@@ -233,6 +262,9 @@ export function useTerminal() {
           payload = await response.json();
         } catch (error) {
           // ignore JSON parse issues and fall back to generic message
+          if (import.meta.env.DEV) {
+            console.warn("terminal-service.execute_json_parse_failed", { error });
+          }
         }
 
         const nextVirtual = payload?.cwd ?? previousVirtualCwd;
@@ -242,6 +274,12 @@ export function useTerminal() {
           ? (payload?.output as string[])
           : [];
         if ((!payload || output.length === 0) && !response.ok) {
+          if (import.meta.env.DEV) {
+            console.error("terminal-service.execute_error", {
+              status: response.status,
+              payload,
+            });
+          }
           output = [`Command service returned status ${response.status}`];
         }
 
@@ -261,6 +299,9 @@ export function useTerminal() {
 
         setVirtualCwd(nextVirtual);
       } catch (error) {
+        if (import.meta.env.DEV) {
+          console.error("terminal-service.execute_request_failed", { error });
+        }
         const entry: HistoryEntry = {
           id: commandId.current++,
           cwd: previousDisplayCwd,
