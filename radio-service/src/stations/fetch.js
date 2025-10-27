@@ -1,4 +1,5 @@
 import { config } from "../config/index.js";
+import { logger } from "../logger.js";
 import {
   buildRadioBrowserUrl,
   getRadioBrowserBaseUrl,
@@ -21,7 +22,6 @@ async function withRotatingRadioBrowserHost(executor) {
   let lastError;
 
   // Loop until we have tried every known host once.
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const baseUrl = await getRadioBrowserBaseUrl();
     if (attempted.has(baseUrl)) {
@@ -129,7 +129,7 @@ export async function fetchFromRadioBrowser({ redis } = {}) {
     validationDrops = dropped;
     finalStations = validatedStations;
     if (validationDrops > 0) {
-      console.log("stream-validation", { dropped: validationDrops, reasons });
+      logger.info("stream.validation", { dropped: validationDrops, reasons });
     }
   }
 
@@ -138,7 +138,7 @@ export async function fetchFromRadioBrowser({ redis } = {}) {
   }
 
   if (filteredStations > 0 || validationDrops > 0) {
-    console.log("filtered-stations", {
+    logger.info("stations.filtered", {
       droppedNormalizing: filteredStations,
       droppedValidation: validationDrops,
     });

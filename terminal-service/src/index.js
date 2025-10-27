@@ -1,28 +1,23 @@
 import http from "node:http";
-import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   access,
   mkdir,
   readFile,
+  readdir,
   stat,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
+import { logger } from "./logger.js";
 
 const posix = path.posix;
 
 const PORT = Number.parseInt(process.env.PORT ?? "8080", 10);
 const SANDBOX_ROOT = path.resolve(process.env.SANDBOX_ROOT ?? "/app/sandbox");
-const COMMAND_TIMEOUT_MS = Number.parseInt(
-  process.env.COMMAND_TIMEOUT_MS ?? "4000",
-  10,
-);
 const MAX_PAYLOAD_BYTES = Number.parseInt(
   process.env.MAX_PAYLOAD_BYTES ?? "2048",
-  10,
-);
-const MAX_OUTPUT_BYTES = Number.parseInt(
-  process.env.MAX_OUTPUT_BYTES ?? "16384",
   10,
 );
 const DEFAULT_CWD = sanitizeVirtualPath("/home/demo");
@@ -46,28 +41,13 @@ const MOTD_VIRTUAL_PATH = "/etc/motd";
 const LS_ALLOWED_FLAGS = new Set(["-a", "-l", "-la", "-al", "-lh", "-hl", "-lah", "-hal"]);
 const UNAME_ALLOWED_FLAGS = new Set(["-a", "-s", "-r", "-m"]);
 
-const SANDBOX_ENV = {
-  PATH: "/usr/bin:/bin:/usr/local/bin",
-  LANG: "C.UTF-8",
-  LC_ALL: "C.UTF-8",
-};
-
 const allowedOrigins = (process.env.CORS_ALLOW_ORIGIN ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
-const allowAllOrigins = allowedOrigins.includes("*");
+const allowAllOrigins = allowedOrigins.length === 0 || allowedOrigins.includes("*");
 
 const sandboxRootWithSlash = `${SANDBOX_ROOT}${path.sep}`;
-
-function log(message, extra = {}) {
-  const payload = JSON.stringify({
-    ts: new Date().toISOString(),
-    msg: message,
-    ...extra,
-  });
-  console.log(payload);
-}
 
 function resolveAllowedOrigin(origin) {
   if (!origin) {
@@ -89,7 +69,7 @@ function buildCorsHeaders(req) {
   return headers;
 }
 
-function ensureCorsAllowed(req, res) {
+function ensureCorsAllowed(req, res, context = {}) {
   const origin = req.headers?.origin;
   if (!origin) {
     return true;
@@ -97,14 +77,14 @@ function ensureCorsAllowed(req, res) {
   if (allowAllOrigins) {
     return true;
   }
-  if (allowedOrigins.length === 0) {
-    res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
-    res.end(JSON.stringify({ message: "CORS origin denied" }));
-    return false;
-  }
   if (!allowedOrigins.includes(origin)) {
     res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
     res.end(JSON.stringify({ message: "CORS origin denied" }));
+    logger.warn("cors.origin_denied", {
+      ...context,
+      origin,
+      reason: "origin-not-allowed",
+    });
     return false;
   }
   return true;
@@ -250,48 +230,65 @@ async function ensureSandboxFilesystem() {
   );
 }
 
-async function runProcess(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: SANDBOX_ENV,
-      timeout: COMMAND_TIMEOUT_MS,
-      ...options,
-    });
+class SandboxError extends Error {
+  constructor(message, { status = 400, code = "SANDBOX_ERROR" } = {}) {
+    super(message);
+    this.name = "SandboxError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
-    let stdout = "";
-    let stderr = "";
+function formatPermissions(stats) {
+  const modes = [
+    stats.isDirectory() ? "d" : "-",
+    stats.mode & 0o400 ? "r" : "-",
+    stats.mode & 0o200 ? "w" : "-",
+    stats.mode & 0o100 ? "x" : "-",
+    stats.mode & 0o040 ? "r" : "-",
+    stats.mode & 0o020 ? "w" : "-",
+    stats.mode & 0o010 ? "x" : "-",
+    stats.mode & 0o004 ? "r" : "-",
+    stats.mode & 0o002 ? "w" : "-",
+    stats.mode & 0o001 ? "x" : "-",
+  ];
+  return modes.join("");
+}
 
-    const abort = (reason) => {
-      child.kill("SIGKILL");
-      reject(reason);
-    };
+function formatHumanReadableSize(bytes) {
+  const units = ["B", "K", "M", "G", "T"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const rounded = unitIndex === 0 ? size : size.toFixed(1);
+  return `${rounded}${units[unitIndex]}`;
+}
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-      if (stdout.length > MAX_OUTPUT_BYTES) {
-        abort(new Error("Command output limit exceeded"));
-      }
-    });
+function formatTimestamp(date) {
+  const utcString = date.toUTCString(); // Example: "Mon, 08 Jul 2024 12:34:56 GMT"
+  const parts = utcString.split(" ");
+  if (parts.length < 5) {
+    // Fallback to ISO formatting if the expected structure is unavailable
+    return date.toISOString().replace("T", " ").slice(0, 16);
+  }
+  const [, dayRaw, month, timeRaw] = parts;
+  const day = dayRaw.padStart(2, " ");
+  const time = timeRaw.slice(0, 5);
+  return `${month.padStart(3, " ")} ${day} ${time}`;
+}
 
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-      if (stderr.length > MAX_OUTPUT_BYTES) {
-        abort(new Error("Command error output limit exceeded"));
-      }
-    });
-
-    child.on("error", reject);
-
-    child.on("close", (code, signal) => {
-      if (signal) {
-        reject(new Error(`Process terminated by signal ${signal}`));
-        return;
-      }
-      resolve({ code, stdout, stderr });
-    });
-  });
+async function safeStat(realPath) {
+  try {
+    return await stat(realPath);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function parseLsArgs(args) {
@@ -328,30 +325,96 @@ function parseUnameArgs(args) {
 }
 
 async function handleLs(currentVirtualCwd, args) {
-  const { flags, pathArg } = parseLsArgs(args);
+  let parsed;
+  try {
+    parsed = parseLsArgs(args);
+  } catch (error) {
+    throw new SandboxError(error.message, { status: 422, code: "INVALID_FLAG" });
+  }
+  const { flags, pathArg } = parsed;
+  const showAll = flags.some((flag) => flag.includes("a"));
+  const longFormat = flags.some((flag) => flag.includes("l"));
+  const humanReadable = flags.some((flag) => flag.includes("h"));
   const targetVirtual = pathArg
     ? resolveVirtualPath(currentVirtualCwd, pathArg)
     : currentVirtualCwd;
   const realTarget = toRealPath(targetVirtual);
-  const targetStats = await stat(realTarget);
+  const targetStats = await safeStat(realTarget);
+
+  if (!targetStats) {
+    const label = pathArg ?? ".";
+    throw new SandboxError(`ls: ${label}: No such file or directory`, {
+      status: 404,
+      code: "NOT_FOUND",
+    });
+  }
 
   if (targetStats.isDirectory()) {
-    const result = await runProcess("ls", flags, { cwd: realTarget });
-    const lines = splitLines(result.stdout || result.stderr);
+    const dirEntries = await readdir(realTarget, { withFileTypes: true });
+    const results = [];
+
+    if (showAll) {
+      results.push({ name: ".", stats: targetStats });
+      const parentVirtual = resolveVirtualPath(targetVirtual, "..");
+      const parentStats = await safeStat(toRealPath(parentVirtual));
+      if (parentStats) {
+        results.push({ name: "..", stats: parentStats });
+      }
+    }
+
+    for (const dirent of dirEntries) {
+      if (!showAll && dirent.name.startsWith(".")) {
+        continue;
+      }
+      const entryStats = await safeStat(path.join(realTarget, dirent.name));
+      if (!entryStats) continue;
+      results.push({ name: dirent.name, stats: entryStats });
+    }
+
+    const formatted = results.map(({ name, stats }) => {
+      if (!longFormat) {
+        return name;
+      }
+      const permissions = formatPermissions(stats);
+      const links = String(stats.nlink ?? 1).padStart(2, " ");
+      const owner = String(stats.uid ?? 0).padEnd(5, " ");
+      const group = String(stats.gid ?? 0).padEnd(5, " ");
+      const sizeValue = humanReadable
+        ? formatHumanReadableSize(stats.size ?? 0)
+        : String(stats.size ?? 0);
+      const size = sizeValue.toString().padStart(humanReadable ? 5 : 8, " ");
+      const mtime = formatTimestamp(stats.mtime ?? new Date());
+      return `${permissions} ${links} ${owner} ${group} ${size} ${mtime} ${name}`;
+    });
+
     return {
-      output: lines,
-      error: result.code !== 0,
+      output: formatted,
+      error: false,
       cwd: currentVirtualCwd,
     };
   }
 
-  const result = await runProcess("ls", [...flags, realTarget], {
-    cwd: SANDBOX_ROOT,
-  });
-  const outputText = result.stdout || result.stderr;
+  const name = pathArg ?? targetVirtual.split("/").pop() ?? targetVirtual;
+  if (!longFormat) {
+    return {
+      output: [name],
+      error: false,
+      cwd: currentVirtualCwd,
+    };
+  }
+
+  const permissions = formatPermissions(targetStats);
+  const links = String(targetStats.nlink ?? 1).padStart(2, " ");
+  const owner = String(targetStats.uid ?? 0).padEnd(5, " ");
+  const group = String(targetStats.gid ?? 0).padEnd(5, " ");
+  const sizeValue = humanReadable
+    ? formatHumanReadableSize(targetStats.size ?? 0)
+    : String(targetStats.size ?? 0);
+  const size = sizeValue.toString().padStart(humanReadable ? 5 : 8, " ");
+  const mtime = formatTimestamp(targetStats.mtime ?? new Date());
   return {
-    output: splitLines(outputText),
-    error: result.code !== 0,
+    output: [`${permissions} ${links} ${owner} ${group} ${size} ${mtime} ${name}`],
+    error: false,
     cwd: currentVirtualCwd,
   };
 }
@@ -376,7 +439,15 @@ async function handleCat(currentVirtualCwd, args) {
   const targetVirtual = resolveVirtualPath(currentVirtualCwd, args[0]);
   const realTarget = toRealPath(targetVirtual);
 
-  const targetStats = await stat(realTarget);
+  const targetStats = await safeStat(realTarget);
+  if (!targetStats) {
+    return {
+      output: [`cat: ${args[0]}: No such file or directory`],
+      error: true,
+      cwd: currentVirtualCwd,
+    };
+  }
+
   if (!targetStats.isFile()) {
     return {
       output: [`cat: ${args[0]}: Not a regular file`],
@@ -399,9 +470,9 @@ async function handleCd(currentVirtualCwd, args) {
     ? resolveVirtualPath(currentVirtualCwd, targetArg)
     : DEFAULT_CWD;
   const realTarget = toRealPath(nextVirtual);
-  const targetStats = await stat(realTarget);
+  const targetStats = await safeStat(realTarget);
 
-  if (!targetStats.isDirectory()) {
+  if (!targetStats || !targetStats.isDirectory()) {
     return {
       output: [`cd: ${targetArg ?? ""}: Not a directory`],
       error: true,
@@ -435,10 +506,28 @@ async function handleMotd(currentVirtualCwd) {
 
 async function handleUname(currentVirtualCwd, args) {
   const flags = parseUnameArgs(args);
-  const result = await runProcess("uname", flags, { cwd: SANDBOX_ROOT });
+  const kernelName = os.type();
+  const release = os.release();
+  const machine = os.arch();
+  const hostname = os.hostname();
+  const version = typeof os.version === "function" ? os.version() : "";
+
+  let output;
+  if (flags.includes("-a")) {
+    output = `${kernelName} ${hostname} ${release} ${version} ${machine}`.trim();
+  } else if (flags.includes("-r")) {
+    output = release;
+  } else if (flags.includes("-m")) {
+    output = machine;
+  } else if (flags.includes("-s")) {
+    output = kernelName;
+  } else {
+    output = kernelName;
+  }
+
   return {
-    output: splitLines(result.stdout || result.stderr),
-    error: result.code !== 0,
+    output: [output],
+    error: false,
     cwd: currentVirtualCwd,
   };
 }
@@ -462,113 +551,152 @@ async function handleExecute(body) {
 
   const trimmed = input.trim();
   if (!trimmed) {
+    let sanitizedCwd;
+    try {
+      sanitizedCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
+    } catch {
+      sanitizedCwd = DEFAULT_CWD;
+    }
     return {
       status: 200,
       payload: withDisplay(input, {
-        cwd: sanitizeVirtualPath(cwd ?? DEFAULT_CWD),
+        cwd: sanitizedCwd,
         output: [],
         error: false,
       }),
     };
   }
 
-  const currentVirtualCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
+  let currentVirtualCwd;
+  try {
+    currentVirtualCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
+  } catch {
+    throw new SandboxError("Invalid working directory", {
+      status: 422,
+      code: "INVALID_CWD",
+    });
+  }
   const [rawCommand, ...args] = trimmed.split(/\s+/);
   const command = rawCommand.toLowerCase();
 
-  switch (command) {
-    case "help":
+  try {
+    switch (command) {
+      case "help":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: HELP_TEXT,
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "clear":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: [],
+            error: false,
+            cwd: currentVirtualCwd,
+            clear: true,
+          }),
+        };
+      case "ls":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleLs(currentVirtualCwd, args)),
+        };
+      case "pwd":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: [toDisplayPath(currentVirtualCwd)],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "whoami":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: ["sandbox-runner"],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "cat":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleCat(currentVirtualCwd, args)),
+        };
+      case "cd":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleCd(currentVirtualCwd, args)),
+        };
+      case "history":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: ["History is tracked client-side for each session."],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "echo":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: [args.join(" ")],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "motd":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleMotd(currentVirtualCwd)),
+        };
+      case "uname":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleUname(currentVirtualCwd, args)),
+        };
+      default:
+        return {
+          status: 400,
+          payload: withDisplay(input, {
+            output: [
+              `Command "${command}" is not available in this sandbox.`,
+              "Type `help` to see supported commands.",
+            ],
+            error: true,
+            cwd: currentVirtualCwd,
+          }),
+        };
+    }
+  } catch (error) {
+    if (error instanceof SandboxError) {
       return {
-        status: 200,
+        status: error.status,
         payload: withDisplay(input, {
-          output: HELP_TEXT,
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "clear":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: [],
-          error: false,
-          cwd: currentVirtualCwd,
-          clear: true,
-        }),
-      };
-    case "ls":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleLs(currentVirtualCwd, args)),
-      };
-    case "pwd":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: [toDisplayPath(currentVirtualCwd)],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "whoami":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: ["sandbox-runner"],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "cat":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleCat(currentVirtualCwd, args)),
-      };
-    case "cd":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleCd(currentVirtualCwd, args)),
-      };
-    case "history":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: ["History is tracked client-side for each session."],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "echo":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: [args.join(" ")],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "motd":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleMotd(currentVirtualCwd)),
-      };
-    case "uname":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleUname(currentVirtualCwd, args)),
-      };
-    default:
-      return {
-        status: 400,
-        payload: withDisplay(input, {
-          output: [
-            `Command "${command}" is not available in this sandbox.`,
-            "Type `help` to see supported commands.",
-          ],
+          output: [error.message],
           error: true,
           cwd: currentVirtualCwd,
         }),
       };
+    }
+    logger.error("command.unhandled_error", {
+      command,
+      error: error instanceof Error ? error : { message: String(error) },
+    });
+    return {
+      status: 500,
+      payload: withDisplay(input, {
+        output: ["Command failed due to an unexpected error."],
+        error: true,
+        cwd: currentVirtualCwd,
+      }),
+    };
   }
 }
 
@@ -589,14 +717,23 @@ function handleOptions(req, res) {
 async function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let buffer = "";
+    let tooLarge = false;
+
+    req.setEncoding("utf8");
     req.on("data", (chunk) => {
+      if (tooLarge) {
+        return;
+      }
       buffer += chunk;
       if (buffer.length > MAX_PAYLOAD_BYTES) {
-        reject(new Error("Payload too large"));
-        req.destroy();
+        tooLarge = true;
       }
     });
     req.on("end", () => {
+      if (tooLarge) {
+        reject(new Error("Payload too large"));
+        return;
+      }
       if (!buffer) {
         resolve({});
         return;
@@ -637,19 +774,53 @@ async function handleInfo() {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestIdHeader = req.headers["x-request-id"];
+  const requestId =
+    typeof requestIdHeader === "string" && requestIdHeader.trim().length
+      ? requestIdHeader
+      : randomUUID();
+  const requestStartedAt = process.hrtime.bigint();
+  const baseContext = {
+    requestId,
+    method: req.method,
+    url: req.url,
+    remoteAddress: req.socket?.remoteAddress,
+    origin: req.headers?.origin,
+  };
+
+  const complete = (statusCode, details = {}) => {
+    const durationMs = Number(process.hrtime.bigint() - requestStartedAt) / 1_000_000;
+    logger.info("request.completed", {
+      ...baseContext,
+      statusCode,
+      durationMs,
+      ...details,
+    });
+  };
+
+  logger.info("request.received", baseContext);
+
   try {
     if (req.method === "OPTIONS") {
+      if (!ensureCorsAllowed(req, res, baseContext)) {
+        complete(403, { reason: "cors-denied" });
+        return;
+      }
       handleOptions(req, res);
+      complete(204, { route: "options" });
       return;
     }
 
-    if (!ensureCorsAllowed(req, res)) {
+    if (!ensureCorsAllowed(req, res, baseContext)) {
+      complete(403, { reason: "cors-denied" });
       return;
     }
 
     if (req.url === "/healthz" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok" }));
+      const payload = { status: "ok" };
+      res.end(JSON.stringify(payload));
+      complete(200, { route: "healthz" });
       return;
     }
 
@@ -660,17 +831,39 @@ const server = http.createServer(async (req, res) => {
         ...buildCorsHeaders(req),
       });
       res.end(JSON.stringify(response.payload));
+      complete(response.status, { route: "info" });
       return;
     }
 
     if (req.url === "/execute" && req.method === "POST") {
-      const body = await parseJsonBody(req);
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to parse request body";
+        const status = message === "Payload too large" ? 413 : 400;
+        res.writeHead(status, {
+          "Content-Type": "application/json",
+          ...buildCorsHeaders(req),
+        });
+        res.end(JSON.stringify({ message }));
+        logger.warn("request.body_invalid", {
+          ...baseContext,
+          statusCode: status,
+          error: error instanceof Error ? error : { message },
+        });
+        complete(status, { route: "execute", reason: "invalid-body" });
+        return;
+      }
+
       const response = await handleExecute(body);
       res.writeHead(response.status, {
         "Content-Type": "application/json",
         ...buildCorsHeaders(req),
       });
       res.end(JSON.stringify(response.payload));
+      complete(response.status, { route: "execute" });
       return;
     }
 
@@ -679,39 +872,45 @@ const server = http.createServer(async (req, res) => {
       ...buildCorsHeaders(req),
     });
     res.end(JSON.stringify({ message: "Not Found" }));
+    logger.warn("request.not_found", baseContext);
+    complete(404, { reason: "not-found" });
   } catch (error) {
-    log("Request failed", { error: error.message });
+    logger.error("request.unhandled_exception", {
+      ...baseContext,
+      error,
+    });
     res.writeHead(500, {
       "Content-Type": "application/json",
       ...buildCorsHeaders(req),
     });
     res.end(JSON.stringify({ message: "Internal Server Error" }));
+    complete(500, { reason: "unhandled-exception" });
   }
 });
 
 ensureSandboxFilesystem()
   .then(() => {
     server.listen(PORT, () => {
-      log("Sandbox terminal service listening", {
+      logger.info("server.started", {
         port: PORT,
         sandboxRoot: SANDBOX_ROOT,
       });
     });
   })
   .catch((error) => {
-    log("Failed to initialize sandbox filesystem", { error: error.message });
+    logger.error("sandbox.init_failed", { error });
     process.exitCode = 1;
   });
 
 process.on("SIGTERM", () => {
-  log("Received SIGTERM, closing server");
+  logger.info("signal.received", { signal: "SIGTERM" });
   server.close(() => {
     process.exit(0);
   });
 });
 
 process.on("SIGINT", () => {
-  log("Received SIGINT, closing server");
+  logger.info("signal.received", { signal: "SIGINT" });
   server.close(() => {
     process.exit(0);
   });

@@ -4,9 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "lint": "../app/node_modules/.bin/eslint src"
   },
   "dependencies": {
     "ioredis": "^5.8.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.32.0"
   }
 }

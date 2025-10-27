@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { logger } from "./logger.js";
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_RADIO_BASE_URL =
@@ -46,13 +47,9 @@ function deriveSessionSecret(rawSecret) {
   }
 
   const generated = crypto.randomBytes(32).toString("hex");
-  console.warn(
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      level: "warn",
-      msg: "SESSION_SECRET not provided or too short; using ephemeral key",
-    }),
-  );
+  logger.warn("session.secret_ephemeral", {
+    message: "SESSION_SECRET not provided or too short; using ephemeral key",
+  });
   return generated;
 }
 

@@ -20,17 +20,33 @@ type HistoryEntry = {
   isError: boolean;
 };
 
-const resolveTerminalApiBase = () => {
-  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-    return "/api/terminal";
-  }
-  return "/api/terminal";
-};
+const FALLBACK_TERMINAL_BASE = "/api/terminal/";
 
-const API_BASE =
-  import.meta.env.VITE_TERMINAL_API_BASE_URL ??
-  import.meta.env.VITE_TERMINAL_API_BASE ??
-  resolveTerminalApiBase();
+const RAW_TERMINAL_BASE =
+  (import.meta.env.VITE_TERMINAL_API_BASE_URL ?? import.meta.env.VITE_TERMINAL_API_BASE ?? FALLBACK_TERMINAL_BASE)
+    .trim() || FALLBACK_TERMINAL_BASE;
+
+function resolveTerminalBaseUrl(): URL {
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  try {
+    return new URL(RAW_TERMINAL_BASE.endsWith("/") ? RAW_TERMINAL_BASE : `${RAW_TERMINAL_BASE}/`, origin);
+  } catch {
+    return new URL(FALLBACK_TERMINAL_BASE, origin);
+  }
+}
+
+function buildTerminalUrl(path: string): string {
+  const base = resolveTerminalBaseUrl();
+  const normalizedBaseHref = base.href.endsWith("/") ? base.href : `${base.href}/`;
+  const segment = path.replace(/^\/+/, "");
+  const resolved = new URL(segment, normalizedBaseHref);
+
+  if (typeof window !== "undefined" && resolved.origin === window.location.origin) {
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  }
+
+  return resolved.toString();
+}
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
   if (!virtualPath || virtualPath === "/") return "~";
@@ -90,7 +106,7 @@ export function useTerminal() {
 
     const bootstrap = async () => {
       try {
-        const response = await authorizedFetch(`${API_BASE}/info`, {
+        const response = await authorizedFetch(buildTerminalUrl("info"), {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
@@ -206,7 +222,7 @@ export function useTerminal() {
 
       try {
         setIsSubmitting(true);
-        const response = await authorizedFetch(`${API_BASE}/execute`, {
+        const response = await authorizedFetch(buildTerminalUrl("execute"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),

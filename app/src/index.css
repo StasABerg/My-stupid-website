@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
@@ -54,29 +52,6 @@ All colors MUST be HSL.
   }
 }
 
-@layer base {
-  *,
-  *::before,
-  *::after {
-    @apply border-border;
-    box-sizing: border-box;
-  }
-
-  html,
-  body,
-  #root {
-    height: 100%;
-  }
-
-  body {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    overflow-x: hidden;
-    @apply bg-background text-foreground font-mono;
-  }
-}
-
 @layer utilities {
   .text-terminal-green {
     color: hsl(var(--terminal-green));
@@ -106,7 +81,37 @@ All colors MUST be HSL.
   .text-terminal-white {
     color: hsl(var(--terminal-white));
   }
+}
 
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Fira Code", "Courier New", monospace;
+    letter-spacing: 0;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+}
+
+@layer utilities {
   @keyframes blink {
 
     0%,

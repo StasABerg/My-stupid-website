@@ -148,7 +148,6 @@ export async function validateStationStreams(stations, { redis } = {}) {
   let index = 0;
 
   const workers = Array.from({ length: concurrency }, async () => {
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const currentIndex = index;
       index += 1;

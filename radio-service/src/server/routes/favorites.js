@@ -1,3 +1,4 @@
+import { logger } from "../../logger.js";
 import { projectStationForClient } from "./projectStation.js";
 
 const SESSION_TOKEN_PATTERN = /^[a-f0-9]{16,}$/i;
@@ -128,7 +129,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       const favorites = await readFavorites(redis, key);
       await respondWithFavorites(res, redis, key, favorites, stationsLoader);
     } catch (error) {
-      console.error("favorites-read-error", { message: error.message });
+      logger.error("favorites.read_error", { session: session.value, error });
       res.status(500).json({ error: "Failed to load favorites" });
     }
   });
@@ -196,7 +197,11 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       await writeFavorites(redis, key, nextFavorites);
       await respondWithFavorites(res, redis, key, nextFavorites, stationsLoader);
     } catch (error) {
-      console.error("favorites-save-error", { message: error.message });
+      logger.error("favorites.save_error", {
+        session: session.value,
+        stationId: sanitizedStationId,
+        error,
+      });
       res.status(500).json({ error: "Failed to save favorite" });
     }
   });
@@ -224,7 +229,11 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       }
       await respondWithFavorites(res, redis, key, nextFavorites, stationsLoader);
     } catch (error) {
-      console.error("favorites-delete-error", { message: error.message });
+      logger.error("favorites.delete_error", {
+        session: session.value,
+        stationId: sanitizedStationId,
+        error,
+      });
       res.status(500).json({ error: "Failed to remove favorite" });
     }
   });
