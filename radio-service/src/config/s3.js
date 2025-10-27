@@ -1,4 +1,4 @@
-import { deriveMetadataKey, numberFromEnv } from "./env.js";
+import { deriveMetadataKey } from "./env.js";
 
 export function buildS3Config(env) {
   return {

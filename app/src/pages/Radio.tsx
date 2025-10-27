@@ -115,8 +115,17 @@ const Radio = () => {
       ? 0
       : Math.min(selectedIndex, displayStations.length - 1);
 
+  const sanitizedPresetStationOverride = useMemo(() => {
+    if (!presetStationOverride) {
+      return null;
+    }
+    const existsInFavorites = favorites.some((station) => station.id === presetStationOverride.id);
+    const existsInDirectory = displayStations.some((station) => station.id === presetStationOverride.id);
+    return existsInFavorites || existsInDirectory ? presetStationOverride : null;
+  }, [presetStationOverride, favorites, displayStations]);
+
   const activeDirectoryStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
-  const activeStation = presetStationOverride ?? activeDirectoryStation;
+  const activeStation = sanitizedPresetStationOverride ?? activeDirectoryStation;
   const activeStationIndex = useMemo(
     () => displayStations.findIndex((station) => station.id === activeStation.id),
     [activeStation.id, displayStations],
@@ -178,21 +187,6 @@ const Radio = () => {
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
   }, [displayStations, firstMeta?.genres]);
-
-  useEffect(() => {
-    if (!presetStationOverride) {
-      return;
-    }
-    const existsInFavorites = favorites.some(
-      (station) => station.id === presetStationOverride.id,
-    );
-    const existsInDirectory = displayStations.some(
-      (station) => station.id === presetStationOverride.id,
-    );
-    if (!existsInFavorites && !existsInDirectory) {
-      setPresetStationOverride(null);
-    }
-  }, [displayStations, favorites, presetStationOverride]);
 
   const handleStationChange = (index: number) => {
     if (index < 0 || index >= displayStations.length) {
@@ -257,7 +251,7 @@ const Radio = () => {
 
     try {
       await toggleFavorite(station.id);
-      if (presetStationOverride?.id === station.id && favoriteIds.has(station.id)) {
+      if (sanitizedPresetStationOverride?.id === station.id && favoriteIds.has(station.id)) {
         setPresetStationOverride(null);
       }
     } catch (error) {
@@ -285,7 +279,7 @@ const Radio = () => {
   const handlePresetRemove = async (stationId: string) => {
     try {
       await removeFavorite(stationId);
-      if (presetStationOverride?.id === stationId) {
+      if (sanitizedPresetStationOverride?.id === stationId) {
         setPresetStationOverride(null);
       }
     } catch (error) {

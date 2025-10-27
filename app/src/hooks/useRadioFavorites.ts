@@ -118,7 +118,10 @@ export function useRadioFavorites() {
     onSuccess: setFavoritesCache,
   });
 
-  const favorites = favoritesQuery.data?.items ?? [];
+  const favorites = useMemo(
+    () => favoritesQuery.data?.items ?? [],
+    [favoritesQuery.data?.items],
+  );
   const maxSlots = favoritesQuery.data?.meta.maxSlots ?? DEFAULT_MAX_SLOTS;
 
   const favoriteIds = useMemo(() => new Set(favorites.map((station) => station.id)), [favorites]);

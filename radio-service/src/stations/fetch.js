@@ -22,7 +22,6 @@ async function withRotatingRadioBrowserHost(executor) {
   let lastError;
 
   // Loop until we have tried every known host once.
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const baseUrl = await getRadioBrowserBaseUrl();
     if (attempted.has(baseUrl)) {

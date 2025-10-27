@@ -36,9 +36,16 @@ function resolveTerminalBaseUrl(): URL {
 }
 
 function buildTerminalUrl(path: string): string {
-  const segment = path.startsWith("/") ? path : `/${path}`;
   const base = resolveTerminalBaseUrl();
-  return new URL(segment, base).toString();
+  const normalizedBaseHref = base.href.endsWith("/") ? base.href : `${base.href}/`;
+  const segment = path.replace(/^\/+/, "");
+  const resolved = new URL(segment, normalizedBaseHref);
+
+  if (typeof window !== "undefined" && resolved.origin === window.location.origin) {
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  }
+
+  return resolved.toString();
 }
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {

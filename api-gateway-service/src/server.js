@@ -563,38 +563,6 @@ async function proxyRequest(
   }
 }
 
-function deriveClientIp(req) {
-  const cf = req.headers["cf-connecting-ip"];
-  if (typeof cf === "string" && cf.trim().length > 0) {
-    const normalized = normalizeAddress(cf.trim());
-    if (normalized) {
-      return normalized;
-    }
-  }
-  if (Array.isArray(cf) && cf.length > 0) {
-    const normalized = normalizeAddress(cf[0].trim());
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim().length > 0) {
-    const normalized = normalizeAddress(forwarded.split(",")[0].trim());
-    if (normalized) {
-      return normalized;
-    }
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    const normalized = normalizeAddress(forwarded[0].split(",")[0].trim());
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return normalizeAddress(req.socket?.remoteAddress ?? null);
-}
-
 function findHeaderKey(headers, target) {
   const lowerTarget = target.toLowerCase();
   return Object.keys(headers).find((key) => key.toLowerCase() === lowerTarget) ?? null;
