@@ -124,7 +124,10 @@ export function useTerminal() {
 
         const response = await authorizedFetch(infoUrl, {
           method: "GET",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Terminal-Debug": encodeDebugHeader({ stage: "info", url: infoUrl }),
+          },
         });
 
         if (!response.ok) {
@@ -257,7 +260,15 @@ export function useTerminal() {
 
         const response = await authorizedFetch(executeUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Terminal-Debug": encodeDebugHeader({
+              stage: "execute",
+              url: executeUrl,
+              input: raw,
+              cwd: previousVirtualCwd,
+            }),
+          },
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),
         });
 
@@ -376,4 +387,11 @@ export function useTerminal() {
     handleSubmit,
     handleKeyDown,
   };
+}
+function encodeDebugHeader(payload: Record<string, unknown>): string {
+  try {
+    return typeof btoa === "function" ? btoa(JSON.stringify(payload)) : JSON.stringify(payload);
+  } catch {
+    return "<debug-serialization-failed>";
+  }
 }
