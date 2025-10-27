@@ -15,7 +15,7 @@ import { useRadioFavorites } from "@/hooks/useRadioFavorites";
 import { authorizedFetch } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
-type HlsModule = typeof import("hls.js");
+type HlsModule = typeof import("hls.js/dist/hls.light.min.js");
 type HlsConstructor = HlsModule["default"];
 type HlsInstance = InstanceType<HlsConstructor>;
 
@@ -23,7 +23,7 @@ let hlsModulePromise: Promise<HlsModule> | null = null;
 
 async function loadHlsModule(): Promise<HlsModule> {
   if (!hlsModulePromise) {
-    hlsModulePromise = import("hls.js");
+    hlsModulePromise = import("hls.js/dist/hls.light.min.js");
   }
   return hlsModulePromise;
 }
