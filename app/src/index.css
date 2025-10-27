@@ -78,6 +78,10 @@ All colors MUST be HSL.
 }
 
 @layer utilities {
+  .border-border {
+    border-color: hsl(var(--border));
+  }
+
   .text-terminal-green {
     color: hsl(var(--terminal-green));
     text-shadow: var(--glow-green);
