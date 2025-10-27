@@ -20,39 +20,54 @@ type HistoryEntry = {
   isError: boolean;
 };
 
-const resolveTerminalApiBase = () => {
-  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-    return "/api/terminal";
-  }
-  return "/api/terminal";
-};
-
-const normalizeBaseUrl = (raw: string | undefined | null): string => {
-  const fallback = resolveTerminalApiBase();
-  if (!raw) return fallback;
-
-  const sanitized = raw.replace(/\/+$/, "");
-  if (typeof window === "undefined") {
-    return sanitized || fallback;
-  }
-
-  try {
-    const url = new URL(sanitized || "/", window.location.origin);
-    const normalizedPath = url.pathname.replace(/\/+$/, "");
-    if (url.origin === window.location.origin) {
-      return normalizedPath || "/";
-    }
-    return `${url.origin}${normalizedPath || "/"}`;
-  } catch {
-    return sanitized || fallback;
-  }
-};
-
-const API_BASE = normalizeBaseUrl(
+const RAW_TERMINAL_BASE = (
   import.meta.env.VITE_TERMINAL_API_BASE_URL ??
-    import.meta.env.VITE_TERMINAL_API_BASE ??
-    resolveTerminalApiBase(),
-);
+  import.meta.env.VITE_TERMINAL_API_BASE ??
+  "/api/terminal/"
+)?.trim();
+
+const FALLBACK_TERMINAL_BASE = "/api/terminal/";
+
+function buildTerminalUrl(path: string): string {
+  const segment = path.startsWith("/") ? path.slice(1) : path;
+  const baseCandidate = (RAW_TERMINAL_BASE && RAW_TERMINAL_BASE.length > 0
+    ? RAW_TERMINAL_BASE
+    : FALLBACK_TERMINAL_BASE).replace(/\s+/g, "");
+
+  const normalizeBase = (value: string): string => {
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+      return value;
+    }
+    const trimmed = value.replace(/\/+/g, "/");
+    if (trimmed.startsWith("/")) {
+      return trimmed;
+    }
+    return `/${trimmed}`;
+  };
+
+  const normalizedBase = normalizeBase(baseCandidate);
+
+  if (typeof window !== "undefined") {
+    try {
+      const origin = window.location.origin;
+      const baseUrl = new URL(normalizedBase, origin);
+      if (!baseUrl.pathname.endsWith("/")) {
+        baseUrl.pathname = `${baseUrl.pathname}/`;
+      }
+      const resolved = new URL(segment, baseUrl);
+      const absolute = resolved.toString();
+      if (absolute.startsWith(origin)) {
+        return absolute.slice(origin.length);
+      }
+      return absolute;
+    } catch {
+      // fall through to string joining below
+    }
+  }
+
+  const baseWithoutTrailingSlash = normalizedBase.replace(/\/+$/, "");
+  return `${baseWithoutTrailingSlash}/${segment}`;
+}
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
   if (!virtualPath || virtualPath === "/") return "~";
@@ -112,7 +127,7 @@ export function useTerminal() {
 
     const bootstrap = async () => {
       try {
-        const response = await authorizedFetch(`${API_BASE}/info`, {
+        const response = await authorizedFetch(buildTerminalUrl("info"), {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
@@ -228,7 +243,7 @@ export function useTerminal() {
 
       try {
         setIsSubmitting(true);
-        const response = await authorizedFetch(`${API_BASE}/execute`, {
+        const response = await authorizedFetch(buildTerminalUrl("execute"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),
