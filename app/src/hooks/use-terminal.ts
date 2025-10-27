@@ -27,10 +27,32 @@ const resolveTerminalApiBase = () => {
   return "/api/terminal";
 };
 
-const API_BASE =
+const normalizeBaseUrl = (raw: string | undefined | null): string => {
+  const fallback = resolveTerminalApiBase();
+  if (!raw) return fallback;
+
+  const sanitized = raw.replace(/\/+$/, "");
+  if (typeof window === "undefined") {
+    return sanitized || fallback;
+  }
+
+  try {
+    const url = new URL(sanitized || "/", window.location.origin);
+    const normalizedPath = url.pathname.replace(/\/+$/, "");
+    if (url.origin === window.location.origin) {
+      return normalizedPath || "/";
+    }
+    return `${url.origin}${normalizedPath || "/"}`;
+  } catch {
+    return sanitized || fallback;
+  }
+};
+
+const API_BASE = normalizeBaseUrl(
   import.meta.env.VITE_TERMINAL_API_BASE_URL ??
-  import.meta.env.VITE_TERMINAL_API_BASE ??
-  resolveTerminalApiBase();
+    import.meta.env.VITE_TERMINAL_API_BASE ??
+    resolveTerminalApiBase(),
+);
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
   if (!virtualPath || virtualPath === "/") return "~";
