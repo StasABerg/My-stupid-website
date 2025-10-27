@@ -265,7 +265,8 @@ try {
 }
 
 function deriveClientIdentifier(req) {
-  const ip = deriveClientIp(req) ?? "";
+  const { ip } = resolveClientIp(req);
+  const normalizedIp = ip ?? "";
   const uaHeader = req.headers["user-agent"];
   const userAgent =
     typeof uaHeader === "string" && uaHeader.length > 0
@@ -273,7 +274,7 @@ function deriveClientIdentifier(req) {
       : Array.isArray(uaHeader) && uaHeader.length > 0
         ? uaHeader[0]
         : "";
-  return `${ip}|${userAgent}`;
+  return `${normalizedIp}|${userAgent}`;
 }
 
 function parseCookies(headerValue) {
@@ -441,16 +442,35 @@ async function proxyRequest(
     const body = buildProxyRequestBody(req, abort.signal);
 
     const outgoingHeaders = sanitizeRequestHeaders(req.headers);
-    const clientIp = deriveClientIp(req);
+    const { ip: clientIp, source: clientIpSource } = resolveClientIp(req);
     if (session?.nonce) {
       outgoingHeaders["X-Gateway-Session"] = session.nonce;
     }
     if (clientIp) {
-      const cfKey = findHeaderKey(outgoingHeaders, "cf-connecting-ip");
-      if (cfKey) {
-        outgoingHeaders[cfKey] = clientIp;
+      const connectingKey = findHeaderKey(outgoingHeaders, "cf-connecting-ip");
+      const connectionKey = findHeaderKey(outgoingHeaders, "cf-connection-ip");
+      if (clientIpSource === "cf-connection-ip") {
+        if (connectionKey) {
+          outgoingHeaders[connectionKey] = clientIp;
+        } else {
+          outgoingHeaders["CF-Connection-IP"] = clientIp;
+        }
+        if (connectingKey) {
+          outgoingHeaders[connectingKey] = clientIp;
+        } else {
+          outgoingHeaders["CF-Connecting-IP"] = clientIp;
+        }
       } else {
-        outgoingHeaders["CF-Connecting-IP"] = clientIp;
+        if (connectingKey) {
+          outgoingHeaders[connectingKey] = clientIp;
+        } else {
+          outgoingHeaders["CF-Connecting-IP"] = clientIp;
+        }
+        if (connectionKey) {
+          outgoingHeaders[connectionKey] = clientIp;
+        } else {
+          outgoingHeaders["CF-Connection-IP"] = clientIp;
+        }
       }
       outgoingHeaders["X-Real-IP"] = clientIp;
     }
@@ -612,6 +632,35 @@ function normalizeAddress(address) {
     return "127.0.0.1";
   }
   return address;
+}
+
+function resolveClientIp(req) {
+  const headerCandidates = ["cf-connecting-ip", "cf-connection-ip"];
+  for (const header of headerCandidates) {
+    const raw = extractHeaderValue(req.headers, header);
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      const normalized = normalizeAddress(raw.trim());
+      if (normalized) {
+        return { ip: normalized, source: header };
+      }
+    }
+  }
+
+  const forwardedRaw = extractHeaderValue(req.headers, "x-forwarded-for");
+  if (forwardedRaw && forwardedRaw.trim().length > 0) {
+    const first = forwardedRaw.split(",")[0].trim();
+    const normalized = normalizeAddress(first);
+    if (normalized) {
+      return { ip: normalized, source: "x-forwarded-for" };
+    }
+  }
+
+  const socketAddress = normalizeAddress(req.socket?.remoteAddress ?? null);
+  if (socketAddress) {
+    return { ip: socketAddress, source: "remote-address" };
+  }
+
+  return { ip: null, source: null };
 }
 
 const server = http.createServer(async (req, res) => {
