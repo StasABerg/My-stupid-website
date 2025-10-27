@@ -28,45 +28,31 @@ const RAW_TERMINAL_BASE = (
 
 const FALLBACK_TERMINAL_BASE = "/api/terminal/";
 
+function resolveTerminalBaseUrl(): URL {
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  const candidate = RAW_TERMINAL_BASE && RAW_TERMINAL_BASE.length > 0 ? RAW_TERMINAL_BASE : FALLBACK_TERMINAL_BASE;
+
+  try {
+    return new URL(candidate, origin);
+  } catch {
+    return new URL(FALLBACK_TERMINAL_BASE, origin);
+  }
+}
+
 function buildTerminalUrl(path: string): string {
-  const segment = path.startsWith("/") ? path.slice(1) : path;
-  const baseCandidate = (RAW_TERMINAL_BASE && RAW_TERMINAL_BASE.length > 0
-    ? RAW_TERMINAL_BASE
-    : FALLBACK_TERMINAL_BASE).replace(/\s+/g, "");
-
-  const normalizeBase = (value: string): string => {
-    if (value.startsWith("http://") || value.startsWith("https://")) {
-      return value;
-    }
-    const trimmed = value.replace(/\/+/g, "/");
-    if (trimmed.startsWith("/")) {
-      return trimmed;
-    }
-    return `/${trimmed}`;
-  };
-
-  const normalizedBase = normalizeBase(baseCandidate);
-
-  if (typeof window !== "undefined") {
-    try {
-      const origin = window.location.origin;
-      const baseUrl = new URL(normalizedBase, origin);
-      if (!baseUrl.pathname.endsWith("/")) {
-        baseUrl.pathname = `${baseUrl.pathname}/`;
-      }
-      const resolved = new URL(segment, baseUrl);
-      const absolute = resolved.toString();
-      if (absolute.startsWith(origin)) {
-        return absolute.slice(origin.length);
-      }
-      return absolute;
-    } catch {
-      // fall through to string joining below
-    }
+  const base = resolveTerminalBaseUrl();
+  if (!base.pathname.endsWith("/")) {
+    base.pathname = `${base.pathname}/`;
   }
 
-  const baseWithoutTrailingSlash = normalizedBase.replace(/\/+$/, "");
-  return `${baseWithoutTrailingSlash}/${segment}`;
+  const segment = path.startsWith("/") ? path.slice(1) : path;
+  const resolved = new URL(segment, base);
+
+  if (typeof window !== "undefined" && resolved.origin === window.location.origin) {
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  }
+
+  return resolved.toString();
 }
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
