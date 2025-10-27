@@ -20,39 +20,25 @@ type HistoryEntry = {
   isError: boolean;
 };
 
-const RAW_TERMINAL_BASE = (
-  import.meta.env.VITE_TERMINAL_API_BASE_URL ??
-  import.meta.env.VITE_TERMINAL_API_BASE ??
-  "/api/terminal/"
-)?.trim();
-
 const FALLBACK_TERMINAL_BASE = "/api/terminal/";
+
+const RAW_TERMINAL_BASE =
+  (import.meta.env.VITE_TERMINAL_API_BASE_URL ?? import.meta.env.VITE_TERMINAL_API_BASE ?? FALLBACK_TERMINAL_BASE)
+    .trim() || FALLBACK_TERMINAL_BASE;
 
 function resolveTerminalBaseUrl(): URL {
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
-  const candidate = RAW_TERMINAL_BASE && RAW_TERMINAL_BASE.length > 0 ? RAW_TERMINAL_BASE : FALLBACK_TERMINAL_BASE;
-
   try {
-    return new URL(candidate, origin);
+    return new URL(RAW_TERMINAL_BASE.endsWith("/") ? RAW_TERMINAL_BASE : `${RAW_TERMINAL_BASE}/`, origin);
   } catch {
     return new URL(FALLBACK_TERMINAL_BASE, origin);
   }
 }
 
 function buildTerminalUrl(path: string): string {
+  const segment = path.startsWith("/") ? path : `/${path}`;
   const base = resolveTerminalBaseUrl();
-  if (!base.pathname.endsWith("/")) {
-    base.pathname = `${base.pathname}/`;
-  }
-
-  const segment = path.startsWith("/") ? path.slice(1) : path;
-  const resolved = new URL(segment, base);
-
-  if (typeof window !== "undefined" && resolved.origin === window.location.origin) {
-    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
-  }
-
-  return resolved.toString();
+  return new URL(segment, base).toString();
 }
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
