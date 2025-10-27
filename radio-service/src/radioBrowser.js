@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import { config } from "./config/index.js";
+import { logger } from "./logger.js";
 
 const RADIO_BROWSER_SRV_RECORD = "_api._tcp.radio-browser.info";
 
@@ -40,7 +41,7 @@ async function resolveHostPool() {
         }
       }
     } catch (error) {
-      console.warn("radio-browser-srv-resolution-failed", { message: error.message });
+      logger.warn("radio_browser.srv_resolution_failed", { error });
     }
 
     const uniqueHosts = dedupe(hosts.sort((a, b) => a.localeCompare(b)));

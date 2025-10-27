@@ -1,5 +1,6 @@
 import { config } from "./config/index.js";
 import { buildStationsFingerprint } from "./stations/normalize.js";
+import { logger } from "./logger.js";
 
 export async function readStationsFromCache(redis) {
   const raw = await redis.get(config.cacheKey);
@@ -7,7 +8,7 @@ export async function readStationsFromCache(redis) {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    console.warn("cache-parse-error", { message: error.message });
+    logger.warn("cache.parse_error", { error });
     return null;
   }
 }

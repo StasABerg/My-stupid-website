@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import {
   access,
   mkdir,
@@ -9,6 +10,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { logger } from "./logger.js";
 
 const posix = path.posix;
 
@@ -47,15 +49,6 @@ const allowAllOrigins = allowedOrigins.includes("*");
 
 const sandboxRootWithSlash = `${SANDBOX_ROOT}${path.sep}`;
 
-function log(message, extra = {}) {
-  const payload = JSON.stringify({
-    ts: new Date().toISOString(),
-    msg: message,
-    ...extra,
-  });
-  console.log(payload);
-}
-
 function resolveAllowedOrigin(origin) {
   if (!origin) {
     return null;
@@ -76,7 +69,7 @@ function buildCorsHeaders(req) {
   return headers;
 }
 
-function ensureCorsAllowed(req, res) {
+function ensureCorsAllowed(req, res, context = {}) {
   const origin = req.headers?.origin;
   if (!origin) {
     return true;
@@ -87,11 +80,21 @@ function ensureCorsAllowed(req, res) {
   if (allowedOrigins.length === 0) {
     res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
     res.end(JSON.stringify({ message: "CORS origin denied" }));
+    logger.warn("cors.origin_denied", {
+      ...context,
+      origin,
+      reason: "no-allowed-origins",
+    });
     return false;
   }
   if (!allowedOrigins.includes(origin)) {
     res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
     res.end(JSON.stringify({ message: "CORS origin denied" }));
+    logger.warn("cors.origin_denied", {
+      ...context,
+      origin,
+      reason: "origin-not-allowed",
+    });
     return false;
   }
   return true;
@@ -690,9 +693,9 @@ async function handleExecute(body) {
         }),
       };
     }
-    log("command-unhandled-error", {
+    logger.error("command.unhandled_error", {
       command,
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error : { message: String(error) },
     });
     return {
       status: 500,
@@ -722,14 +725,23 @@ function handleOptions(req, res) {
 async function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let buffer = "";
+    let tooLarge = false;
+
+    req.setEncoding("utf8");
     req.on("data", (chunk) => {
+      if (tooLarge) {
+        return;
+      }
       buffer += chunk;
       if (buffer.length > MAX_PAYLOAD_BYTES) {
-        reject(new Error("Payload too large"));
-        req.destroy();
+        tooLarge = true;
       }
     });
     req.on("end", () => {
+      if (tooLarge) {
+        reject(new Error("Payload too large"));
+        return;
+      }
       if (!buffer) {
         resolve({});
         return;
@@ -770,19 +782,53 @@ async function handleInfo() {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestIdHeader = req.headers["x-request-id"];
+  const requestId =
+    typeof requestIdHeader === "string" && requestIdHeader.trim().length
+      ? requestIdHeader
+      : randomUUID();
+  const requestStartedAt = process.hrtime.bigint();
+  const baseContext = {
+    requestId,
+    method: req.method,
+    url: req.url,
+    remoteAddress: req.socket?.remoteAddress,
+    origin: req.headers?.origin,
+  };
+
+  const complete = (statusCode, details = {}) => {
+    const durationMs = Number(process.hrtime.bigint() - requestStartedAt) / 1_000_000;
+    logger.info("request.completed", {
+      ...baseContext,
+      statusCode,
+      durationMs,
+      ...details,
+    });
+  };
+
+  logger.info("request.received", baseContext);
+
   try {
     if (req.method === "OPTIONS") {
+      if (!ensureCorsAllowed(req, res, baseContext)) {
+        complete(403, { reason: "cors-denied" });
+        return;
+      }
       handleOptions(req, res);
+      complete(204, { route: "options" });
       return;
     }
 
-    if (!ensureCorsAllowed(req, res)) {
+    if (!ensureCorsAllowed(req, res, baseContext)) {
+      complete(403, { reason: "cors-denied" });
       return;
     }
 
     if (req.url === "/healthz" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok" }));
+      const payload = { status: "ok" };
+      res.end(JSON.stringify(payload));
+      complete(200, { route: "healthz" });
       return;
     }
 
@@ -793,17 +839,39 @@ const server = http.createServer(async (req, res) => {
         ...buildCorsHeaders(req),
       });
       res.end(JSON.stringify(response.payload));
+      complete(response.status, { route: "info" });
       return;
     }
 
     if (req.url === "/execute" && req.method === "POST") {
-      const body = await parseJsonBody(req);
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to parse request body";
+        const status = message === "Payload too large" ? 413 : 400;
+        res.writeHead(status, {
+          "Content-Type": "application/json",
+          ...buildCorsHeaders(req),
+        });
+        res.end(JSON.stringify({ message }));
+        logger.warn("request.body_invalid", {
+          ...baseContext,
+          statusCode: status,
+          error: error instanceof Error ? error : { message },
+        });
+        complete(status, { route: "execute", reason: "invalid-body" });
+        return;
+      }
+
       const response = await handleExecute(body);
       res.writeHead(response.status, {
         "Content-Type": "application/json",
         ...buildCorsHeaders(req),
       });
       res.end(JSON.stringify(response.payload));
+      complete(response.status, { route: "execute" });
       return;
     }
 
@@ -812,39 +880,45 @@ const server = http.createServer(async (req, res) => {
       ...buildCorsHeaders(req),
     });
     res.end(JSON.stringify({ message: "Not Found" }));
+    logger.warn("request.not_found", baseContext);
+    complete(404, { reason: "not-found" });
   } catch (error) {
-    log("Request failed", { error: error.message });
+    logger.error("request.unhandled_exception", {
+      ...baseContext,
+      error,
+    });
     res.writeHead(500, {
       "Content-Type": "application/json",
       ...buildCorsHeaders(req),
     });
     res.end(JSON.stringify({ message: "Internal Server Error" }));
+    complete(500, { reason: "unhandled-exception" });
   }
 });
 
 ensureSandboxFilesystem()
   .then(() => {
     server.listen(PORT, () => {
-      log("Sandbox terminal service listening", {
+      logger.info("server.started", {
         port: PORT,
         sandboxRoot: SANDBOX_ROOT,
       });
     });
   })
   .catch((error) => {
-    log("Failed to initialize sandbox filesystem", { error: error.message });
+    logger.error("sandbox.init_failed", { error });
     process.exitCode = 1;
   });
 
 process.on("SIGTERM", () => {
-  log("Received SIGTERM, closing server");
+  logger.info("signal.received", { signal: "SIGTERM" });
   server.close(() => {
     process.exit(0);
   });
 });
 
 process.on("SIGINT", () => {
-  log("Received SIGINT, closing server");
+  logger.info("signal.received", { signal: "SIGINT" });
   server.close(() => {
     process.exit(0);
   });

@@ -1,5 +1,6 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { config } from "../config/index.js";
+import { logger } from "../logger.js";
 import { getS3Client } from "./client.js";
 
 let lastPersistedFingerprint = null;
@@ -138,6 +139,6 @@ export function scheduleStationsPersistence(payload, countryGroups, options = {}
       }
     })
     .catch((error) => {
-      console.error("stations-persistence-error", { message: error.message });
+      logger.error("stations.persistence_error", { error });
     });
 }
