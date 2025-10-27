@@ -1,28 +1,21 @@
 import http from "node:http";
-import { spawn } from "node:child_process";
 import {
   access,
   mkdir,
   readFile,
+  readdir,
   stat,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 
 const posix = path.posix;
 
 const PORT = Number.parseInt(process.env.PORT ?? "8080", 10);
 const SANDBOX_ROOT = path.resolve(process.env.SANDBOX_ROOT ?? "/app/sandbox");
-const COMMAND_TIMEOUT_MS = Number.parseInt(
-  process.env.COMMAND_TIMEOUT_MS ?? "4000",
-  10,
-);
 const MAX_PAYLOAD_BYTES = Number.parseInt(
   process.env.MAX_PAYLOAD_BYTES ?? "2048",
-  10,
-);
-const MAX_OUTPUT_BYTES = Number.parseInt(
-  process.env.MAX_OUTPUT_BYTES ?? "16384",
   10,
 );
 const DEFAULT_CWD = sanitizeVirtualPath("/home/demo");
@@ -45,12 +38,6 @@ const MOTD_VIRTUAL_PATH = "/etc/motd";
 
 const LS_ALLOWED_FLAGS = new Set(["-a", "-l", "-la", "-al", "-lh", "-hl", "-lah", "-hal"]);
 const UNAME_ALLOWED_FLAGS = new Set(["-a", "-s", "-r", "-m"]);
-
-const SANDBOX_ENV = {
-  PATH: "/usr/bin:/bin:/usr/local/bin",
-  LANG: "C.UTF-8",
-  LC_ALL: "C.UTF-8",
-};
 
 const allowedOrigins = (process.env.CORS_ALLOW_ORIGIN ?? "")
   .split(",")
@@ -250,48 +237,63 @@ async function ensureSandboxFilesystem() {
   );
 }
 
-async function runProcess(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: SANDBOX_ENV,
-      timeout: COMMAND_TIMEOUT_MS,
-      ...options,
-    });
+class SandboxError extends Error {
+  constructor(message, { status = 400, code = "SANDBOX_ERROR" } = {}) {
+    super(message);
+    this.name = "SandboxError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
-    let stdout = "";
-    let stderr = "";
+function formatPermissions(stats) {
+  const modes = [
+    stats.isDirectory() ? "d" : "-",
+    stats.mode & 0o400 ? "r" : "-",
+    stats.mode & 0o200 ? "w" : "-",
+    stats.mode & 0o100 ? "x" : "-",
+    stats.mode & 0o040 ? "r" : "-",
+    stats.mode & 0o020 ? "w" : "-",
+    stats.mode & 0o010 ? "x" : "-",
+    stats.mode & 0o004 ? "r" : "-",
+    stats.mode & 0o002 ? "w" : "-",
+    stats.mode & 0o001 ? "x" : "-",
+  ];
+  return modes.join("");
+}
 
-    const abort = (reason) => {
-      child.kill("SIGKILL");
-      reject(reason);
-    };
+function formatHumanReadableSize(bytes) {
+  const units = ["B", "K", "M", "G", "T"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const rounded = unitIndex === 0 ? size : size.toFixed(1);
+  return `${rounded}${units[unitIndex]}`;
+}
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-      if (stdout.length > MAX_OUTPUT_BYTES) {
-        abort(new Error("Command output limit exceeded"));
-      }
-    });
+function formatTimestamp(date) {
+  const month = date
+    .toLocaleString("en-US", { month: "short", timeZone: "UTC" })
+    .padStart(3, " ");
+  const day = String(date.getUTCDate()).padStart(2, " ");
+  const time = `${String(date.getUTCHours()).padStart(2, "0")}:${String(
+    date.getUTCMinutes(),
+  ).padStart(2, "0")}`;
+  return `${month} ${day} ${time}`;
+}
 
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-      if (stderr.length > MAX_OUTPUT_BYTES) {
-        abort(new Error("Command error output limit exceeded"));
-      }
-    });
-
-    child.on("error", reject);
-
-    child.on("close", (code, signal) => {
-      if (signal) {
-        reject(new Error(`Process terminated by signal ${signal}`));
-        return;
-      }
-      resolve({ code, stdout, stderr });
-    });
-  });
+async function safeStat(realPath) {
+  try {
+    return await stat(realPath);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function parseLsArgs(args) {
@@ -328,30 +330,96 @@ function parseUnameArgs(args) {
 }
 
 async function handleLs(currentVirtualCwd, args) {
-  const { flags, pathArg } = parseLsArgs(args);
+  let parsed;
+  try {
+    parsed = parseLsArgs(args);
+  } catch (error) {
+    throw new SandboxError(error.message, { status: 422, code: "INVALID_FLAG" });
+  }
+  const { flags, pathArg } = parsed;
+  const showAll = flags.some((flag) => flag.includes("a"));
+  const longFormat = flags.some((flag) => flag.includes("l"));
+  const humanReadable = flags.some((flag) => flag.includes("h"));
   const targetVirtual = pathArg
     ? resolveVirtualPath(currentVirtualCwd, pathArg)
     : currentVirtualCwd;
   const realTarget = toRealPath(targetVirtual);
-  const targetStats = await stat(realTarget);
+  const targetStats = await safeStat(realTarget);
+
+  if (!targetStats) {
+    const label = pathArg ?? ".";
+    throw new SandboxError(`ls: ${label}: No such file or directory`, {
+      status: 404,
+      code: "NOT_FOUND",
+    });
+  }
 
   if (targetStats.isDirectory()) {
-    const result = await runProcess("ls", flags, { cwd: realTarget });
-    const lines = splitLines(result.stdout || result.stderr);
+    const dirEntries = await readdir(realTarget, { withFileTypes: true });
+    const results = [];
+
+    if (showAll) {
+      results.push({ name: ".", stats: targetStats });
+      const parentVirtual = resolveVirtualPath(targetVirtual, "..");
+      const parentStats = await safeStat(toRealPath(parentVirtual));
+      if (parentStats) {
+        results.push({ name: "..", stats: parentStats });
+      }
+    }
+
+    for (const dirent of dirEntries) {
+      if (!showAll && dirent.name.startsWith(".")) {
+        continue;
+      }
+      const entryStats = await safeStat(path.join(realTarget, dirent.name));
+      if (!entryStats) continue;
+      results.push({ name: dirent.name, stats: entryStats });
+    }
+
+    const formatted = results.map(({ name, stats }) => {
+      if (!longFormat) {
+        return name;
+      }
+      const permissions = formatPermissions(stats);
+      const links = String(stats.nlink ?? 1).padStart(2, " ");
+      const owner = String(stats.uid ?? 0).padEnd(5, " ");
+      const group = String(stats.gid ?? 0).padEnd(5, " ");
+      const sizeValue = humanReadable
+        ? formatHumanReadableSize(stats.size ?? 0)
+        : String(stats.size ?? 0);
+      const size = sizeValue.toString().padStart(humanReadable ? 5 : 8, " ");
+      const mtime = formatTimestamp(stats.mtime ?? new Date());
+      return `${permissions} ${links} ${owner} ${group} ${size} ${mtime} ${name}`;
+    });
+
     return {
-      output: lines,
-      error: result.code !== 0,
+      output: formatted,
+      error: false,
       cwd: currentVirtualCwd,
     };
   }
 
-  const result = await runProcess("ls", [...flags, realTarget], {
-    cwd: SANDBOX_ROOT,
-  });
-  const outputText = result.stdout || result.stderr;
+  const name = pathArg ?? targetVirtual.split("/").pop() ?? targetVirtual;
+  if (!longFormat) {
+    return {
+      output: [name],
+      error: false,
+      cwd: currentVirtualCwd,
+    };
+  }
+
+  const permissions = formatPermissions(targetStats);
+  const links = String(targetStats.nlink ?? 1).padStart(2, " ");
+  const owner = String(targetStats.uid ?? 0).padEnd(5, " ");
+  const group = String(targetStats.gid ?? 0).padEnd(5, " ");
+  const sizeValue = humanReadable
+    ? formatHumanReadableSize(targetStats.size ?? 0)
+    : String(targetStats.size ?? 0);
+  const size = sizeValue.toString().padStart(humanReadable ? 5 : 8, " ");
+  const mtime = formatTimestamp(targetStats.mtime ?? new Date());
   return {
-    output: splitLines(outputText),
-    error: result.code !== 0,
+    output: [`${permissions} ${links} ${owner} ${group} ${size} ${mtime} ${name}`],
+    error: false,
     cwd: currentVirtualCwd,
   };
 }
@@ -376,7 +444,15 @@ async function handleCat(currentVirtualCwd, args) {
   const targetVirtual = resolveVirtualPath(currentVirtualCwd, args[0]);
   const realTarget = toRealPath(targetVirtual);
 
-  const targetStats = await stat(realTarget);
+  const targetStats = await safeStat(realTarget);
+  if (!targetStats) {
+    return {
+      output: [`cat: ${args[0]}: No such file or directory`],
+      error: true,
+      cwd: currentVirtualCwd,
+    };
+  }
+
   if (!targetStats.isFile()) {
     return {
       output: [`cat: ${args[0]}: Not a regular file`],
@@ -399,9 +475,9 @@ async function handleCd(currentVirtualCwd, args) {
     ? resolveVirtualPath(currentVirtualCwd, targetArg)
     : DEFAULT_CWD;
   const realTarget = toRealPath(nextVirtual);
-  const targetStats = await stat(realTarget);
+  const targetStats = await safeStat(realTarget);
 
-  if (!targetStats.isDirectory()) {
+  if (!targetStats || !targetStats.isDirectory()) {
     return {
       output: [`cd: ${targetArg ?? ""}: Not a directory`],
       error: true,
@@ -435,10 +511,28 @@ async function handleMotd(currentVirtualCwd) {
 
 async function handleUname(currentVirtualCwd, args) {
   const flags = parseUnameArgs(args);
-  const result = await runProcess("uname", flags, { cwd: SANDBOX_ROOT });
+  const kernelName = os.type();
+  const release = os.release();
+  const machine = os.arch();
+  const hostname = os.hostname();
+  const version = typeof os.version === "function" ? os.version() : "";
+
+  let output;
+  if (flags.includes("-a")) {
+    output = `${kernelName} ${hostname} ${release} ${version} ${machine}`.trim();
+  } else if (flags.includes("-r")) {
+    output = release;
+  } else if (flags.includes("-m")) {
+    output = machine;
+  } else if (flags.includes("-s")) {
+    output = kernelName;
+  } else {
+    output = kernelName;
+  }
+
   return {
-    output: splitLines(result.stdout || result.stderr),
-    error: result.code !== 0,
+    output: [output],
+    error: false,
     cwd: currentVirtualCwd,
   };
 }
@@ -462,113 +556,152 @@ async function handleExecute(body) {
 
   const trimmed = input.trim();
   if (!trimmed) {
+    let sanitizedCwd;
+    try {
+      sanitizedCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
+    } catch {
+      sanitizedCwd = DEFAULT_CWD;
+    }
     return {
       status: 200,
       payload: withDisplay(input, {
-        cwd: sanitizeVirtualPath(cwd ?? DEFAULT_CWD),
+        cwd: sanitizedCwd,
         output: [],
         error: false,
       }),
     };
   }
 
-  const currentVirtualCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
+  let currentVirtualCwd;
+  try {
+    currentVirtualCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
+  } catch {
+    throw new SandboxError("Invalid working directory", {
+      status: 422,
+      code: "INVALID_CWD",
+    });
+  }
   const [rawCommand, ...args] = trimmed.split(/\s+/);
   const command = rawCommand.toLowerCase();
 
-  switch (command) {
-    case "help":
+  try {
+    switch (command) {
+      case "help":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: HELP_TEXT,
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "clear":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: [],
+            error: false,
+            cwd: currentVirtualCwd,
+            clear: true,
+          }),
+        };
+      case "ls":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleLs(currentVirtualCwd, args)),
+        };
+      case "pwd":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: [toDisplayPath(currentVirtualCwd)],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "whoami":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: ["sandbox-runner"],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "cat":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleCat(currentVirtualCwd, args)),
+        };
+      case "cd":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleCd(currentVirtualCwd, args)),
+        };
+      case "history":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: ["History is tracked client-side for each session."],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "echo":
+        return {
+          status: 200,
+          payload: withDisplay(input, {
+            output: [args.join(" ")],
+            error: false,
+            cwd: currentVirtualCwd,
+          }),
+        };
+      case "motd":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleMotd(currentVirtualCwd)),
+        };
+      case "uname":
+        return {
+          status: 200,
+          payload: withDisplay(input, await handleUname(currentVirtualCwd, args)),
+        };
+      default:
+        return {
+          status: 400,
+          payload: withDisplay(input, {
+            output: [
+              `Command "${command}" is not available in this sandbox.`,
+              "Type `help` to see supported commands.",
+            ],
+            error: true,
+            cwd: currentVirtualCwd,
+          }),
+        };
+    }
+  } catch (error) {
+    if (error instanceof SandboxError) {
       return {
-        status: 200,
+        status: error.status,
         payload: withDisplay(input, {
-          output: HELP_TEXT,
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "clear":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: [],
-          error: false,
-          cwd: currentVirtualCwd,
-          clear: true,
-        }),
-      };
-    case "ls":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleLs(currentVirtualCwd, args)),
-      };
-    case "pwd":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: [toDisplayPath(currentVirtualCwd)],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "whoami":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: ["sandbox-runner"],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "cat":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleCat(currentVirtualCwd, args)),
-      };
-    case "cd":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleCd(currentVirtualCwd, args)),
-      };
-    case "history":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: ["History is tracked client-side for each session."],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "echo":
-      return {
-        status: 200,
-        payload: withDisplay(input, {
-          output: [args.join(" ")],
-          error: false,
-          cwd: currentVirtualCwd,
-        }),
-      };
-    case "motd":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleMotd(currentVirtualCwd)),
-      };
-    case "uname":
-      return {
-        status: 200,
-        payload: withDisplay(input, await handleUname(currentVirtualCwd, args)),
-      };
-    default:
-      return {
-        status: 400,
-        payload: withDisplay(input, {
-          output: [
-            `Command "${command}" is not available in this sandbox.`,
-            "Type `help` to see supported commands.",
-          ],
+          output: [error.message],
           error: true,
           cwd: currentVirtualCwd,
         }),
       };
+    }
+    log("command-unhandled-error", {
+      command,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      status: 500,
+      payload: withDisplay(input, {
+        output: ["Command failed due to an unexpected error."],
+        error: true,
+        cwd: currentVirtualCwd,
+      }),
+    };
   }
 }
 
