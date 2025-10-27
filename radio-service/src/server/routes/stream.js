@@ -1,4 +1,5 @@
 import { fetchWithKeepAlive } from "../../http/client.js";
+import { logger } from "../../logger.js";
 import { pickForwardHeaders, rewritePlaylist, shouldTreatAsPlaylist } from "./utils.js";
 
 async function findStationById(stationsLoader, stationId) {
@@ -65,7 +66,7 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
       res.setHeader("Cache-Control", "no-store");
       res.send(rewritten);
     } catch (error) {
-      console.error("stream-playlist-error", { message: error.message });
+      logger.error("stream.playlist_error", { stationId: req.params.stationId ?? null, error });
       res.status(500).json({ error: "Failed to load stream playlist." });
     }
   });
@@ -145,7 +146,11 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
       }
       res.end();
     } catch (error) {
-      console.error("stream-segment-error", { message: error.message });
+      logger.error("stream.segment_error", {
+        stationId: req.params.stationId ?? null,
+        source: req.query.source ?? null,
+        error,
+      });
       res.status(500).json({ error: "Failed to proxy stream segment." });
     }
   });

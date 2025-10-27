@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import { config } from "./config/index.js";
+import { logger } from "./logger.js";
 
 export function createRedisClient() {
   const client = new Redis(config.redisUrl, {
@@ -8,7 +9,7 @@ export function createRedisClient() {
   });
 
   client.on("error", (error) => {
-    console.error("redis-error", { message: error.message });
+    logger.error("redis.error", { error });
   });
   return client;
 }

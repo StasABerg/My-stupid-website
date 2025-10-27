@@ -1,3 +1,4 @@
+import { logger } from "../../logger.js";
 import { ensureNormalizedStation } from "../../stations/normalize.js";
 import { ensureProcessedStations } from "../../stations/processedPayload.js";
 import { parseStationsQuery } from "./stationsQuery.js";
@@ -213,7 +214,10 @@ export function registerStationsRoutes(
       res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
       res.json(response);
     } catch (error) {
-      console.error("stations-error", { message: error.message });
+      logger.error("stations.load_error", {
+        error,
+        query: req.query,
+      });
       res.status(500).json({ error: "Failed to load stations" });
     }
   });
@@ -241,7 +245,7 @@ export function registerStationsRoutes(
         },
       });
     } catch (error) {
-      console.error("refresh-error", { message: error.message });
+      logger.error("stations.refresh_error", { error });
       res.status(500).json({ error: "Failed to refresh stations" });
     }
   });

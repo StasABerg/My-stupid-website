@@ -1,14 +1,5 @@
 import Redis from "ioredis";
-
-function log(event, details = {}) {
-  console.log(
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      event,
-      ...details,
-    }),
-  );
-}
+import { logger } from "../logger.js";
 
 class MemoryCache {
   constructor({ ttlSeconds, maxEntries }) {
@@ -81,7 +72,7 @@ export function createCache(config) {
     const keyPrefix = config.redis.keyPrefix ?? "gateway:cache:";
 
     client.on("error", (error) => {
-      log("cache-redis-error", { message: error.message });
+      logger.error("cache.redis_error", { error });
     });
 
     const ensureConnected = async () => {
@@ -99,7 +90,7 @@ export function createCache(config) {
             return cached;
           }
         } catch (error) {
-          log("cache-redis-get-error", { message: error.message });
+          logger.warn("cache.redis_get_error", { error });
         }
 
         return memoryCache ? memoryCache.get(key) : null;
@@ -119,7 +110,7 @@ export function createCache(config) {
             await client.set(`${keyPrefix}${key}`, value);
           }
         } catch (error) {
-          log("cache-redis-set-error", { message: error.message });
+          logger.warn("cache.redis_set_error", { error });
         }
       },
 
@@ -134,7 +125,7 @@ export function createCache(config) {
     };
   }
 
-  log("cache-memory-only", { maxEntries, ttlSeconds });
+  logger.info("cache.memory_only", { maxEntries, ttlSeconds });
   const fallback = memoryCache ?? new MemoryCache({ ttlSeconds, maxEntries });
   return {
     get(key) {

@@ -1,3 +1,5 @@
+import { logger } from "../logger.js";
+
 export async function loadValidationCache(redis, cacheKey) {
   if (!redis || !cacheKey) {
     return null;
@@ -14,7 +16,7 @@ export async function loadValidationCache(redis, cacheKey) {
     }
     return cache;
   } catch (error) {
-    console.warn("stream-validation-cache-read-error", { message: error.message });
+    logger.warn("stream_validation_cache.read_error", { error, cacheKey });
     return null;
   }
 }
@@ -50,6 +52,6 @@ export async function writeValidationCache({
       await pipeline.exec();
     }
   } catch (error) {
-    console.warn("stream-validation-cache-write-error", { message: error.message });
+    logger.warn("stream_validation_cache.write_error", { error, cacheKey });
   }
 }

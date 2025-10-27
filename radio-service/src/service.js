@@ -8,6 +8,7 @@ import {
 } from "./stations/index.js";
 import { cacheStationsInMemory, getStationsFromMemory } from "./cache/inMemoryStationsCache.js";
 import { ensureProcessedStations } from "./stations/processedPayload.js";
+import { logger } from "./logger.js";
 
 let inflightRefreshPromise = null;
 
@@ -29,7 +30,7 @@ function scheduleRefresh(redis) {
           fingerprint,
         });
         ensureProcessedStations(payload).catch((error) => {
-          console.warn("processed-stations-worker-error", { message: error.message });
+          logger.warn("processed_stations.worker_error", { error });
         });
         scheduleStationsPersistence(payload, countryGroups, {
           fingerprint,
@@ -58,7 +59,7 @@ export async function loadStations(redis, { forceRefresh = false } = {}) {
     const sanitizedCache = sanitizePersistedStationsPayload(cached);
     if (sanitizedCache) {
       if (sanitizedCache !== cached) {
-        console.log("cache-upgraded", { source: "redis" });
+        logger.info("cache.upgraded", { source: "redis" });
         const serialized = JSON.stringify(sanitizedCache);
         await writeStationsToCache(redis, sanitizedCache, serialized);
       }
@@ -68,7 +69,7 @@ export async function loadStations(redis, { forceRefresh = false } = {}) {
         fingerprint: sanitizedCache.fingerprint ?? null,
       });
       ensureProcessedStations(sanitizedCache).catch((error) => {
-        console.warn("processed-stations-worker-error", { message: error.message });
+        logger.warn("processed_stations.worker_error", { error });
       });
       return { payload: sanitizedCache, cacheSource: "cache" };
     }
@@ -85,15 +86,15 @@ export async function loadStations(redis, { forceRefresh = false } = {}) {
           fingerprint: sanitizedS3.fingerprint ?? null,
         });
         ensureProcessedStations(sanitizedS3).catch((error) => {
-          console.warn("processed-stations-worker-error", { message: error.message });
+          logger.warn("processed_stations.worker_error", { error });
         });
         scheduleRefresh(redis).catch((error) => {
-          console.warn("background-refresh-error", { message: error.message });
+          logger.warn("stations.background_refresh_error", { error });
         });
         return { payload: sanitizedS3, cacheSource: "s3" };
       }
     } catch (error) {
-      console.warn("s3-read-error", { message: error.message });
+      logger.warn("s3.read_error", { error });
     }
   }
 
@@ -104,7 +105,7 @@ export async function loadStations(redis, { forceRefresh = false } = {}) {
     fingerprint: payload?.fingerprint ?? null,
   });
   ensureProcessedStations(payload).catch((error) => {
-    console.warn("processed-stations-worker-error", { message: error.message });
+    logger.warn("processed_stations.worker_error", { error });
   });
   return { payload, cacheSource: "radio-browser" };
 }
@@ -117,7 +118,7 @@ export async function updateStations(redis) {
     fingerprint: payload?.fingerprint ?? null,
   });
   ensureProcessedStations(payload).catch((error) => {
-    console.warn("processed-stations-worker-error", { message: error.message });
+    logger.warn("processed_stations.worker_error", { error });
   });
   return { payload, cacheSource: "radio-browser" };
 }

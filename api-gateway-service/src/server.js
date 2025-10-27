@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { config } from "./config.js";
 import { createCache } from "./cache/index.js";
+import { logger } from "./logger.js";
 
 const ALLOWED_SERVICE_HOSTNAMES = new Set(config.allowedServiceHostnames);
 const RADIO_PREFIX = "/radio";
@@ -16,15 +17,6 @@ const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
 
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 const cache = createCache(config.cache);
-
-function log(message, details = {}) {
-  const payload = {
-    ts: new Date().toISOString(),
-    msg: message,
-    ...details,
-  };
-  console.log(JSON.stringify(payload));
-}
 
 function buildCorsHeaders(origin) {
   const allowed = config.allowOrigins;
@@ -142,7 +134,7 @@ function parseRequestUrl(rawUrl) {
   return { ok: true, url: parsed };
 }
 
-function sanitizePath(prefix, rawSuffix) {
+function sanitizePath(prefix, rawSuffix, context = {}) {
   if (!VALID_PREFIXES.includes(prefix)) {
     return null;
   }
@@ -152,7 +144,11 @@ function sanitizePath(prefix, rawSuffix) {
   // Prohibit path traversal attempts even if encoded
   const decoded = decodeUntilStable(suffix);
   if (containsTraversal(suffix) || containsTraversal(decoded)) {
-    log("blocked-ssrf-attempt", { prefix, suffix });
+    logger.warn("request.blocked_ssrf_attempt", {
+      ...context,
+      prefix,
+      suffix,
+    });
     return null;
   }
   // Optionally normalize: collapse multiple slashes
@@ -160,10 +156,10 @@ function sanitizePath(prefix, rawSuffix) {
   return suffix;
 }
 
-function determineTarget(pathname) {
+function determineTarget(pathname, context = {}) {
   if (pathname === RADIO_PREFIX || pathname.startsWith(`${RADIO_PREFIX}/`)) {
     const rawSuffix = pathname.slice(RADIO_PREFIX.length) || "/";
-    const sanitized = sanitizePath(RADIO_PREFIX, rawSuffix);
+    const sanitized = sanitizePath(RADIO_PREFIX, rawSuffix, context);
     if (!sanitized) return null;
     return {
       baseUrl: config.radioServiceUrl,
@@ -174,7 +170,7 @@ function determineTarget(pathname) {
 
   if (pathname === TERMINAL_PREFIX || pathname.startsWith(`${TERMINAL_PREFIX}/`)) {
     const rawSuffix = pathname.slice(TERMINAL_PREFIX.length) || "/";
-    const sanitized = sanitizePath(TERMINAL_PREFIX, rawSuffix);
+    const sanitized = sanitizePath(TERMINAL_PREFIX, rawSuffix, context);
     if (!sanitized) return null;
     return {
       baseUrl: config.terminalServiceUrl,
@@ -239,7 +235,7 @@ function buildCacheKey(req, target, parsedUrl) {
 }
 
 if (ALLOWED_SERVICE_HOSTNAMES.size === 0) {
-  console.error("api-gateway-service: No allowed service hostnames configured; refusing to start.");
+  logger.error("config.allowed_service_hostnames_missing", {});
   process.exit(1);
 }
 
@@ -264,7 +260,7 @@ try {
   validateBaseUrl("radioServiceUrl", config.radioServiceUrl);
   validateBaseUrl("terminalServiceUrl", config.terminalServiceUrl);
 } catch (error) {
-  console.error(`api-gateway-service configuration error: ${error.message}`);
+  logger.error("config.invalid_base_url", { error });
   process.exit(1);
 }
 
@@ -416,7 +412,16 @@ function buildProxyRequestBody(req, signal) {
   return Readable.toWeb(req);
 }
 
-async function proxyRequest(req, res, target, session, corsHeaders, cacheOptions, parsedUrl) {
+async function proxyRequest(
+  req,
+  res,
+  target,
+  session,
+  corsHeaders,
+  cacheOptions,
+  parsedUrl,
+  requestContext,
+) {
   const parsed = parsedUrl ?? new URL(req.url ?? "/", "http://localhost");
   const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
   const allowedHostname = new URL(target.baseUrl).hostname;
@@ -499,12 +504,26 @@ async function proxyRequest(req, res, target, session, corsHeaders, cacheOptions
         });
         await cache.set(cacheOptions.cacheKey, cacheRecord, config.cache.ttlSeconds);
       } catch (error) {
-        log("cache-store-error", { message: error.message });
+        logger.warn("cache.store_error", {
+          ...requestContext,
+          cacheKey: cacheOptions.cacheKey,
+          error,
+        });
       }
     }
+
+    return {
+      status: upstreamResponse.status,
+      cacheStatus: cacheOptions?.cacheable ? "MISS" : "BYPASS",
+    };
   } catch (error) {
     const status = error.name === "AbortError" ? 504 : 502;
-    log("proxy-error", { status, error: error.message, target: target.baseUrl });
+    logger.error("proxy.error", {
+      ...requestContext,
+      status,
+      target: target.baseUrl,
+      error,
+    });
     if (!res.headersSent) {
       res.writeHead(status, {
         "Content-Type": "application/json",
@@ -518,6 +537,7 @@ async function proxyRequest(req, res, target, session, corsHeaders, cacheOptions
         res.end();
       }
     }
+    return { status, error };
   } finally {
     clearTimeout(timeout);
   }
@@ -583,27 +603,57 @@ function normalizeAddress(address) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestIdHeader = req.headers["x-request-id"];
+  const requestId =
+    typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
+      ? requestIdHeader.trim()
+      : crypto.randomUUID();
+  const startedAt = process.hrtime.bigint();
+  const requestContext = {
+    requestId,
+    method: req.method,
+    rawUrl: req.url ?? null,
+    origin: req.headers.origin ?? null,
+    remoteAddress: req.socket?.remoteAddress ?? null,
+  };
+
+  const complete = (statusCode, details = {}) => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    logger.info("request.completed", {
+      ...requestContext,
+      statusCode,
+      durationMs,
+      ...details,
+    });
+  };
+
+  logger.info("request.received", requestContext);
+
   const parsedUrlResult = parseRequestUrl(req.url);
   if (!parsedUrlResult.ok) {
-    log("blocked-invalid-request-url", {
+    logger.warn("request.invalid_url", {
+      ...requestContext,
       reason: parsedUrlResult.reason,
-      rawUrl: req.url ?? null,
     });
     res.writeHead(parsedUrlResult.statusCode, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: parsedUrlResult.error }));
+    complete(parsedUrlResult.statusCode, { reason: "invalid-url" });
     return;
   }
 
   const url = parsedUrlResult.url;
+  requestContext.pathname = url.pathname;
 
   if (req.method === "OPTIONS") {
     handlePreflight(req, res);
+    complete(204, { route: "preflight" });
     return;
   }
 
   if (url.pathname === "/healthz") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok" }));
+    complete(200, { route: "healthz" });
     return;
   }
 
@@ -612,20 +662,30 @@ const server = http.createServer(async (req, res) => {
     const corsHeaders = buildCorsHeaders(req.headers.origin);
 
     if (!originAllowed) {
+      logger.warn("session.origin_denied", {
+        ...requestContext,
+        origin: req.headers.origin ?? null,
+      });
       res.writeHead(403, {
         "Content-Type": "application/json",
         ...corsHeaders,
       });
       res.end(JSON.stringify({ error: "Origin not allowed" }));
+      complete(403, { route: "session", reason: "origin-denied" });
       return;
     }
 
     if (req.method !== "POST") {
+      logger.warn("session.method_not_allowed", {
+        ...requestContext,
+        origin: req.headers.origin ?? null,
+      });
       res.writeHead(405, {
         "Content-Type": "application/json",
         ...corsHeaders,
       });
       res.end(JSON.stringify({ error: "Method Not Allowed" }));
+      complete(405, { route: "session", reason: "method-not-allowed" });
       return;
     }
 
@@ -641,37 +701,63 @@ const server = http.createServer(async (req, res) => {
         expiresAt: sessionResponse.expiresAt,
       }),
     );
+    complete(200, {
+      route: "session",
+      expiresAt: sessionResponse.expiresAt,
+    });
     return;
   }
 
-  const target = determineTarget(url.pathname);
+  const target = determineTarget(url.pathname, requestContext);
   if (!target) {
     const corsHeaders = buildCorsHeaders(req.headers.origin);
+    logger.warn("request.route_not_found", {
+      ...requestContext,
+    });
     res.writeHead(404, {
       "Content-Type": "application/json",
       ...corsHeaders,
     });
     res.end(JSON.stringify({ error: "Not Found" }));
+    complete(404, { reason: "route-not-found" });
     return;
   }
 
+  requestContext.targetService = target.service;
+  requestContext.targetPath = target.path;
+  requestContext.targetBaseUrl = target.baseUrl;
+
   const corsHeaders = buildCorsHeaders(req.headers.origin);
   if (!isOriginAllowed(req.headers.origin ?? null)) {
+    logger.warn("request.origin_denied", {
+      ...requestContext,
+      origin: req.headers.origin ?? null,
+    });
     res.writeHead(403, {
       "Content-Type": "application/json",
       ...corsHeaders,
     });
     res.end(JSON.stringify({ error: "Origin not allowed" }));
+    complete(403, { route: target.service, reason: "origin-denied" });
     return;
   }
 
   const sessionValidation = validateSession(req);
   if (!sessionValidation.ok) {
+    logger.warn("session.validation_failed", {
+      ...requestContext,
+      statusCode: sessionValidation.statusCode,
+      error: sessionValidation.error,
+    });
     res.writeHead(sessionValidation.statusCode, {
       "Content-Type": "application/json",
       ...corsHeaders,
     });
     res.end(JSON.stringify({ error: sessionValidation.error }));
+    complete(sessionValidation.statusCode, {
+      route: target.service,
+      reason: "invalid-session",
+    });
     return;
   }
 
@@ -688,14 +774,23 @@ const server = http.createServer(async (req, res) => {
           "X-Cache": "HIT",
         });
         res.end(cached.body ?? "");
+        logger.info("cache.hit", { ...requestContext, cacheKey });
+        complete(cached.status ?? 200, {
+          route: target.service,
+          cache: "HIT",
+        });
         return;
       }
     } catch (error) {
-      log("cache-read-error", { message: error.message });
+      logger.warn("cache.read_error", {
+        ...requestContext,
+        cacheKey,
+        error,
+      });
     }
   }
 
-  await proxyRequest(
+  const proxyResult = await proxyRequest(
     req,
     res,
     target,
@@ -706,11 +801,21 @@ const server = http.createServer(async (req, res) => {
       cacheKey,
     },
     url,
+    requestContext,
   );
+
+  const completionDetails = {
+    route: target.service,
+    cache: cacheable ? proxyResult?.cacheStatus ?? "MISS" : "BYPASS",
+  };
+  if (proxyResult?.error) {
+    completionDetails.error = proxyResult.error;
+  }
+  complete(proxyResult?.status ?? 500, completionDetails);
 });
 
 server.listen(config.port, () => {
-  log("api-gateway-started", {
+  logger.info("server.started", {
     port: config.port,
     radioServiceUrl: config.radioServiceUrl,
     terminalServiceUrl: config.terminalServiceUrl,
@@ -722,7 +827,7 @@ const shutdown = () => {
     try {
       await cache.shutdown();
     } catch (error) {
-      log("cache-shutdown-error", { message: error.message });
+      logger.warn("cache.shutdown_error", { error });
     } finally {
       process.exit(0);
     }
