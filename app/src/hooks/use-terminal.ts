@@ -30,7 +30,7 @@ if (import.meta.env.DEV) {
   console.debug("terminal-service.base", { raw: RAW_TERMINAL_BASE, fallback: FALLBACK_TERMINAL_BASE });
 }
 
-function buildTerminalUrl(path: string, queryParams: Record<string, string> = {}): string {
+function buildTerminalUrl(path: string): string {
   const segment = path.replace(/^\/+/, "");
   let url: URL;
 
@@ -48,13 +48,9 @@ function buildTerminalUrl(path: string, queryParams: Record<string, string> = {}
     url = new URL(`${FALLBACK_TERMINAL_BASE.replace(/\/+$/, "")}/${segment}`, "http://localhost");
   }
 
-  for (const [key, value] of Object.entries(queryParams)) {
-    url.searchParams.set(key, value);
-  }
-
   const href = url.toString();
   if (import.meta.env.DEV) {
-    console.debug("terminal-service.resolved-url", { path, href, queryParams });
+    console.debug("terminal-service.resolved-url", { path, href });
   }
   return href;
 }
@@ -118,7 +114,7 @@ export function useTerminal() {
     const bootstrap = async () => {
       try {
         const infoDebug = encodeDebugHeader({ stage: "info" });
-        const infoUrl = buildTerminalUrl("info", { _dbg: infoDebug });
+        const infoUrl = buildTerminalUrl("info");
         if (import.meta.env.DEV) {
           console.debug("terminal-service.request", { url: infoUrl, method: "GET" });
         }
@@ -251,7 +247,7 @@ export function useTerminal() {
       try {
         setIsSubmitting(true);
         const debugPayload = encodeDebugHeader({ stage: "execute", input: raw, cwd: previousVirtualCwd });
-        const executeUrl = buildTerminalUrl("execute", { _dbg: debugPayload });
+        const executeUrl = buildTerminalUrl("execute");
         if (import.meta.env.DEV) {
           console.debug("terminal-service.request", {
             url: executeUrl,
