@@ -47,12 +47,16 @@ function buildTerminalUrl(path: string): string {
   const normalizedBase = (base.startsWith("/") ? base : `/${base}`).replace(/\/+$/, "");
   const relativePath = `${normalizedBase}/${segment}`;
 
-  if (typeof window !== "undefined") {
-    return relativePath;
+  if (typeof window === "undefined") {
+    const origin = "http://localhost";
+    return new URL(relativePath, origin).toString();
   }
 
-  const origin = "http://localhost";
-  return new URL(relativePath, origin).toString();
+  const fullUrl = new URL(relativePath, window.location.origin).toString();
+  if (import.meta.env.DEV) {
+    console.debug("terminal-service.resolved-url", { path, base, relativePath, fullUrl });
+  }
+  return fullUrl;
 }
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
