@@ -58,8 +58,8 @@ All colors MUST be HSL.
   *,
   *::before,
   *::after {
-    @apply border-border;
     box-sizing: border-box;
+    border-color: hsl(var(--border));
   }
 
   html,
@@ -73,7 +73,9 @@ All colors MUST be HSL.
     display: flex;
     flex-direction: column;
     overflow-x: hidden;
-    @apply bg-background text-foreground font-mono;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Fira Code", "Courier New", monospace;
   }
 }
 
