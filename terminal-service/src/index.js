@@ -268,14 +268,16 @@ function formatHumanReadableSize(bytes) {
 }
 
 function formatTimestamp(date) {
-  const month = date
-    .toLocaleString("en-US", { month: "short", timeZone: "UTC" })
-    .padStart(3, " ");
-  const day = String(date.getUTCDate()).padStart(2, " ");
-  const time = `${String(date.getUTCHours()).padStart(2, "0")}:${String(
-    date.getUTCMinutes(),
-  ).padStart(2, "0")}`;
-  return `${month} ${day} ${time}`;
+  const utcString = date.toUTCString(); // Example: "Mon, 08 Jul 2024 12:34:56 GMT"
+  const parts = utcString.split(" ");
+  if (parts.length < 5) {
+    // Fallback to ISO formatting if the expected structure is unavailable
+    return date.toISOString().replace("T", " ").slice(0, 16);
+  }
+  const [, dayRaw, month, timeRaw] = parts;
+  const day = dayRaw.padStart(2, " ");
+  const time = timeRaw.slice(0, 5);
+  return `${month.padStart(3, " ")} ${day} ${time}`;
 }
 
 async function safeStat(realPath) {
