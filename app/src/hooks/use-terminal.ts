@@ -282,10 +282,17 @@ export function useTerminal() {
           ? (payload?.output as string[])
           : [];
         if ((!payload || output.length === 0) && !response.ok) {
+          let rawBody: string | null = null;
+          try {
+            rawBody = await response.clone().text();
+          } catch {
+            rawBody = null;
+          }
           if (import.meta.env.DEV) {
             console.error("terminal-service.execute_error", {
               status: response.status,
               payload,
+              rawBody,
             });
           }
           output = [`Command service returned status ${response.status}`];
