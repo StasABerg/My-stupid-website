@@ -55,10 +55,6 @@ All colors MUST be HSL.
 }
 
 @layer utilities {
-  .border-border {
-    border-color: hsl(var(--border));
-  }
-
   .text-terminal-green {
     color: hsl(var(--terminal-green));
     text-shadow: var(--glow-green);
@@ -93,8 +89,8 @@ All colors MUST be HSL.
   *,
   *::before,
   *::after {
-    @apply border-border;
     box-sizing: border-box;
+    border-color: hsl(var(--border));
   }
 
   html,
@@ -108,7 +104,12 @@ All colors MUST be HSL.
     display: flex;
     flex-direction: column;
     overflow-x: hidden;
-    @apply bg-background text-foreground font-mono;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Fira Code", "Courier New", monospace;
+    letter-spacing: 0;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
   }
 }
 
