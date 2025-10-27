@@ -1,4 +1,3 @@
-import Hls from "hls.js";
 import { Heart } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
@@ -15,6 +14,19 @@ import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/use
 import { useRadioFavorites } from "@/hooks/useRadioFavorites";
 import { authorizedFetch } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+
+type HlsModule = typeof import("hls.js");
+type HlsConstructor = HlsModule["default"];
+type HlsInstance = InstanceType<HlsConstructor>;
+
+let hlsModulePromise: Promise<HlsModule> | null = null;
+
+async function loadHlsModule(): Promise<HlsModule> {
+  if (!hlsModulePromise) {
+    hlsModulePromise = import("hls.js");
+  }
+  return hlsModulePromise;
+}
 
 const presetColors = [
   "text-terminal-green",
@@ -54,7 +66,7 @@ const Radio = () => {
   const [presetStationOverride, setPresetStationOverride] = useState<RadioStation | null>(null);
   const [volume, setVolume] = useState(0.65);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const hlsRef = useRef<HlsInstance | null>(null);
   const listRef = useRef<HTMLOListElement | null>(null);
   const loadMoreRef = useRef<HTMLLIElement | null>(null);
 
@@ -355,55 +367,81 @@ const Radio = () => {
     }
 
     if (activeStation.hls) {
-      if (Hls.isSupported()) {
-        destroyHls();
-        const hls = new Hls({ enableWorker: true });
-        hlsRef.current = hls;
+      let cancelled = false;
+      let cleanup: (() => void) | undefined;
 
-        const handleMediaAttached = () => {
-          element
-            .play()
-            .catch(() => {
-              /* ignore autoplay blockers */
-            });
-        };
-
-        hls.on(Hls.Events.ERROR, (_event, data) => {
-          if (data.fatal) {
-            hls.destroy();
-            hlsRef.current = null;
+      const setup = async () => {
+        try {
+          const { default: Hls } = await loadHlsModule();
+          if (cancelled) {
+            return;
           }
-        });
 
-        hls.on(Hls.Events.MEDIA_ATTACHED, handleMediaAttached);
-        hls.loadSource(proxiedStreamUrl);
-        hls.attachMedia(element);
+          if (Hls.isSupported()) {
+            destroyHls();
+            const hls = new Hls({ enableWorker: true });
+            hlsRef.current = hls;
 
-        return () => {
-          hls.off(Hls.Events.MEDIA_ATTACHED, handleMediaAttached);
+            const handleMediaAttached = () => {
+              element
+                .play()
+                .catch(() => {
+                  /* ignore autoplay blockers */
+                });
+            };
+
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+              if (data.fatal) {
+                hls.destroy();
+                hlsRef.current = null;
+              }
+            });
+
+            hls.on(Hls.Events.MEDIA_ATTACHED, handleMediaAttached);
+            hls.loadSource(proxiedStreamUrl);
+            hls.attachMedia(element);
+
+            cleanup = () => {
+              hls.off(Hls.Events.MEDIA_ATTACHED, handleMediaAttached);
+              destroyHls();
+            };
+            return;
+          }
+
+          if (element.canPlayType("application/vnd.apple.mpegurl")) {
+            destroyHls();
+            element.src = proxiedStreamUrl;
+            element
+              .play()
+              .catch(() => {
+                /* ignore autoplay blockers */
+              });
+            cleanup = () => {
+              element.pause();
+            };
+            return;
+          }
+
           destroyHls();
-        };
-      }
-
-      if (element.canPlayType("application/vnd.apple.mpegurl")) {
-        destroyHls();
-        element.src = proxiedStreamUrl;
-        element
-          .play()
-          .catch(() => {
-            /* ignore autoplay blockers */
-          });
-        return () => {
+          console.warn("HLS playback is not supported in this browser.");
           element.pause();
-        };
-      }
+          element.removeAttribute("src");
+          element.load();
+        } catch (error) {
+          console.error("Failed to load HLS module", error);
+        }
+      };
 
-      destroyHls();
-      console.warn("HLS playback is not supported in this browser.");
-      element.pause();
-      element.removeAttribute("src");
-      element.load();
-      return () => {};
+      setup();
+
+      return () => {
+        cancelled = true;
+        if (cleanup) {
+          cleanup();
+        } else {
+          destroyHls();
+        }
+      };
     }
 
     destroyHls();
