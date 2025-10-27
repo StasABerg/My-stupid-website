@@ -45,7 +45,7 @@ const allowedOrigins = (process.env.CORS_ALLOW_ORIGIN ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
-const allowAllOrigins = allowedOrigins.includes("*");
+const allowAllOrigins = allowedOrigins.length === 0 || allowedOrigins.includes("*");
 
 const sandboxRootWithSlash = `${SANDBOX_ROOT}${path.sep}`;
 
@@ -76,16 +76,6 @@ function ensureCorsAllowed(req, res, context = {}) {
   }
   if (allowAllOrigins) {
     return true;
-  }
-  if (allowedOrigins.length === 0) {
-    res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
-    res.end(JSON.stringify({ message: "CORS origin denied" }));
-    logger.warn("cors.origin_denied", {
-      ...context,
-      origin,
-      reason: "no-allowed-origins",
-    });
-    return false;
   }
   if (!allowedOrigins.includes(origin)) {
     res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
