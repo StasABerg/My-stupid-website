@@ -589,7 +589,7 @@ const Radio = () => {
                                 aria-hidden="true"
                               />
                             </button>
-                            <span className="flex-1 whitespace-normal break-words text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
+                            <span className="flex-1 whitespace-normal wrap-break-word text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
                               {station.name}
                             </span>
                             <span className="hidden text-[0.7rem] text-terminal-cyan md:block">
