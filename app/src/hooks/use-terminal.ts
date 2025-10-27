@@ -30,33 +30,33 @@ if (import.meta.env.DEV) {
   console.debug("terminal-service.base", { raw: RAW_TERMINAL_BASE, fallback: FALLBACK_TERMINAL_BASE });
 }
 
-function buildTerminalUrl(path: string): string {
+function buildTerminalUrl(path: string, queryParams: Record<string, string> = {}): string {
   const segment = path.replace(/^\/+/, "");
-  const base = RAW_TERMINAL_BASE;
+  let url: URL;
 
-  if (base.startsWith("http://") || base.startsWith("https://")) {
-    try {
-      const baseUrl = new URL(base.endsWith("/") ? base : `${base}/`);
-      baseUrl.pathname = `${baseUrl.pathname.replace(/\/+$/, "")}/${segment}`;
-      return baseUrl.toString();
-    } catch {
-      // fall through to relative handling if the URL is malformed
+  try {
+    if (RAW_TERMINAL_BASE.startsWith("http://") || RAW_TERMINAL_BASE.startsWith("https://")) {
+      const baseWithSlash = RAW_TERMINAL_BASE.endsWith("/") ? RAW_TERMINAL_BASE : `${RAW_TERMINAL_BASE}/`;
+      url = new URL(segment, baseWithSlash);
+    } else if (typeof window !== "undefined") {
+      const normalizedBase = (RAW_TERMINAL_BASE.startsWith("/") ? RAW_TERMINAL_BASE : `/${RAW_TERMINAL_BASE}`).replace(/\/+$/, "");
+      url = new URL(`${normalizedBase}/${segment}`, window.location.origin);
+    } else {
+      url = new URL(`${FALLBACK_TERMINAL_BASE.replace(/\/+$/, "")}/${segment}`, "http://localhost");
     }
+  } catch {
+    url = new URL(`${FALLBACK_TERMINAL_BASE.replace(/\/+$/, "")}/${segment}`, "http://localhost");
   }
 
-  const normalizedBase = (base.startsWith("/") ? base : `/${base}`).replace(/\/+$/, "");
-  const relativePath = `${normalizedBase}/${segment}`;
-
-  if (typeof window === "undefined") {
-    const origin = "http://localhost";
-    return new URL(relativePath, origin).toString();
+  for (const [key, value] of Object.entries(queryParams)) {
+    url.searchParams.set(key, value);
   }
 
-  const fullUrl = new URL(relativePath, window.location.origin).toString();
+  const href = url.toString();
   if (import.meta.env.DEV) {
-    console.debug("terminal-service.resolved-url", { path, base, relativePath, fullUrl });
+    console.debug("terminal-service.resolved-url", { path, href, queryParams });
   }
-  return fullUrl;
+  return href;
 }
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
@@ -117,7 +117,8 @@ export function useTerminal() {
 
     const bootstrap = async () => {
       try {
-        const infoUrl = buildTerminalUrl("info");
+        const infoDebug = encodeDebugHeader({ stage: "info" });
+        const infoUrl = buildTerminalUrl("info", { _dbg: infoDebug });
         if (import.meta.env.DEV) {
           console.debug("terminal-service.request", { url: infoUrl, method: "GET" });
         }
@@ -126,7 +127,7 @@ export function useTerminal() {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            "X-Terminal-Debug": encodeDebugHeader({ stage: "info", url: infoUrl }),
+            "X-Terminal-Debug": infoDebug,
           },
         });
 
@@ -249,7 +250,8 @@ export function useTerminal() {
 
       try {
         setIsSubmitting(true);
-        const executeUrl = buildTerminalUrl("execute");
+        const debugPayload = encodeDebugHeader({ stage: "execute", input: raw, cwd: previousVirtualCwd });
+        const executeUrl = buildTerminalUrl("execute", { _dbg: debugPayload });
         if (import.meta.env.DEV) {
           console.debug("terminal-service.request", {
             url: executeUrl,
@@ -262,12 +264,7 @@ export function useTerminal() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-Terminal-Debug": encodeDebugHeader({
-              stage: "execute",
-              url: executeUrl,
-              input: raw,
-              cwd: previousVirtualCwd,
-            }),
+            "X-Terminal-Debug": debugPayload,
           },
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),
         });
