@@ -389,9 +389,13 @@ function validateSession(req) {
     return { ok: false, statusCode: 401, error: "Session verification failed" };
   }
 
-  const csrfToken = extractHeaderValue(req.headers, "x-gateway-csrf");
-  if (!csrfToken || csrfToken !== nonce) {
-    return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
+  const method = (req.method ?? "").toUpperCase();
+  const csrfRequired = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+  if (csrfRequired) {
+    const csrfToken = extractHeaderValue(req.headers, "x-gateway-csrf");
+    if (!csrfToken || csrfToken !== nonce) {
+      return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
+    }
   }
 
   return { ok: true, session: { nonce, timestamp } };

@@ -93,6 +93,15 @@ export async function validateStationStream(station) {
       return { ok: false, reason: "blocked-domain" };
     }
 
+    const corpHeader = candidate.headers.get("cross-origin-resource-policy");
+    if (corpHeader) {
+      const normalizedCorp = corpHeader.trim().toLowerCase();
+      if (normalizedCorp && normalizedCorp !== "cross-origin") {
+        await clean(candidate);
+        return { ok: false, reason: `corp-${normalizedCorp}` };
+      }
+    }
+
     const contentType = candidate.headers.get("content-type") ?? "";
 
     const lowerType = contentType.toLowerCase().split(";")[0].trim();
