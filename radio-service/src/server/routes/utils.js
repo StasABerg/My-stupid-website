@@ -13,7 +13,7 @@ export function shouldTreatAsPlaylist(streamUrl, contentType) {
   }
 }
 
-export function rewritePlaylist(streamUrl, playlist) {
+export function rewritePlaylist(streamUrl, playlist, { extraParams } = {}) {
   const baseUrl = new URL(streamUrl);
   const lines = playlist.split(/\r?\n/);
   const proxiedLines = lines.map((line) => {
@@ -23,8 +23,15 @@ export function rewritePlaylist(streamUrl, playlist) {
     }
     try {
       const absolute = new URL(trimmed, baseUrl).toString();
-      const encoded = encodeURIComponent(absolute);
-      return `stream/segment?source=${encoded}`;
+      const searchParams = new URLSearchParams({ source: absolute });
+      if (extraParams && typeof extraParams === "object") {
+        for (const [key, value] of Object.entries(extraParams)) {
+          if (typeof value === "string" && value.length > 0) {
+            searchParams.append(key, value);
+          }
+        }
+      }
+      return `stream/segment?${searchParams.toString()}`;
     } catch (_error) {
       return line;
     }

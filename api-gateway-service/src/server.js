@@ -362,7 +362,7 @@ function extractHeaderValue(headers, target) {
   return typeof raw === "string" ? raw : null;
 }
 
-function validateSession(req) {
+function validateSession(req, parsedUrl) {
   const cookies = parseCookies(req.headers.cookie);
   const rawValue = cookies[SESSION_COOKIE_NAME];
   if (!rawValue) {
@@ -389,10 +389,18 @@ function validateSession(req) {
     return { ok: false, statusCode: 401, error: "Session verification failed" };
   }
 
+  const csrfHeader = extractHeaderValue(req.headers, "x-gateway-csrf");
+  let csrfToken = typeof csrfHeader === "string" && csrfHeader.trim().length > 0 ? csrfHeader.trim() : null;
+  if (!csrfToken && parsedUrl) {
+    const param = parsedUrl.searchParams.get("csrfToken");
+    if (typeof param === "string" && param.trim().length > 0) {
+      csrfToken = param.trim();
+    }
+  }
+
   const method = (req.method ?? "").toUpperCase();
-  const csrfRequired = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+  const csrfRequired = method !== "OPTIONS";
   if (csrfRequired) {
-    const csrfToken = extractHeaderValue(req.headers, "x-gateway-csrf");
     if (!csrfToken || csrfToken !== nonce) {
       return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
     }
@@ -780,7 +788,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const sessionValidation = validateSession(req);
+  const sessionValidation = validateSession(req, url);
   if (!sessionValidation.ok) {
     logger.warn("session.validation_failed", {
       ...requestContext,

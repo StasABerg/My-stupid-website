@@ -25,6 +25,11 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         return;
       }
 
+      const csrfToken =
+        typeof req.query.csrfToken === "string" && req.query.csrfToken.trim().length > 0
+          ? req.query.csrfToken.trim()
+          : null;
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), config.streamProxy.timeoutMs);
       let upstream;
@@ -60,7 +65,9 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
       }
 
       const text = await upstream.text();
-      const rewritten = rewritePlaylist(station.streamUrl, text);
+      const rewritten = rewritePlaylist(station.streamUrl, text, {
+        extraParams: csrfToken ? { csrfToken } : undefined,
+      });
       res.status(200);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.setHeader("Cache-Control", "no-store");

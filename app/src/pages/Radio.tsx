@@ -12,7 +12,7 @@ import { toast } from "@/components/ui/use-toast";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
 import { useRadioFavorites } from "@/hooks/useRadioFavorites";
-import { authorizedFetch } from "@/lib/gateway-session";
+import { authorizedFetch, ensureGatewaySession } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 type HlsModule = typeof import("hls.js/dist/hls.light.min.js");
@@ -132,16 +132,48 @@ const Radio = () => {
   );
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
-  const proxiedStreamUrl = useMemo(() => {
-    if (!activeStation.id || !activeStation.streamUrl) {
-      return null;
-    }
-    if (activeStation.hls) {
+  const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveStreamUrl() {
+      if (!activeStation.id || !activeStation.streamUrl) {
+        if (!cancelled) {
+          setResolvedStreamUrl(null);
+        }
+        return;
+      }
+
+      if (!activeStation.hls) {
+        if (!cancelled) {
+          setResolvedStreamUrl(activeStation.streamUrl);
+        }
+        return;
+      }
+
       const encodedId = encodeURIComponent(activeStation.id);
-      return `${RADIO_API_BASE}/stations/${encodedId}/stream`;
+      let streamPath = `${RADIO_API_BASE}/stations/${encodedId}/stream`;
+
+      try {
+        const token = await ensureGatewaySession();
+        if (token && token.length > 0) {
+          streamPath = `${streamPath}?csrfToken=${encodeURIComponent(token)}`;
+        }
+      } catch {
+        // ignore token resolution errors; fall back to unsigned streamPath
+      }
+
+      if (!cancelled) {
+        setResolvedStreamUrl(streamPath);
+      }
     }
-    return activeStation.streamUrl;
-  }, [activeStation]);
+
+    resolveStreamUrl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStation.hls, activeStation.id, activeStation.streamUrl]);
 
   const uniqueCountries = useMemo(() => {
     const fromMeta = firstMeta?.countries;
@@ -352,7 +384,7 @@ const Radio = () => {
       }
     };
 
-    if (!proxiedStreamUrl) {
+    if (!resolvedStreamUrl) {
       destroyHls();
       element.pause();
       element.removeAttribute("src");
@@ -392,7 +424,7 @@ const Radio = () => {
             });
 
             hls.on(Hls.Events.MEDIA_ATTACHED, handleMediaAttached);
-            hls.loadSource(proxiedStreamUrl);
+            hls.loadSource(resolvedStreamUrl);
             hls.attachMedia(element);
 
             cleanup = () => {
@@ -404,7 +436,7 @@ const Radio = () => {
 
           if (element.canPlayType("application/vnd.apple.mpegurl")) {
             destroyHls();
-            element.src = proxiedStreamUrl;
+            element.src = resolvedStreamUrl;
             element
               .play()
               .catch(() => {
@@ -439,7 +471,7 @@ const Radio = () => {
     }
 
     destroyHls();
-    element.src = proxiedStreamUrl;
+    element.src = resolvedStreamUrl;
     element
       .play()
       .catch(() => {
@@ -449,7 +481,7 @@ const Radio = () => {
     return () => {
       element.pause();
     };
-  }, [activeStation.hls, proxiedStreamUrl]);
+  }, [activeStation.hls, resolvedStreamUrl]);
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
