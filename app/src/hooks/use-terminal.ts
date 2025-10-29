@@ -26,26 +26,33 @@ const RAW_TERMINAL_BASE =
   (import.meta.env.VITE_TERMINAL_API_BASE_URL ?? import.meta.env.VITE_TERMINAL_API_BASE ?? FALLBACK_TERMINAL_BASE)
     .trim() || FALLBACK_TERMINAL_BASE;
 
-function resolveTerminalBaseUrl(): URL {
-  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
-  try {
-    return new URL(RAW_TERMINAL_BASE.endsWith("/") ? RAW_TERMINAL_BASE : `${RAW_TERMINAL_BASE}/`, origin);
-  } catch {
-    return new URL(FALLBACK_TERMINAL_BASE, origin);
-  }
+if (import.meta.env.DEV) {
+  console.debug("terminal-service.base", { raw: RAW_TERMINAL_BASE, fallback: FALLBACK_TERMINAL_BASE });
 }
 
 function buildTerminalUrl(path: string): string {
-  const base = resolveTerminalBaseUrl();
-  const normalizedBaseHref = base.href.endsWith("/") ? base.href : `${base.href}/`;
   const segment = path.replace(/^\/+/, "");
-  const resolved = new URL(segment, normalizedBaseHref);
+  let url: URL;
 
-  if (typeof window !== "undefined" && resolved.origin === window.location.origin) {
-    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  try {
+    if (RAW_TERMINAL_BASE.startsWith("http://") || RAW_TERMINAL_BASE.startsWith("https://")) {
+      const baseWithSlash = RAW_TERMINAL_BASE.endsWith("/") ? RAW_TERMINAL_BASE : `${RAW_TERMINAL_BASE}/`;
+      url = new URL(segment, baseWithSlash);
+    } else if (typeof window !== "undefined") {
+      const normalizedBase = (RAW_TERMINAL_BASE.startsWith("/") ? RAW_TERMINAL_BASE : `/${RAW_TERMINAL_BASE}`).replace(/\/+$/, "");
+      url = new URL(`${normalizedBase}/${segment}`, window.location.origin);
+    } else {
+      url = new URL(`${FALLBACK_TERMINAL_BASE.replace(/\/+$/, "")}/${segment}`, "http://localhost");
+    }
+  } catch {
+    url = new URL(`${FALLBACK_TERMINAL_BASE.replace(/\/+$/, "")}/${segment}`, "http://localhost");
   }
 
-  return resolved.toString();
+  const href = url.toString();
+  if (import.meta.env.DEV) {
+    console.debug("terminal-service.resolved-url", { path, href });
+  }
+  return href;
 }
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
@@ -106,13 +113,30 @@ export function useTerminal() {
 
     const bootstrap = async () => {
       try {
-        const response = await authorizedFetch(buildTerminalUrl("info"), {
+        const infoDebug = encodeDebugHeader({ stage: "info" });
+        const infoUrl = buildTerminalUrl("info");
+        if (import.meta.env.DEV) {
+          console.debug("terminal-service.request", { url: infoUrl, method: "GET" });
+        }
+
+        const response = await authorizedFetch(infoUrl, {
           method: "GET",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Terminal-Debug": infoDebug,
+          },
         });
 
         if (!response.ok) {
-          throw new Error(`status ${response.status}`);
+          const errorPayload = await response
+            .clone()
+            .text()
+            .catch(() => "<unable to parse>");
+          const error = new Error(`status ${response.status}`);
+          if (import.meta.env.DEV) {
+            console.error("terminal-service.info_error", { url: infoUrl, status: response.status, body: errorPayload });
+          }
+          throw error;
         }
 
         const payload = await response.json();
@@ -222,9 +246,22 @@ export function useTerminal() {
 
       try {
         setIsSubmitting(true);
-        const response = await authorizedFetch(buildTerminalUrl("execute"), {
+        const debugPayload = encodeDebugHeader({ stage: "execute", input: raw, cwd: previousVirtualCwd });
+        const executeUrl = buildTerminalUrl("execute");
+        if (import.meta.env.DEV) {
+          console.debug("terminal-service.request", {
+            url: executeUrl,
+            method: "POST",
+            body: { input: raw, cwd: previousVirtualCwd },
+          });
+        }
+
+        const response = await authorizedFetch(executeUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Terminal-Debug": debugPayload,
+          },
           body: JSON.stringify({ input: raw, cwd: previousVirtualCwd }),
         });
 
@@ -233,6 +270,9 @@ export function useTerminal() {
           payload = await response.json();
         } catch (error) {
           // ignore JSON parse issues and fall back to generic message
+          if (import.meta.env.DEV) {
+            console.warn("terminal-service.execute_json_parse_failed", { error });
+          }
         }
 
         const nextVirtual = payload?.cwd ?? previousVirtualCwd;
@@ -242,6 +282,19 @@ export function useTerminal() {
           ? (payload?.output as string[])
           : [];
         if ((!payload || output.length === 0) && !response.ok) {
+          let rawBody: string | null = null;
+          try {
+            rawBody = await response.clone().text();
+          } catch {
+            rawBody = null;
+          }
+          if (import.meta.env.DEV) {
+            console.error("terminal-service.execute_error", {
+              status: response.status,
+              payload,
+              rawBody,
+            });
+          }
           output = [`Command service returned status ${response.status}`];
         }
 
@@ -261,6 +314,9 @@ export function useTerminal() {
 
         setVirtualCwd(nextVirtual);
       } catch (error) {
+        if (import.meta.env.DEV) {
+          console.error("terminal-service.execute_request_failed", { error });
+        }
         const entry: HistoryEntry = {
           id: commandId.current++,
           cwd: previousDisplayCwd,
@@ -331,4 +387,11 @@ export function useTerminal() {
     handleSubmit,
     handleKeyDown,
   };
+}
+function encodeDebugHeader(payload: Record<string, unknown>): string {
+  try {
+    return typeof btoa === "function" ? btoa(JSON.stringify(payload)) : JSON.stringify(payload);
+  } catch {
+    return "<debug-serialization-failed>";
+  }
 }

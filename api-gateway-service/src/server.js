@@ -265,8 +265,6 @@ try {
 }
 
 function deriveClientIdentifier(req) {
-  const { ip } = resolveClientIp(req);
-  const normalizedIp = ip ?? "";
   const uaHeader = req.headers["user-agent"];
   const userAgent =
     typeof uaHeader === "string" && uaHeader.length > 0
@@ -274,7 +272,14 @@ function deriveClientIdentifier(req) {
       : Array.isArray(uaHeader) && uaHeader.length > 0
         ? uaHeader[0]
         : "";
-  return `${normalizedIp}|${userAgent}`;
+  const acceptLanguageHeader = req.headers["accept-language"];
+  const acceptLanguage =
+    typeof acceptLanguageHeader === "string" && acceptLanguageHeader.length > 0
+      ? acceptLanguageHeader
+      : Array.isArray(acceptLanguageHeader) && acceptLanguageHeader.length > 0
+        ? acceptLanguageHeader[0]
+        : "";
+  return `${userAgent}|${acceptLanguage}`;
 }
 
 function parseCookies(headerValue) {
@@ -357,7 +362,7 @@ function extractHeaderValue(headers, target) {
   return typeof raw === "string" ? raw : null;
 }
 
-function validateSession(req) {
+function validateSession(req, parsedUrl) {
   const cookies = parseCookies(req.headers.cookie);
   const rawValue = cookies[SESSION_COOKIE_NAME];
   if (!rawValue) {
@@ -384,9 +389,21 @@ function validateSession(req) {
     return { ok: false, statusCode: 401, error: "Session verification failed" };
   }
 
-  const csrfToken = extractHeaderValue(req.headers, "x-gateway-csrf");
-  if (!csrfToken || csrfToken !== nonce) {
-    return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
+  const csrfHeader = extractHeaderValue(req.headers, "x-gateway-csrf");
+  let csrfToken = typeof csrfHeader === "string" && csrfHeader.trim().length > 0 ? csrfHeader.trim() : null;
+  if (!csrfToken && parsedUrl) {
+    const param = parsedUrl.searchParams.get("csrfToken");
+    if (typeof param === "string" && param.trim().length > 0) {
+      csrfToken = param.trim();
+    }
+  }
+
+  const method = (req.method ?? "").toUpperCase();
+  const csrfRequired = method !== "OPTIONS";
+  if (csrfRequired) {
+    if (!csrfToken || csrfToken !== nonce) {
+      return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
+    }
   }
 
   return { ok: true, session: { nonce, timestamp } };
@@ -771,7 +788,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const sessionValidation = validateSession(req);
+  const sessionValidation = validateSession(req, url);
   if (!sessionValidation.ok) {
     logger.warn("session.validation_failed", {
       ...requestContext,
