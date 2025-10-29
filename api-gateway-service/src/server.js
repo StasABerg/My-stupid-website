@@ -265,8 +265,6 @@ try {
 }
 
 function deriveClientIdentifier(req) {
-  const { ip } = resolveClientIp(req);
-  const normalizedIp = ip ?? "";
   const uaHeader = req.headers["user-agent"];
   const userAgent =
     typeof uaHeader === "string" && uaHeader.length > 0
@@ -274,7 +272,14 @@ function deriveClientIdentifier(req) {
       : Array.isArray(uaHeader) && uaHeader.length > 0
         ? uaHeader[0]
         : "";
-  return `${normalizedIp}|${userAgent}`;
+  const acceptLanguageHeader = req.headers["accept-language"];
+  const acceptLanguage =
+    typeof acceptLanguageHeader === "string" && acceptLanguageHeader.length > 0
+      ? acceptLanguageHeader
+      : Array.isArray(acceptLanguageHeader) && acceptLanguageHeader.length > 0
+        ? acceptLanguageHeader[0]
+        : "";
+  return `${userAgent}|${acceptLanguage}`;
 }
 
 function parseCookies(headerValue) {

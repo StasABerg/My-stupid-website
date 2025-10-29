@@ -88,7 +88,8 @@ export const config = {
   session: {
     cookieName: process.env.SESSION_COOKIE_NAME?.trim() || "gateway.sid",
     secret: deriveSessionSecret(process.env.SESSION_SECRET),
-    maxAgeMs: parseDurationSeconds(process.env.SESSION_MAX_AGE_SECONDS, 60 * 60 * 12) * 1000,
+    maxAgeMs:
+      parseDurationSeconds(process.env.SESSION_MAX_AGE_SECONDS, 60 * 60 * 24 * 30) * 1000,
   },
   cache: {
     ttlSeconds: parseDurationSeconds(process.env.CACHE_TTL_SECONDS, DEFAULT_CACHE_TTL_SECONDS),

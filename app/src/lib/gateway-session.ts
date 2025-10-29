@@ -4,8 +4,8 @@ let cachedToken: CachedToken | null = null;
 let pending: Promise<string> | null = null;
 
 const LEGACY_STORAGE_KEY = "gateway.session";
+const TOKEN_STORAGE_KEY = "gateway.session.token";
 const TOKEN_STORAGE_PREFIX = "gateway.session.token.";
-const TAB_ID_STORAGE_KEY = "gateway.session.tab-id";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 
@@ -30,43 +30,9 @@ function resolveStorage(accessor: () => Storage | undefined): StorageLike | null
 const sessionStorageRef = resolveStorage(() => window.sessionStorage);
 const localStorageRef = resolveStorage(() => window.localStorage);
 const tokenStorage = localStorageRef ?? sessionStorageRef;
-
-let tabId: string | null | undefined;
-
-function ensureTabId(): string | null {
-  if (tabId !== undefined) {
-    return tabId;
-  }
-
-  if (!sessionStorageRef) {
-    tabId = null;
-    return tabId;
-  }
-
-  try {
-    const existing = sessionStorageRef.getItem(TAB_ID_STORAGE_KEY);
-    if (existing) {
-      tabId = existing;
-      return existing;
-    }
-
-    const generated =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random()}`;
-    sessionStorageRef.setItem(TAB_ID_STORAGE_KEY, generated);
-    tabId = generated;
-    return generated;
-  } catch {
-    tabId = null;
-    return tabId;
-  }
-}
-
-function getTokenStorageKey(): string {
-  const id = ensureTabId();
-  return id ? `${TOKEN_STORAGE_PREFIX}${id}` : LEGACY_STORAGE_KEY;
-}
+const storageCandidates = [localStorageRef, sessionStorageRef].filter(
+  (value): value is StorageLike => value !== null,
+);
 
 function parseCachedToken(raw: string | null): CachedToken | null {
   if (!raw) {
@@ -90,35 +56,84 @@ function parseCachedToken(raw: string | null): CachedToken | null {
   return null;
 }
 
-function readStoredToken(): CachedToken | null {
-  if (!tokenStorage) {
+function readTokenFromStorage(storage: StorageLike, key: string): CachedToken | null {
+  try {
+    return parseCachedToken(storage.getItem(key));
+  } catch {
     return null;
   }
+}
 
-  const primaryKey = getTokenStorageKey();
-  const keysToInspect =
-    primaryKey === LEGACY_STORAGE_KEY ? [primaryKey] : [primaryKey, LEGACY_STORAGE_KEY];
+function findLegacyToken(storage: StorageLike): CachedToken | null {
+  const legacyToken = readTokenFromStorage(storage, LEGACY_STORAGE_KEY);
+  if (legacyToken) {
+    return legacyToken;
+  }
 
-  for (const key of keysToInspect) {
-    try {
-      const token = parseCachedToken(tokenStorage.getItem(key));
-      if (!token) {
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key || !key.startsWith(TOKEN_STORAGE_PREFIX)) {
         continue;
       }
-
-      if (key === LEGACY_STORAGE_KEY && primaryKey !== LEGACY_STORAGE_KEY) {
-        // Migrate legacy entries written before per-tab storage was introduced.
-        persistToken(token);
-        try {
-          tokenStorage.removeItem(LEGACY_STORAGE_KEY);
-        } catch {
-          // ignore cleanup errors
-        }
+      const token = readTokenFromStorage(storage, key);
+      if (token) {
+        return token;
       }
+    }
+  } catch {
+    // ignore storage iteration errors
+  }
 
+  return null;
+}
+
+function removeLegacyTokens(storage: StorageLike) {
+  try {
+    storage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // ignore cleanup errors
+  }
+
+  try {
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key) {
+        continue;
+      }
+      const isLegacyPrefixed = key.startsWith(TOKEN_STORAGE_PREFIX) && key !== TOKEN_STORAGE_KEY;
+      if (isLegacyPrefixed) {
+        keysToRemove.push(key);
+      }
+    }
+
+    for (const key of keysToRemove) {
+      try {
+        storage.removeItem(key);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  } catch {
+    // ignore iteration cleanup errors
+  }
+}
+
+function readStoredToken(): CachedToken | null {
+  for (const storage of storageCandidates) {
+    const token = readTokenFromStorage(storage, TOKEN_STORAGE_KEY);
+    if (token) {
       return token;
-    } catch {
-      // ignore storage errors
+    }
+  }
+
+  for (const storage of storageCandidates) {
+    const legacyToken = findLegacyToken(storage);
+    if (legacyToken) {
+      persistToken(legacyToken);
+      removeLegacyTokens(storage);
+      return legacyToken;
     }
   }
 
@@ -131,17 +146,17 @@ function persistToken(token: CachedToken | null) {
   }
 
   try {
-    const key = getTokenStorageKey();
     if (token) {
-      tokenStorage.setItem(key, JSON.stringify(token));
+      tokenStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(token));
     } else {
-      tokenStorage.removeItem(key);
-      if (key !== LEGACY_STORAGE_KEY) {
-        tokenStorage.removeItem(LEGACY_STORAGE_KEY);
-      }
+      tokenStorage.removeItem(TOKEN_STORAGE_KEY);
     }
   } catch {
     // ignore storage errors
+  }
+
+  for (const storage of storageCandidates) {
+    removeLegacyTokens(storage);
   }
 }
 
