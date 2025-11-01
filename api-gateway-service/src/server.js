@@ -272,14 +272,7 @@ function deriveClientIdentifier(req) {
       : Array.isArray(uaHeader) && uaHeader.length > 0
         ? uaHeader[0]
         : "";
-  const acceptLanguageHeader = req.headers["accept-language"];
-  const acceptLanguage =
-    typeof acceptLanguageHeader === "string" && acceptLanguageHeader.length > 0
-      ? acceptLanguageHeader
-      : Array.isArray(acceptLanguageHeader) && acceptLanguageHeader.length > 0
-        ? acceptLanguageHeader[0]
-        : "";
-  return `${userAgent}|${acceptLanguage}`;
+  return userAgent;
 }
 
 function parseCookies(headerValue) {

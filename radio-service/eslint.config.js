@@ -13,6 +13,7 @@ export default [
         clearTimeout: "readonly",
         clearInterval: "readonly",
         URL: "readonly",
+        URLSearchParams: "readonly",
         AbortController: "readonly",
         fetch: "readonly"
       }
