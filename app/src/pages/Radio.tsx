@@ -1,5 +1,5 @@
 import { Heart } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   FilterPanel,
   PresetButtons,
@@ -57,6 +57,9 @@ const fallbackStation: RadioStation = {
 };
 
 const PAGE_SIZE = 40;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 15000;
 
 const Radio = () => {
   const [search, setSearch] = useState("");
@@ -65,10 +68,16 @@ const Radio = () => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [presetStationOverride, setPresetStationOverride] = useState<RadioStation | null>(null);
   const [volume, setVolume] = useState(0.65);
+  const [playbackKey, setPlaybackKey] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<HlsInstance | null>(null);
   const listRef = useRef<HTMLOListElement | null>(null);
   const loadMoreRef = useRef<HTMLLIElement | null>(null);
+  const reconnectStateRef = useRef<{ attempts: number; timer: ReturnType<typeof setTimeout> | null }>({
+    attempts: 0,
+    timer: null,
+  });
+  const unmountedRef = useRef(false);
 
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
 
@@ -371,6 +380,108 @@ const Radio = () => {
     }
   }, [volume]);
 
+  const clearReconnectTimer = useCallback(() => {
+    const state = reconnectStateRef.current;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+  }, []);
+
+  const resetReconnectAttempts = useCallback(() => {
+    const state = reconnectStateRef.current;
+    state.attempts = 0;
+    clearReconnectTimer();
+  }, [clearReconnectTimer]);
+
+  const schedulePlaybackRetry = useCallback(
+    (reason: string, { immediate = false }: { immediate?: boolean } = {}) => {
+      if (!resolvedStreamUrl) {
+        return;
+      }
+
+      const state = reconnectStateRef.current;
+      if (state.attempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.warn(`Playback reconnect limit reached (${reason}).`);
+        return;
+      }
+
+      state.attempts += 1;
+      clearReconnectTimer();
+
+      const delay = immediate
+        ? 0
+        : Math.min(
+            RECONNECT_MAX_DELAY_MS,
+            RECONNECT_BASE_DELAY_MS * Math.pow(2, state.attempts - 1),
+          );
+
+      state.timer = setTimeout(() => {
+        if (unmountedRef.current) {
+          return;
+        }
+        setPlaybackKey((value) => value + 1);
+      }, delay);
+    },
+    [clearReconnectTimer, resolvedStreamUrl],
+  );
+
+  useEffect(() => {
+    return () => {
+      unmountedRef.current = true;
+      clearReconnectTimer();
+    };
+  }, [clearReconnectTimer]);
+
+  useEffect(() => {
+    if (!resolvedStreamUrl) {
+      resetReconnectAttempts();
+    }
+  }, [resolvedStreamUrl, resetReconnectAttempts]);
+
+  useEffect(() => {
+    resetReconnectAttempts();
+  }, [activeStation.id, resetReconnectAttempts]);
+
+  useEffect(() => {
+    const element = audioRef.current;
+    if (!element) {
+      return;
+    }
+
+    const recoverableEvents: Array<keyof HTMLMediaElementEventMap> = [
+      "error",
+      "stalled",
+      "emptied",
+      "abort",
+    ];
+    const resumeEvents: Array<keyof HTMLMediaElementEventMap> = ["playing", "canplay"];
+
+    const handleRecoverable = (event: Event) => {
+      schedulePlaybackRetry(event.type, { immediate: event.type === "error" });
+    };
+
+    const handleResume = () => {
+      resetReconnectAttempts();
+    };
+
+    for (const eventType of recoverableEvents) {
+      element.addEventListener(eventType, handleRecoverable);
+    }
+    for (const eventType of resumeEvents) {
+      element.addEventListener(eventType, handleResume);
+    }
+
+    return () => {
+      for (const eventType of recoverableEvents) {
+        element.removeEventListener(eventType, handleRecoverable);
+      }
+      for (const eventType of resumeEvents) {
+        element.removeEventListener(eventType, handleResume);
+      }
+    };
+  }, [schedulePlaybackRetry, resetReconnectAttempts]);
+
   useEffect(() => {
     const element = audioRef.current;
     if (!element) {
@@ -420,6 +531,9 @@ const Radio = () => {
               if (data.fatal) {
                 hls.destroy();
                 hlsRef.current = null;
+                const reason =
+                  typeof data.type === "string" ? `hls-${data.type.toLowerCase()}` : "hls-fatal";
+                schedulePlaybackRetry(reason, { immediate: data.type === Hls.ErrorTypes.MEDIA_ERROR });
               }
             });
 
@@ -471,6 +585,9 @@ const Radio = () => {
     }
 
     destroyHls();
+    element.pause();
+    element.removeAttribute("src");
+    element.load();
     element.src = resolvedStreamUrl;
     element
       .play()
@@ -480,8 +597,10 @@ const Radio = () => {
 
     return () => {
       element.pause();
+      element.removeAttribute("src");
+      element.load();
     };
-  }, [activeStation.hls, resolvedStreamUrl]);
+  }, [activeStation.hls, playbackKey, resolvedStreamUrl, schedulePlaybackRetry]);
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
