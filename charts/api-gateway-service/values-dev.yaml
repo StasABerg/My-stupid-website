@@ -11,7 +11,7 @@ terminalService:
 
 session:
   secretRef: "radio-service-env-dev"
-  secretRefKey: STATIONS_REFRESH_TOKEN
+  secretRefKey: SESSION_SECRET
   secretOptional: true
 
 cache:

@@ -52,7 +52,7 @@ session:
   maxAgeSeconds: 2592000
   secretValue: ""
   secretRef: "radio-service-env"
-  secretRefKey: STATIONS_REFRESH_TOKEN
+  secretRefKey: SESSION_SECRET
   secretOptional: true
 
 cache:
