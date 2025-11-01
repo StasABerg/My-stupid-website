@@ -49,7 +49,7 @@ allowOrigins: []
 
 session:
   cookieName: gateway.sid
-  maxAgeSeconds: 43200
+  maxAgeSeconds: 2592000
   secretValue: ""
   secretRef: "radio-service-env"
   secretRefKey: STATIONS_REFRESH_TOKEN
