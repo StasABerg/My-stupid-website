@@ -264,17 +264,6 @@ try {
   process.exit(1);
 }
 
-function deriveClientIdentifier(req) {
-  const uaHeader = req.headers["user-agent"];
-  const userAgent =
-    typeof uaHeader === "string" && uaHeader.length > 0
-      ? uaHeader
-      : Array.isArray(uaHeader) && uaHeader.length > 0
-        ? uaHeader[0]
-        : "";
-  return userAgent;
-}
-
 function parseCookies(headerValue) {
   const cookies = {};
   if (!headerValue) {
@@ -309,13 +298,11 @@ function serializeSessionCookie(nonce, timestamp, signature) {
   return parts.join("; ");
 }
 
-function createSessionSignature(nonce, timestamp, clientId) {
+function createSessionSignature(nonce, timestamp) {
   const hmac = crypto.createHmac("sha256", SESSION_SECRET);
   hmac.update(nonce);
   hmac.update("|");
   hmac.update(String(timestamp));
-  hmac.update("|");
-  hmac.update(clientId);
   return hmac.digest("hex");
 }
 
@@ -332,11 +319,10 @@ function timingSafeEqualHex(a, b) {
   }
 }
 
-function issueSession(req) {
-  const clientId = deriveClientIdentifier(req);
+function issueSession() {
   const nonce = crypto.randomBytes(16).toString("hex");
   const issuedAt = Date.now();
-  const signature = createSessionSignature(nonce, issuedAt, clientId);
+  const signature = createSessionSignature(nonce, issuedAt);
   const cookie = serializeSessionCookie(nonce, issuedAt, signature);
   return {
     token: nonce,
@@ -376,8 +362,7 @@ function validateSession(req, parsedUrl) {
     return { ok: false, statusCode: 401, error: "Session expired" };
   }
 
-  const clientId = deriveClientIdentifier(req);
-  const expectedSignature = createSessionSignature(nonce, timestamp, clientId);
+  const expectedSignature = createSessionSignature(nonce, timestamp);
   if (!timingSafeEqualHex(signature, expectedSignature)) {
     return { ok: false, statusCode: 401, error: "Session verification failed" };
   }
@@ -728,7 +713,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const sessionResponse = issueSession(req);
+    const sessionResponse = issueSession();
     res.writeHead(200, {
       "Content-Type": "application/json",
       "Set-Cookie": sessionResponse.cookie,
