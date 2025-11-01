@@ -4,9 +4,11 @@ import { projectStationForClient } from "./projectStation.js";
 const SESSION_TOKEN_PATTERN = /^[a-f0-9]{16,}$/i;
 const STATION_ID_PATTERN = /^[A-Za-z0-9:_-]{3,128}$/;
 const FAVORITES_KEY_PREFIX = "radio:favorites:";
+const FAVORITES_CLIENT_KEY_PREFIX = `${FAVORITES_KEY_PREFIX}client:`;
 const MAX_FAVORITES = 6;
 const FAVORITES_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const FAVORITES_STORAGE_VERSION = 2;
+const FAVORITES_SESSION_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 function extractSessionToken(req) {
   const rawHeader = req.get("x-gateway-session");
@@ -33,8 +35,23 @@ function sanitizeStationId(stationId) {
   return trimmed;
 }
 
-function buildFavoritesKey(sessionToken) {
+function buildFavoritesKey(sessionToken, clientSessionId = null) {
+  if (clientSessionId) {
+    return `${FAVORITES_CLIENT_KEY_PREFIX}${clientSessionId}`;
+  }
   return `${FAVORITES_KEY_PREFIX}${sessionToken}`;
+}
+
+function extractFavoritesSessionId(req) {
+  const raw = req.get("x-favorites-session");
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!FAVORITES_SESSION_PATTERN.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
 }
 
 function normalizeStoredStationSnapshot(station) {
@@ -245,9 +262,11 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       return;
     }
 
+    const favoritesSessionHeader = extractFavoritesSessionId(req);
+
     try {
       await ensureRedis();
-      const key = buildFavoritesKey(session.value);
+      const key = buildFavoritesKey(session.value, favoritesSessionHeader);
       const favorites = await readFavorites(redis, key);
       await respondWithFavorites(res, redis, key, favorites, stationsLoader);
     } catch (error) {
@@ -262,6 +281,8 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       res.status(session.status).json({ error: session.error });
       return;
     }
+
+    const favoritesSessionHeader = extractFavoritesSessionId(req);
 
     const sanitizedStationId = sanitizeStationId(req.params.stationId);
     if (!sanitizedStationId) {
@@ -286,7 +307,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
 
     try {
       await ensureRedis();
-      const key = buildFavoritesKey(session.value);
+      const key = buildFavoritesKey(session.value, favoritesSessionHeader);
       const favorites = await readFavorites(redis, key);
       const existingIndex = favorites.findIndex((entry) => entry.id === sanitizedStationId);
 
@@ -368,6 +389,8 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       return;
     }
 
+    const favoritesSessionHeader = extractFavoritesSessionId(req);
+
     const sanitizedStationId = sanitizeStationId(req.params.stationId);
     if (!sanitizedStationId) {
       res.status(400).json({ error: "Invalid station identifier" });
@@ -376,7 +399,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
 
     try {
       await ensureRedis();
-      const key = buildFavoritesKey(session.value);
+      const key = buildFavoritesKey(session.value, favoritesSessionHeader);
       const favorites = await readFavorites(redis, key);
       const nextFavorites = favorites.filter((entry) => entry.id !== sanitizedStationId);
       if (nextFavorites.length !== favorites.length) {
