@@ -10,7 +10,7 @@ const s3Client = new S3Client({
     secretAccessKey: config.s3.secretAccessKey,
   },
   signingRegion: config.s3.signingRegion ?? config.s3.region,
-  signingName: config.s3.signingService ?? config.s3.region ?? "garage",
+  signingName: config.s3.signingService ?? "garage",
 });
 
 export function getS3Client() {
