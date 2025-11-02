@@ -1,4 +1,4 @@
-import http from "node:http";
+import Fastify from "fastify";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { config } from "./config.js";
@@ -626,32 +626,65 @@ function resolveClientIp(req) {
   return { ip: null, source: null };
 }
 
-const server = http.createServer(async (req, res) => {
+function createRequestContext(request) {
+  const req = request.raw;
   const requestIdHeader = req.headers["x-request-id"];
   const requestId =
     typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
       ? requestIdHeader.trim()
       : crypto.randomUUID();
-  const startedAt = process.hrtime.bigint();
-  const requestContext = {
+  const baseContext = {
     requestId,
     method: req.method,
     rawUrl: req.url ?? null,
     origin: req.headers.origin ?? null,
     remoteAddress: req.socket?.remoteAddress ?? null,
   };
+  request.appContext = {
+    baseContext,
+    startedAt: process.hrtime.bigint(),
+    completed: false,
+  };
+  logger.info("request.received", baseContext);
+}
+
+function completeRequest(request, statusCode, details = {}) {
+  const context = request.appContext;
+  if (!context || context.completed) {
+    return;
+  }
+  context.completed = true;
+  const durationMs = Number(process.hrtime.bigint() - context.startedAt) / 1_000_000;
+  logger.info("request.completed", {
+    ...context.baseContext,
+    statusCode,
+    durationMs,
+    ...details,
+  });
+}
+
+const fastify = Fastify({
+  trustProxy: config.trustProxy,
+});
+
+fastify.addHook("onRequest", (request, _reply, done) => {
+  createRequestContext(request);
+  done();
+});
+
+fastify.all("*", async (request, reply) => {
+  reply.hijack();
+  await handleGatewayRequest(request, reply);
+});
+
+async function handleGatewayRequest(request, reply) {
+  const req = request.raw;
+  const res = reply.raw;
+  const requestContext = request.appContext?.baseContext ?? {};
 
   const complete = (statusCode, details = {}) => {
-    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-    logger.info("request.completed", {
-      ...requestContext,
-      statusCode,
-      durationMs,
-      ...details,
-    });
+    completeRequest(request, statusCode, details);
   };
-
-  logger.info("request.received", requestContext);
 
   const parsedUrlResult = parseRequestUrl(req.url);
   if (!parsedUrlResult.ok) {
@@ -836,27 +869,50 @@ const server = http.createServer(async (req, res) => {
     completionDetails.error = proxyResult.error;
   }
   complete(proxyResult?.status ?? 500, completionDetails);
-});
+}
 
-server.listen(config.port, () => {
-  logger.info("server.started", {
-    port: config.port,
-    radioServiceUrl: config.radioServiceUrl,
-    terminalServiceUrl: config.terminalServiceUrl,
+async function start() {
+  try {
+    await fastify.listen({ port: config.port, host: "0.0.0.0" });
+    logger.info("server.started", {
+      port: config.port,
+      radioServiceUrl: config.radioServiceUrl,
+      terminalServiceUrl: config.terminalServiceUrl,
+    });
+  } catch (error) {
+    logger.error("server.start_failed", { error });
+    process.exit(1);
+  }
+}
+
+start();
+
+async function shutdown() {
+  try {
+    await fastify.close();
+  } catch (error) {
+    logger.warn("server.close_failed", { error });
+  }
+
+  try {
+    await cache.shutdown();
+  } catch (error) {
+    logger.warn("cache.shutdown_error", { error });
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.on("SIGINT", () => {
+  shutdown().catch((error) => {
+    logger.error("shutdown.unhandled_error", { error });
+    process.exit(1);
   });
 });
 
-const shutdown = () => {
-  server.close(async () => {
-    try {
-      await cache.shutdown();
-    } catch (error) {
-      logger.warn("cache.shutdown_error", { error });
-    } finally {
-      process.exit(0);
-    }
+process.on("SIGTERM", () => {
+  shutdown().catch((error) => {
+    logger.error("shutdown.unhandled_error", { error });
+    process.exit(1);
   });
-};
-
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+});

@@ -23,28 +23,46 @@ const app = createApp({
   recordStationClick,
 });
 
-const server = app.listen(config.port, () => {
-  logger.info("server.started", { port: config.port });
-});
-
-function shutdown(signal) {
-  logger.info("server.shutdown_requested", { signal });
-  server.close(() => {
-    redis
-      .quit()
-      .then(() => {
-        logger.info("redis.connection_closed", {});
-      })
-      .catch((error) => {
-        logger.warn("redis.quit_failed", { error });
-        redis.disconnect();
-      })
-      .finally(() => {
-        logger.info("server.shutdown_complete", { signal });
-        process.exit(0);
-      });
-  });
+async function start() {
+  try {
+    await app.listen({ port: config.port, host: "0.0.0.0" });
+    logger.info("server.started", { port: config.port });
+  } catch (error) {
+    logger.error("server.start_failed", { error });
+    process.exit(1);
+  }
 }
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+start();
+
+async function shutdown(signal) {
+  logger.info("server.shutdown_requested", { signal });
+  try {
+    await app.close();
+  } catch (error) {
+    logger.warn("server.close_failed", { error });
+  }
+  try {
+    await redis.quit();
+    logger.info("redis.connection_closed", {});
+  } catch (error) {
+    logger.warn("redis.quit_failed", { error });
+    redis.disconnect();
+  } finally {
+    logger.info("server.shutdown_complete", { signal });
+    process.exit(0);
+  }
+}
+
+process.on("SIGINT", () => {
+  shutdown("SIGINT").catch((error) => {
+    logger.error("shutdown.unhandled_error", { error });
+    process.exit(1);
+  });
+});
+process.on("SIGTERM", () => {
+  shutdown("SIGTERM").catch((error) => {
+    logger.error("shutdown.unhandled_error", { error });
+    process.exit(1);
+  });
+});

@@ -4,6 +4,8 @@ export function buildS3Config(env) {
   return {
     endpoint: env.MINIO_ENDPOINT,
     region: env.MINIO_REGION,
+    signingRegion: env.MINIO_SIGNING_REGION ?? env.MINIO_REGION,
+    signingService: env.MINIO_SIGNING_SERVICE ?? "garage",
     accessKeyId: env.MINIO_ACCESS_KEY ?? env.AWS_ACCESS_KEY_ID,
     secretAccessKey: env.MINIO_SECRET_KEY ?? env.AWS_SECRET_ACCESS_KEY,
     bucket: env.MINIO_BUCKET,
@@ -30,6 +32,10 @@ export function validateS3Config(config, allowInsecureTransports) {
     throw new Error(
       "STATIONS_METADATA_OBJECT_KEY (or a derivable value) must be set so station metadata can be stored separately.",
     );
+  }
+
+  if (!config.signingService) {
+    throw new Error("MINIO_SIGNING_SERVICE must be provided when using custom S3-compatible endpoints.");
   }
 
   let s3Endpoint;

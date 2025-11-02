@@ -10,24 +10,24 @@ async function findStationById(stationsLoader, stationId) {
 }
 
 export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader }) {
-  app.get("/stations/:stationId/stream", async (req, res) => {
+  app.get("/stations/:stationId/stream", async (request, reply) => {
     try {
       await ensureRedis();
-      const stationId = req.params.stationId?.trim();
+      const stationId = request.params.stationId?.trim();
       if (!stationId) {
-        res.status(400).json({ error: "Station identifier is required." });
+        reply.status(400).send({ error: "Station identifier is required." });
         return;
       }
 
       const { station } = await findStationById(stationsLoader, stationId);
       if (!station || !station.streamUrl) {
-        res.status(404).json({ error: "Station not found." });
+        reply.status(404).send({ error: "Station not found." });
         return;
       }
 
       const csrfToken =
-        typeof req.query.csrfToken === "string" && req.query.csrfToken.trim().length > 0
-          ? req.query.csrfToken.trim()
+        typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
+          ? request.query.csrfToken.trim()
           : null;
 
       const controller = new AbortController();
@@ -36,31 +36,32 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
       try {
         upstream = await fetchWithKeepAlive(station.streamUrl, {
           method: "GET",
-          headers: pickForwardHeaders(req, ["user-agent", "accept"]),
+          headers: pickForwardHeaders(request, ["user-agent", "accept"]),
           signal: controller.signal,
         });
       } catch (error) {
         const status = error.name === "AbortError" ? 504 : 502;
-        res.status(status).json({ error: "Failed to reach stream URL." });
+        reply.status(status).send({ error: "Failed to reach stream URL." });
         return;
       } finally {
         clearTimeout(timeout);
       }
 
       if (!upstream.ok) {
-        res.status(upstream.status).json({ error: `Upstream returned ${upstream.status}` });
+        reply.status(upstream.status).send({ error: `Upstream returned ${upstream.status}` });
         return;
       }
 
       const contentType = upstream.headers.get("content-type") ?? "";
       if (!shouldTreatAsPlaylist(station.streamUrl, contentType)) {
-        res.status(upstream.status);
-        res.setHeader("Content-Type", contentType || "application/octet-stream");
-        res.setHeader("Cache-Control", "no-store");
+        reply.hijack();
+        reply.raw.statusCode = upstream.status;
+        reply.raw.setHeader("Content-Type", contentType || "application/octet-stream");
+        reply.raw.setHeader("Cache-Control", "no-store");
         for await (const chunk of upstream.body ?? []) {
-          res.write(chunk);
+          reply.raw.write(chunk);
         }
-        res.end();
+        reply.raw.end();
         return;
       }
 
@@ -68,27 +69,28 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
       const rewritten = rewritePlaylist(station.streamUrl, text, {
         extraParams: csrfToken ? { csrfToken } : undefined,
       });
-      res.status(200);
-      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-      res.setHeader("Cache-Control", "no-store");
-      res.send(rewritten);
+      reply
+        .status(200)
+        .header("Content-Type", "application/vnd.apple.mpegurl")
+        .header("Cache-Control", "no-store")
+        .send(rewritten);
     } catch (error) {
-      logger.error("stream.playlist_error", { stationId: req.params.stationId ?? null, error });
-      res.status(500).json({ error: "Failed to load stream playlist." });
+      logger.error("stream.playlist_error", { stationId: request.params.stationId ?? null, error });
+      reply.status(500).send({ error: "Failed to load stream playlist." });
     }
   });
 
-  app.get("/stations/:stationId/stream/segment", async (req, res) => {
+  app.get("/stations/:stationId/stream/segment", async (request, reply) => {
     try {
       await ensureRedis();
-      const stationId = req.params.stationId?.trim();
+      const stationId = request.params.stationId?.trim();
       if (!stationId) {
-        res.status(400).json({ error: "Station identifier is required." });
+        reply.status(400).send({ error: "Station identifier is required." });
         return;
       }
-      const sourceParam = req.query.source;
+      const sourceParam = request.query.source;
       if (!sourceParam || typeof sourceParam !== "string") {
-        res.status(400).json({ error: "A source query parameter is required." });
+        reply.status(400).send({ error: "A source query parameter is required." });
         return;
       }
 
@@ -96,13 +98,13 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
       try {
         targetUrl = new URL(decodeURIComponent(sourceParam));
       } catch (_error) {
-        res.status(400).json({ error: "Invalid segment URL provided." });
+        reply.status(400).send({ error: "Invalid segment URL provided." });
         return;
       }
 
       const { station } = await findStationById(stationsLoader, stationId);
       if (!station || !station.streamUrl) {
-        res.status(404).json({ error: "Station not found." });
+        reply.status(404).send({ error: "Station not found." });
         return;
       }
 
@@ -114,15 +116,15 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         }
       })();
       if (!streamOrigin || targetUrl.origin !== streamOrigin) {
-        res.status(403).json({ error: "Segment URL is not permitted." });
+        reply.status(403).send({ error: "Segment URL is not permitted." });
         return;
       }
       if (targetUrl.protocol !== "https:") {
-        res.status(403).json({ error: "Stream segments must use HTTPS." });
+        reply.status(403).send({ error: "Stream segments must use HTTPS." });
         return;
       }
 
-      const headers = pickForwardHeaders(req, ["range", "accept", "user-agent"]);
+      const headers = pickForwardHeaders(request, ["range", "accept", "user-agent"]);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), config.streamProxy.timeoutMs);
 
@@ -135,30 +137,32 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         });
       } catch (error) {
         const status = error.name === "AbortError" ? 504 : 502;
-        res.status(status).json({ error: "Failed to retrieve stream segment." });
+        reply.status(status).send({ error: "Failed to retrieve stream segment." });
         return;
       } finally {
         clearTimeout(timeout);
       }
 
-      res.status(upstream.status);
+      reply.hijack();
+      reply.raw.statusCode = upstream.status;
+
       upstream.headers.forEach((value, key) => {
         if (!/^transfer-encoding$/i.test(key)) {
-          res.setHeader(key, value);
+          reply.raw.setHeader(key, value);
         }
       });
-      res.setHeader("Cache-Control", "no-store");
+      reply.raw.setHeader("Cache-Control", "no-store");
       for await (const chunk of upstream.body ?? []) {
-        res.write(chunk);
+        reply.raw.write(chunk);
       }
-      res.end();
+      reply.raw.end();
     } catch (error) {
       logger.error("stream.segment_error", {
-        stationId: req.params.stationId ?? null,
-        source: req.query.source ?? null,
+        stationId: request.params.stationId ?? null,
+        source: request.query.source ?? null,
         error,
       });
-      res.status(500).json({ error: "Failed to proxy stream segment." });
+      reply.status(500).send({ error: "Failed to proxy stream segment." });
     }
   });
 }

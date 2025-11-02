@@ -10,8 +10,15 @@ const FAVORITES_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const FAVORITES_STORAGE_VERSION = 2;
 const FAVORITES_SESSION_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
-function extractSessionToken(req) {
-  const rawHeader = req.get("x-gateway-session");
+function normalizeHeaderValue(value) {
+  if (Array.isArray(value)) {
+    return value.find((item) => typeof item === "string") ?? null;
+  }
+  return typeof value === "string" ? value : null;
+}
+
+function extractSessionToken(request) {
+  const rawHeader = normalizeHeaderValue(request.headers["x-gateway-session"]);
   if (!rawHeader || typeof rawHeader !== "string") {
     return { ok: false, status: 401, error: "Session token required" };
   }
@@ -42,8 +49,8 @@ function buildFavoritesKey(sessionToken, clientSessionId = null) {
   return `${FAVORITES_KEY_PREFIX}${sessionToken}`;
 }
 
-function extractFavoritesSessionId(req) {
-  const raw = req.get("x-favorites-session");
+function extractFavoritesSessionId(request) {
+  const raw = normalizeHeaderValue(request.headers["x-favorites-session"]);
   if (typeof raw !== "string") {
     return null;
   }
@@ -196,7 +203,7 @@ function resolveStationsById(payload) {
 }
 
 async function respondWithFavorites(
-  res,
+  reply,
   redis,
   key,
   favorites,
@@ -243,8 +250,8 @@ async function respondWithFavorites(
     await refreshFavoritesExpiry(redis, key);
   }
 
-  res.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");
-  res.json({
+  reply.header("Cache-Control", "private, no-store, max-age=0, must-revalidate");
+  reply.send({
     meta: {
       maxSlots: MAX_FAVORITES,
     },
@@ -255,44 +262,44 @@ async function respondWithFavorites(
 }
 
 export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoader }) {
-  app.get("/favorites", async (req, res) => {
-    const session = extractSessionToken(req);
+  app.get("/favorites", async (request, reply) => {
+    const session = extractSessionToken(request);
     if (!session.ok) {
-      res.status(session.status).json({ error: session.error });
+      reply.status(session.status).send({ error: session.error });
       return;
     }
 
-    const favoritesSessionHeader = extractFavoritesSessionId(req);
+    const favoritesSessionHeader = extractFavoritesSessionId(request);
 
     try {
       await ensureRedis();
       const key = buildFavoritesKey(session.value, favoritesSessionHeader);
       const favorites = await readFavorites(redis, key);
-      await respondWithFavorites(res, redis, key, favorites, stationsLoader);
+      await respondWithFavorites(reply, redis, key, favorites, stationsLoader);
     } catch (error) {
       logger.error("favorites.read_error", { session: session.value, error });
-      res.status(500).json({ error: "Failed to load favorites" });
+      reply.status(500).send({ error: "Failed to load favorites" });
     }
   });
 
-  app.put("/favorites/:stationId", async (req, res) => {
-    const session = extractSessionToken(req);
+  app.put("/favorites/:stationId", async (request, reply) => {
+    const session = extractSessionToken(request);
     if (!session.ok) {
-      res.status(session.status).json({ error: session.error });
+      reply.status(session.status).send({ error: session.error });
       return;
     }
 
-    const favoritesSessionHeader = extractFavoritesSessionId(req);
+    const favoritesSessionHeader = extractFavoritesSessionId(request);
 
-    const sanitizedStationId = sanitizeStationId(req.params.stationId);
+    const sanitizedStationId = sanitizeStationId(request.params.stationId);
     if (!sanitizedStationId) {
-      res.status(400).json({ error: "Invalid station identifier" });
+      reply.status(400).send({ error: "Invalid station identifier" });
       return;
     }
 
     let requestedSlot = null;
-    if (req.body && Object.prototype.hasOwnProperty.call(req.body, "slot")) {
-      const slotValue = req.body.slot;
+    if (request.body && Object.prototype.hasOwnProperty.call(request.body, "slot")) {
+      const slotValue = request.body.slot;
       if (
         Number.isInteger(slotValue) &&
         slotValue >= 0 &&
@@ -300,7 +307,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       ) {
         requestedSlot = slotValue;
       } else {
-        res.status(400).json({ error: "Invalid slot index" });
+        reply.status(400).send({ error: "Invalid slot index" });
         return;
       }
     }
@@ -315,7 +322,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       const stationsById = resolveStationsById(payload);
       const stationRecord = stationsById.get(sanitizedStationId);
       if (!stationRecord) {
-        res.status(404).json({ error: "Station not found" });
+        reply.status(404).send({ error: "Station not found" });
         return;
       }
       const projectedStation = projectStationForClient(stationRecord);
@@ -334,7 +341,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
         } else {
           await refreshFavoritesExpiry(redis, key);
         }
-        await respondWithFavorites(res, redis, key, updatedFavorites, stationsLoader, {
+        await respondWithFavorites(reply, redis, key, updatedFavorites, stationsLoader, {
           stationsById,
         });
         return;
@@ -353,14 +360,14 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
           nextFavorites[slot] = newEntry;
         } else {
           if (nextFavorites.length >= MAX_FAVORITES) {
-            res.status(409).json({ error: "All favorite slots are already filled" });
+            reply.status(409).send({ error: "All favorite slots are already filled" });
             return;
           }
           nextFavorites.push(newEntry);
         }
       } else {
         if (nextFavorites.length >= MAX_FAVORITES) {
-          res.status(409).json({ error: "All favorite slots are already filled" });
+          reply.status(409).send({ error: "All favorite slots are already filled" });
           return;
         }
         nextFavorites.push(newEntry);
@@ -369,7 +376,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       nextFavorites = dedupeEntries(nextFavorites);
 
       await writeFavorites(redis, key, nextFavorites);
-      await respondWithFavorites(res, redis, key, nextFavorites, stationsLoader, {
+      await respondWithFavorites(reply, redis, key, nextFavorites, stationsLoader, {
         stationsById,
       });
     } catch (error) {
@@ -378,22 +385,22 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
         stationId: sanitizedStationId,
         error,
       });
-      res.status(500).json({ error: "Failed to save favorite" });
+      reply.status(500).send({ error: "Failed to save favorite" });
     }
   });
 
-  app.delete("/favorites/:stationId", async (req, res) => {
-    const session = extractSessionToken(req);
+  app.delete("/favorites/:stationId", async (request, reply) => {
+    const session = extractSessionToken(request);
     if (!session.ok) {
-      res.status(session.status).json({ error: session.error });
+      reply.status(session.status).send({ error: session.error });
       return;
     }
 
-    const favoritesSessionHeader = extractFavoritesSessionId(req);
+    const favoritesSessionHeader = extractFavoritesSessionId(request);
 
-    const sanitizedStationId = sanitizeStationId(req.params.stationId);
+    const sanitizedStationId = sanitizeStationId(request.params.stationId);
     if (!sanitizedStationId) {
-      res.status(400).json({ error: "Invalid station identifier" });
+      reply.status(400).send({ error: "Invalid station identifier" });
       return;
     }
 
@@ -407,14 +414,14 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
       } else {
         await refreshFavoritesExpiry(redis, key);
       }
-      await respondWithFavorites(res, redis, key, nextFavorites, stationsLoader);
+      await respondWithFavorites(reply, redis, key, nextFavorites, stationsLoader);
     } catch (error) {
       logger.error("favorites.delete_error", {
         session: session.value,
         stationId: sanitizedStationId,
         error,
       });
-      res.status(500).json({ error: "Failed to remove favorite" });
+      reply.status(500).send({ error: "Failed to remove favorite" });
     }
   });
 }

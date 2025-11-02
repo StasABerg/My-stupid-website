@@ -1,11 +1,11 @@
 export function registerHealthRoutes(app, { ensureRedis, redis }) {
-  app.get("/healthz", async (_req, res) => {
+  app.get("/healthz", async (_request, reply) => {
     try {
       await ensureRedis();
       await redis.ping();
-      res.json({ status: "ok" });
+      reply.send({ status: "ok" });
     } catch (error) {
-      res.status(500).json({ status: "error", message: error.message });
+      reply.status(500).send({ status: "error", message: error.message });
     }
   });
 }

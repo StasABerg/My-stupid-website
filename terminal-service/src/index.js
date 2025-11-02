@@ -1,4 +1,4 @@
-import http from "node:http";
+import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import {
   access,
@@ -59,8 +59,8 @@ function resolveAllowedOrigin(origin) {
   return allowedOrigins.find((allowed) => allowed === origin) ?? null;
 }
 
-function buildCorsHeaders(req) {
-  const origin = req.headers?.origin;
+function buildCorsHeaders(request) {
+  const origin = request.headers?.origin;
   const allowedOrigin = resolveAllowedOrigin(origin);
   const headers = { Vary: "Origin" };
   if (allowedOrigin) {
@@ -69,8 +69,8 @@ function buildCorsHeaders(req) {
   return headers;
 }
 
-function ensureCorsAllowed(req, res, context = {}) {
-  const origin = req.headers?.origin;
+function ensureCorsAllowed(request, reply, context = {}) {
+  const origin = request.headers?.origin;
   if (!origin) {
     return true;
   }
@@ -78,8 +78,10 @@ function ensureCorsAllowed(req, res, context = {}) {
     return true;
   }
   if (!allowedOrigins.includes(origin)) {
-    res.writeHead(403, { "Content-Type": "application/json", Vary: "Origin" });
-    res.end(JSON.stringify({ message: "CORS origin denied" }));
+    reply
+      .code(403)
+      .headers({ "Content-Type": "application/json", Vary: "Origin" })
+      .send({ message: "CORS origin denied" });
     logger.warn("cors.origin_denied", {
       ...context,
       origin,
@@ -700,53 +702,14 @@ async function handleExecute(body) {
   }
 }
 
-function handleOptions(req, res) {
-  if (!ensureCorsAllowed(req, res)) {
-    return;
-  }
+function handleOptions(request, reply) {
   const headers = {
-    ...buildCorsHeaders(req),
+    ...buildCorsHeaders(request),
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "600",
   };
-  res.writeHead(204, headers);
-  res.end();
-}
-
-async function parseJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    let buffer = "";
-    let tooLarge = false;
-
-    req.setEncoding("utf8");
-    req.on("data", (chunk) => {
-      if (tooLarge) {
-        return;
-      }
-      buffer += chunk;
-      if (buffer.length > MAX_PAYLOAD_BYTES) {
-        tooLarge = true;
-      }
-    });
-    req.on("end", () => {
-      if (tooLarge) {
-        reject(new Error("Payload too large"));
-        return;
-      }
-      if (!buffer) {
-        resolve({});
-        return;
-      }
-      try {
-        const parsed = JSON.parse(buffer);
-        resolve(parsed);
-      } catch {
-        reject(new Error("Invalid JSON payload"));
-      }
-    });
-    req.on("error", reject);
-  });
+  reply.code(204).headers(headers).send();
 }
 
 async function handleInfo() {
@@ -773,145 +736,211 @@ async function handleInfo() {
   };
 }
 
-const server = http.createServer(async (req, res) => {
-  const requestIdHeader = req.headers["x-request-id"];
+function createRequestContext(request) {
+  const requestIdHeader = request.headers["x-request-id"];
   const requestId =
     typeof requestIdHeader === "string" && requestIdHeader.trim().length
       ? requestIdHeader
       : randomUUID();
-  const requestStartedAt = process.hrtime.bigint();
   const baseContext = {
     requestId,
-    method: req.method,
-    url: req.url,
-    remoteAddress: req.socket?.remoteAddress,
-    origin: req.headers?.origin,
+    method: request.method,
+    url: request.raw.url,
+    remoteAddress: request.raw.socket?.remoteAddress,
+    origin: request.headers?.origin,
   };
-
-  const complete = (statusCode, details = {}) => {
-    const durationMs = Number(process.hrtime.bigint() - requestStartedAt) / 1_000_000;
-    logger.info("request.completed", {
-      ...baseContext,
-      statusCode,
-      durationMs,
-      ...details,
-    });
+  request.appContext = {
+    baseContext,
+    startedAt: process.hrtime.bigint(),
+    completed: false,
   };
-
   logger.info("request.received", baseContext);
+}
 
-  try {
-    if (req.method === "OPTIONS") {
-      if (!ensureCorsAllowed(req, res, baseContext)) {
-        complete(403, { reason: "cors-denied" });
-        return;
-      }
-      handleOptions(req, res);
-      complete(204, { route: "options" });
-      return;
+function completeRequest(request, statusCode, details = {}) {
+  const context = request.appContext;
+  if (!context || context.completed) {
+    return;
+  }
+  context.completed = true;
+  const durationMs = Number(process.hrtime.bigint() - context.startedAt) / 1_000_000;
+  logger.info("request.completed", {
+    ...context.baseContext,
+    statusCode,
+    durationMs,
+    ...details,
+  });
+}
+
+const fastify = Fastify({
+  bodyLimit: MAX_PAYLOAD_BYTES,
+});
+
+fastify.addHook("onRequest", (request, _reply, done) => {
+  createRequestContext(request);
+  done();
+});
+
+fastify.addHook("preHandler", async (request, reply) => {
+  const baseContext = request.appContext?.baseContext ?? {};
+  if (request.method === "OPTIONS") {
+    if (!ensureCorsAllowed(request, reply, baseContext)) {
+      completeRequest(request, 403, { reason: "cors-denied" });
+      return reply;
     }
+    handleOptions(request, reply);
+    completeRequest(request, 204, { route: "options" });
+    return reply;
+  }
 
-    if (!ensureCorsAllowed(req, res, baseContext)) {
-      complete(403, { reason: "cors-denied" });
-      return;
-    }
-
-    if (req.url === "/healthz" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      const payload = { status: "ok" };
-      res.end(JSON.stringify(payload));
-      complete(200, { route: "healthz" });
-      return;
-    }
-
-    if (req.url === "/info" && req.method === "GET") {
-      const response = await handleInfo();
-      res.writeHead(response.status, {
-        "Content-Type": "application/json",
-        ...buildCorsHeaders(req),
-      });
-      res.end(JSON.stringify(response.payload));
-      complete(response.status, { route: "info" });
-      return;
-    }
-
-    if (req.url === "/execute" && req.method === "POST") {
-      let body;
-      try {
-        body = await parseJsonBody(req);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to parse request body";
-        const status = message === "Payload too large" ? 413 : 400;
-        res.writeHead(status, {
-          "Content-Type": "application/json",
-          ...buildCorsHeaders(req),
-        });
-        res.end(JSON.stringify({ message }));
-        logger.warn("request.body_invalid", {
-          ...baseContext,
-          statusCode: status,
-          error: error instanceof Error ? error : { message },
-        });
-        complete(status, { route: "execute", reason: "invalid-body" });
-        return;
-      }
-
-      const response = await handleExecute(body);
-      res.writeHead(response.status, {
-        "Content-Type": "application/json",
-        ...buildCorsHeaders(req),
-      });
-      res.end(JSON.stringify(response.payload));
-      complete(response.status, { route: "execute" });
-      return;
-    }
-
-    res.writeHead(404, {
-      "Content-Type": "application/json",
-      ...buildCorsHeaders(req),
-    });
-    res.end(JSON.stringify({ message: "Not Found" }));
-    logger.warn("request.not_found", baseContext);
-    complete(404, { reason: "not-found" });
-  } catch (error) {
-    logger.error("request.unhandled_exception", {
-      ...baseContext,
-      error,
-    });
-    res.writeHead(500, {
-      "Content-Type": "application/json",
-      ...buildCorsHeaders(req),
-    });
-    res.end(JSON.stringify({ message: "Internal Server Error" }));
-    complete(500, { reason: "unhandled-exception" });
+  if (!ensureCorsAllowed(request, reply, baseContext)) {
+    completeRequest(request, 403, { reason: "cors-denied" });
+    return reply;
   }
 });
 
-ensureSandboxFilesystem()
-  .then(() => {
-    server.listen(PORT, () => {
-      logger.info("server.started", {
-        port: PORT,
-        sandboxRoot: SANDBOX_ROOT,
-      });
+fastify.addHook("onResponse", (request, reply, done) => {
+  if (request.appContext && !request.appContext.completed) {
+    completeRequest(request, reply.statusCode);
+  }
+  done();
+});
+
+fastify.setNotFoundHandler((request, reply) => {
+  reply
+    .code(404)
+    .headers({
+      "Content-Type": "application/json",
+      ...buildCorsHeaders(request),
+    })
+    .send({ message: "Not Found" });
+  completeRequest(request, 404, { reason: "not-found" });
+});
+
+fastify.setErrorHandler((error, request, reply) => {
+  const baseContext = request.appContext?.baseContext ?? {};
+  if (error.code === "FST_ERR_BODY_TOO_LARGE") {
+    reply
+      .code(413)
+      .headers({
+        "Content-Type": "application/json",
+        ...buildCorsHeaders(request),
+      })
+      .send({ message: "Payload too large" });
+    logger.warn("request.body_invalid", {
+      ...baseContext,
+      statusCode: 413,
+      error,
     });
-  })
-  .catch((error) => {
-    logger.error("sandbox.init_failed", { error });
-    process.exitCode = 1;
+    completeRequest(request, 413, { route: "execute", reason: "invalid-body" });
+    return;
+  }
+  if (error.code === "FST_ERR_CTP_INVALID_JSON") {
+    reply
+      .code(400)
+      .headers({
+        "Content-Type": "application/json",
+        ...buildCorsHeaders(request),
+      })
+      .send({ message: "Invalid JSON payload" });
+    logger.warn("request.body_invalid", {
+      ...baseContext,
+      statusCode: 400,
+      error,
+    });
+    completeRequest(request, 400, { route: "execute", reason: "invalid-body" });
+    return;
+  }
+
+  logger.error("request.unhandled_exception", {
+    ...baseContext,
+    error,
   });
 
-process.on("SIGTERM", () => {
-  logger.info("signal.received", { signal: "SIGTERM" });
-  server.close(() => {
+  reply
+    .code(500)
+    .headers({
+      "Content-Type": "application/json",
+      ...buildCorsHeaders(request),
+    })
+    .send({ message: "Internal Server Error" });
+  completeRequest(request, 500, { reason: "unhandled-exception" });
+});
+
+fastify.get("/healthz", async (request, reply) => {
+  reply.send({ status: "ok" });
+  completeRequest(request, 200, { route: "healthz" });
+});
+
+fastify.get("/info", async (request, reply) => {
+  const response = await handleInfo();
+  reply
+    .code(response.status)
+    .headers({
+      "Content-Type": "application/json",
+      ...buildCorsHeaders(request),
+    })
+    .send(response.payload);
+  completeRequest(request, response.status, { route: "info" });
+});
+
+fastify.post("/execute", async (request, reply) => {
+  const body = (request.body && typeof request.body === "object") ? request.body : {};
+  const response = await handleExecute(body);
+  reply
+    .code(response.status)
+    .headers({
+      "Content-Type": "application/json",
+      ...buildCorsHeaders(request),
+    })
+    .send(response.payload);
+  completeRequest(request, response.status, { route: "execute" });
+});
+
+async function start() {
+  try {
+    await ensureSandboxFilesystem();
+  } catch (error) {
+    logger.error("sandbox.init_failed", { error });
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    await fastify.listen({ port: PORT, host: "0.0.0.0" });
+    logger.info("server.started", {
+      port: PORT,
+      sandboxRoot: SANDBOX_ROOT,
+    });
+  } catch (error) {
+    logger.error("server.start_failed", { error });
+    process.exit(1);
+  }
+}
+
+start();
+
+async function shutdown(signal) {
+  logger.info("signal.received", { signal });
+  try {
+    await fastify.close();
+  } catch (error) {
+    logger.warn("server.close_failed", { error });
+  } finally {
     process.exit(0);
+  }
+}
+
+process.on("SIGTERM", () => {
+  shutdown("SIGTERM").catch((error) => {
+    logger.error("shutdown.unhandled_error", { error });
+    process.exit(1);
   });
 });
 
 process.on("SIGINT", () => {
-  logger.info("signal.received", { signal: "SIGINT" });
-  server.close(() => {
-    process.exit(0);
+  shutdown("SIGINT").catch((error) => {
+    logger.error("shutdown.unhandled_error", { error });
+    process.exit(1);
   });
 });
