@@ -672,6 +672,25 @@ fastify.addHook("onRequest", (request, _reply, done) => {
   done();
 });
 
+fastify.removeContentTypeParser("application/json");
+fastify.addContentTypeParser(
+  "application/json",
+  { parseAs: "string" },
+  (request, body, done) => {
+    if (body === "" || body === null || body === undefined) {
+      done(null, {});
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(body);
+      done(null, parsed);
+    } catch (error) {
+      done(error);
+    }
+  },
+);
+
 fastify.all("*", async (request, reply) => {
   reply.hijack();
   await handleGatewayRequest(request, reply);
