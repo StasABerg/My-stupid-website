@@ -1,11 +1,18 @@
 import { deriveMetadataKey } from "./env.js";
 
 export function buildS3Config(env) {
+  const rawRegion = env.MINIO_SIGNING_REGION?.trim();
+  const signingRegion =
+    rawRegion && rawRegion.length > 0 ? rawRegion : env.MINIO_REGION;
+  const rawService = env.MINIO_SIGNING_SERVICE?.trim();
+  const signingService =
+    rawService && rawService.length > 0 ? rawService : "garage";
+
   return {
     endpoint: env.MINIO_ENDPOINT,
     region: env.MINIO_REGION,
-    signingRegion: env.MINIO_SIGNING_REGION ?? env.MINIO_REGION,
-    signingService: env.MINIO_SIGNING_SERVICE ?? "garage",
+    signingRegion,
+    signingService,
     accessKeyId: env.MINIO_ACCESS_KEY ?? env.AWS_ACCESS_KEY_ID,
     secretAccessKey: env.MINIO_SECRET_KEY ?? env.AWS_SECRET_ACCESS_KEY,
     bucket: env.MINIO_BUCKET,
