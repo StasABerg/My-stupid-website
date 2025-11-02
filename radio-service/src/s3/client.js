@@ -1,6 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3";
-import { SignatureV4 } from "@aws-sdk/signature-v4";
-import { Sha256 } from "@aws-crypto/sha256-js";
+import { SignatureV4 } from "@smithy/signature-v4";
 import { config } from "../config/index.js";
 
 const credentials = {
@@ -13,7 +12,6 @@ function createSigner() {
     credentials,
     region: config.s3.signingRegion ?? config.s3.region,
     service: config.s3.signingService ?? "s3",
-    sha256: Sha256,
   });
 }
 
