@@ -8,6 +8,14 @@ validateConfig();
 
 const redis = createRedisClient();
 
+logger.info("s3.configuration", {
+  endpoint: config.s3.endpoint,
+  region: config.s3.region,
+  signingRegion: config.s3.signingRegion,
+  signingService: config.s3.signingService,
+  bucket: config.s3.bucket,
+});
+
 async function ensureRedis() {
   if (redis.status !== "ready") {
     await redis.connect();

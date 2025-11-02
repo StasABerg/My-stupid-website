@@ -4,7 +4,7 @@ export function buildS3Config(env) {
   const rawRegion = env.MINIO_SIGNING_REGION?.trim();
   const signingRegion =
     rawRegion && rawRegion.length > 0 ? rawRegion : env.MINIO_REGION;
-  const rawService = env.MINIO_SIGNING_SERVICE?.trim();
+  const rawService = env.MINIO_REGION?.trim();
   const signingService =
     rawService && rawService.length > 0 ? rawService : "garage";
 
@@ -42,7 +42,7 @@ export function validateS3Config(config, allowInsecureTransports) {
   }
 
   if (!config.signingService) {
-    throw new Error("MINIO_SIGNING_SERVICE must be provided when using custom S3-compatible endpoints.");
+    throw new Error("MINIO_REGION must be provided when using custom S3-compatible endpoints.");
   }
 
   let s3Endpoint;
