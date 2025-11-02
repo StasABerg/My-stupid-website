@@ -387,9 +387,23 @@ function validateSession(req, parsedUrl) {
   return { ok: true, session: { nonce, timestamp } };
 }
 
-function buildProxyRequestBody(req, signal) {
+function buildProxyRequestBody(request, signal) {
+  const req = request.raw;
   if (req.method === "GET" || req.method === "HEAD") {
     return null;
+  }
+
+  const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : "";
+  if (request.body !== undefined && request.body !== null) {
+    if (Buffer.isBuffer(request.body) || request.body instanceof Uint8Array) {
+      return request.body;
+    }
+    if (typeof request.body === "string") {
+      return request.body;
+    }
+    if (contentType.startsWith("application/json")) {
+      return JSON.stringify(request.body);
+    }
   }
 
   if (signal.aborted) {
@@ -409,7 +423,7 @@ function buildProxyRequestBody(req, signal) {
 }
 
 async function proxyRequest(
-  req,
+  request,
   res,
   target,
   session,
@@ -418,6 +432,7 @@ async function proxyRequest(
   parsedUrl,
   requestContext,
 ) {
+  const req = request.raw;
   const parsed = parsedUrl ?? new URL(req.url ?? "/", "http://localhost");
   const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
   const allowedHostname = new URL(target.baseUrl).hostname;
@@ -434,7 +449,7 @@ async function proxyRequest(
   const timeout = setTimeout(() => abort.abort(), config.requestTimeoutMs);
 
   try {
-    const body = buildProxyRequestBody(req, abort.signal);
+    const body = buildProxyRequestBody(request, abort.signal);
 
     const outgoingHeaders = sanitizeRequestHeaders(req.headers);
     const { ip: clientIp, source: clientIpSource } = resolveClientIp(req);
@@ -867,7 +882,7 @@ async function handleGatewayRequest(request, reply) {
   }
 
   const proxyResult = await proxyRequest(
-    req,
+    request,
     res,
     target,
     sessionValidation.session,
