@@ -30,15 +30,19 @@ const SwaggerDirectory = () => (
     <TerminalWindow>
       <TerminalHeader displayCwd="~/swagger" />
       <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm">
-        <TerminalPrompt command="cd .." />
-        <div className="pl-2 sm:pl-4">
-          <Link
-            to="/"
-            className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
-          >
-            ../
-          </Link>
-        </div>
+        <TerminalPrompt
+          user="sandbox"
+          host="gitgud.qzz.io"
+          path="~/swagger"
+          command={(
+            <Link
+              to="/"
+              className="focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+            >
+              cd ..
+            </Link>
+          )}
+        />
 
         <TerminalPrompt command="ls -la" />
         <div className="mt-2 space-y-2 pl-2 sm:pl-4">

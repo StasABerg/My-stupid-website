@@ -47,7 +47,7 @@ const SecureTerminal = () => {
       aria-label="Sandbox terminal"
       className="w-full h-screen bg-black border-2 border-terminal-green font-mono shadow-[0_0_30px_rgba(0,255,0,0.25)] flex flex-col"
     >
-      <TerminalHeader displayLabel={headerLabel} />
+      <TerminalHeader displayCwd={displayCwd} label={headerLabel} />
 
       <TerminalOutput
         history={history}
