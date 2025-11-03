@@ -140,6 +140,78 @@ if (SESSION_SECRET_GENERATED && sessionRedisClient && config.session.store?.redi
   }
 }
 
+const CSRF_SESSION_KEY_PREFIX =
+  config.session.store?.redis?.keyPrefix
+    ? `${config.session.store.redis.keyPrefix}nonce:`
+    : "gateway:session:nonce:";
+
+const inMemoryCsrfSessions = new Map();
+
+function buildCsrfSessionKey(token) {
+  return `${CSRF_SESSION_KEY_PREFIX}${token}`;
+}
+
+async function storeCsrfSessionRecord(token, sessionData) {
+  if (!token) return;
+  if (sessionRedisClient) {
+    try {
+      await sessionRedisClient.set(
+        buildCsrfSessionKey(token),
+        JSON.stringify(sessionData),
+        "EX",
+        SESSION_TTL_SECONDS,
+      );
+    } catch (error) {
+      logger.warn("session.csrf_store_failed", { error });
+    }
+    return;
+  }
+
+  inMemoryCsrfSessions.set(token, { ...sessionData });
+}
+
+async function loadCsrfSessionRecord(token) {
+  if (!token) return null;
+  if (sessionRedisClient) {
+    try {
+      const raw = await sessionRedisClient.get(buildCsrfSessionKey(token));
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") {
+        return null;
+      }
+      return parsed;
+    } catch (error) {
+      logger.warn("session.csrf_lookup_failed", { error });
+      return null;
+    }
+  }
+
+  const record = inMemoryCsrfSessions.get(token);
+  if (!record) {
+    return null;
+  }
+  if (record.expiresAt && Date.now() > record.expiresAt) {
+    inMemoryCsrfSessions.delete(token);
+    return null;
+  }
+  return record;
+}
+
+async function deleteCsrfSessionRecord(token) {
+  if (!token) return;
+  if (sessionRedisClient) {
+    try {
+      await sessionRedisClient.del(buildCsrfSessionKey(token));
+    } catch (error) {
+      logger.warn("session.csrf_delete_failed", { error });
+    }
+    return;
+  }
+  inMemoryCsrfSessions.delete(token);
+}
 
 function buildCorsHeaders(origin) {
   const allowed = config.allowOrigins;
@@ -443,8 +515,34 @@ function extractHeaderValue(headers, target) {
 }
 
 async function validateSession(request, parsedUrl) {
+  if (!request.session || typeof request.session !== "object") {
+    request.session = {};
+  }
   const session = request.session;
-  if (!session || typeof session.nonce !== "string") {
+
+  const csrfHeader = extractHeaderValue(request.headers, "x-gateway-csrf");
+  let csrfToken = typeof csrfHeader === "string" && csrfHeader.trim().length > 0 ? csrfHeader.trim() : null;
+  if (!csrfToken && parsedUrl) {
+    const param = parsedUrl.searchParams.get("csrfToken");
+    if (typeof param === "string" && param.trim().length > 0) {
+      csrfToken = param.trim();
+    }
+  }
+
+  if (typeof session.nonce !== "string" && csrfToken) {
+    const csrfRecord = await loadCsrfSessionRecord(csrfToken);
+    if (csrfRecord && csrfRecord.nonce && csrfRecord.expiresAt) {
+      if (Date.now() > csrfRecord.expiresAt) {
+        await deleteCsrfSessionRecord(csrfToken);
+      } else {
+        session.nonce = csrfRecord.nonce;
+        session.expiresAt = csrfRecord.expiresAt;
+        session.issuedAt = csrfRecord.issuedAt ?? Date.now();
+      }
+    }
+  }
+
+  if (typeof session.nonce !== "string") {
     return { ok: false, statusCode: 401, error: "Session required" };
   }
 
@@ -454,16 +552,8 @@ async function validateSession(request, parsedUrl) {
   }
 
   if (Date.now() > expiresAtValue) {
+    await deleteCsrfSessionRecord(session.nonce);
     return { ok: false, statusCode: 401, error: "Session expired" };
-  }
-
-  const csrfHeader = extractHeaderValue(request.headers, "x-gateway-csrf");
-  let csrfToken = typeof csrfHeader === "string" && csrfHeader.trim().length > 0 ? csrfHeader.trim() : null;
-  if (!csrfToken && parsedUrl) {
-    const param = parsedUrl.searchParams.get("csrfToken");
-    if (typeof param === "string" && param.trim().length > 0) {
-      csrfToken = param.trim();
-    }
   }
 
   const method = (request.raw.method ?? "").toUpperCase();
@@ -488,6 +578,11 @@ async function validateSession(request, parsedUrl) {
   } catch (error) {
     logger.warn("session.persist_during_validation_failed", { error });
   }
+
+  await storeCsrfSessionRecord(session.nonce, {
+    nonce: session.nonce,
+    expiresAt: session.expiresAt,
+  });
 
   return {
     ok: true,
@@ -897,6 +992,7 @@ fastify.post("/session", async (request, reply) => {
   const sessionInfo = initializeSession(request.session);
   try {
     await persistSession(request.session);
+    await storeCsrfSessionRecord(sessionInfo.nonce, sessionInfo);
   } catch (error) {
     logger.error("session.persist_failed", { error });
     reply
