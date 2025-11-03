@@ -1,5 +1,7 @@
 import fastifyCookie from "@fastify/cookie";
 import fastifySession from "@fastify/session";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import underPressure from "@fastify/under-pressure";
 import Fastify from "fastify";
 import { config } from "./config.js";
@@ -60,6 +62,24 @@ const fastify = Fastify({
   trustProxy: config.trustProxy,
 });
 
+const sessionResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["csrfToken", "expiresAt"],
+  properties: {
+    csrfToken: { type: "string" },
+    expiresAt: { type: "number" },
+  },
+};
+
+const errorResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    error: { type: "string" },
+  },
+};
+
 fastify.register(fastifyCookie, {
   secret: SESSION_SECRET,
   parseOptions: {
@@ -67,6 +87,35 @@ fastify.register(fastifyCookie, {
     httpOnly: true,
     secure: true,
     path: "/",
+  },
+});
+
+fastify.register(swagger, {
+  openapi: {
+    info: {
+      title: "Gateway API",
+      description: "Documentation for the API gateway proxy endpoints.",
+      version: "0.1.0",
+    },
+    tags: [
+      { name: "Proxy", description: "Routes proxied to downstream services." },
+      { name: "Session", description: "Session issuance endpoints." },
+      { name: "Health", description: "Readiness and liveness endpoints." },
+    ],
+    servers: [
+      {
+        url: "/api",
+        description: "External API base path",
+      },
+    ],
+  },
+});
+
+fastify.register(swaggerUi, {
+  routePrefix: "/docs",
+  uiConfig: {
+    docExpansion: "list",
+    deepLinking: false,
   },
 });
 
@@ -147,7 +196,18 @@ fastify.options("/session", (request, reply) => {
   completeRequest(request, 204, { route: "session", method: "OPTIONS" });
 });
 
-fastify.post("/session", async (request, reply) => {
+fastify.post("/session", {
+  schema: {
+    tags: ["Session"],
+    summary: "Issue a session cookie",
+    description: "Generates a new session token and CSRF nonce for downstream requests.",
+    response: {
+      200: sessionResponseSchema,
+      403: errorResponseSchema,
+      500: errorResponseSchema,
+    },
+  },
+}, async (request, reply) => {
   const originAllowed = isOriginAllowed(request.headers.origin ?? null);
   const corsHeaders = buildCorsHeaders(request.headers.origin);
 
@@ -222,6 +282,26 @@ fastify.route({
   },
 });
 
+fastify.get("/healthz", {
+  schema: {
+    tags: ["Health"],
+    summary: "Gateway health check",
+    description: "Returns status information for readiness probes.",
+    response: {
+      200: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          status: { type: "string", enum: ["ok"] },
+        },
+      },
+    },
+  },
+}, async (request, reply) => {
+  reply.send({ status: "ok" });
+  completeRequest(request, 200, { route: "healthz" });
+});
+
 const { proxyRequest } = createProxyHandler({
   config,
   cache,
@@ -268,13 +348,6 @@ async function handleGatewayRequest(request, reply) {
   if (req.method === "OPTIONS") {
     handlePreflight(req, res);
     complete(204, { route: "preflight" });
-    return;
-  }
-
-  if (url.pathname === "/healthz") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok" }));
-    complete(200, { route: "healthz" });
     return;
   }
 

@@ -42,6 +42,12 @@ export function createApp(deps) {
         { name: "Favorites", description: "Manage per-session station favorites." },
         { name: "Health", description: "Operational health and status endpoints." },
       ],
+      servers: [
+        {
+          url: "/api/radio",
+          description: "External base path via gateway",
+        },
+      ],
     },
   });
 

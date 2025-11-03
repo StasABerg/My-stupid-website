@@ -63,6 +63,12 @@ export function createServer({ logger, commandHandlers }) {
         { name: "Terminal", description: "Interact with the sandbox shell." },
         { name: "Health", description: "Operational health and status checks." },
       ],
+      servers: [
+        {
+          url: "/api/terminal",
+          description: "External base path via gateway",
+        },
+      ],
     },
   });
 
@@ -300,4 +306,3 @@ export function createServer({ logger, commandHandlers }) {
 
   return fastify;
 }
-

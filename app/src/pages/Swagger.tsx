@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
+import { formatLsDate } from "@/lib/terminalFs";
 
 const swaggerEntries = [
   {
@@ -16,22 +17,34 @@ const swaggerEntries = [
   },
   {
     label: "gateway-api",
-    path: "/api/docs",
-    description: "Gateway API documentation (coming soon)",
-    available: false,
+    path: "/gateway/docs",
+    description: "Swagger UI for the API Gateway",
+    available: true,
   },
 ];
+
+const todayLabel = formatLsDate(new Date());
 
 const SwaggerDirectory = () => (
   <div className="min-h-screen bg-black text-terminal-white">
     <TerminalWindow>
       <TerminalHeader displayCwd="~/swagger" />
       <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm">
+        <TerminalPrompt command="cd .." />
+        <div className="pl-2 sm:pl-4">
+          <Link
+            to="/"
+            className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+          >
+            ../
+          </Link>
+        </div>
+
         <TerminalPrompt command="ls -la" />
         <div className="mt-2 space-y-2 pl-2 sm:pl-4">
           {swaggerEntries.map((entry) => (
             <div key={entry.label} className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
-              <span className="hidden sm:inline text-terminal-cyan">-rw-r--r-- 1 user user 4096</span>
+              <span className="hidden sm:inline text-terminal-cyan">-rw-r--r-- 1 user user 4096 {todayLabel}</span>
               {entry.available ? (
                 <Link
                   to={entry.path}

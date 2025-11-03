@@ -10,6 +10,8 @@ const SecureTerminal = () => {
     setInput,
     history,
     displayCwd,
+    promptLabel,
+    headerLabel,
     loading,
     connectionError,
     isSubmitting,
@@ -45,7 +47,7 @@ const SecureTerminal = () => {
       aria-label="Sandbox terminal"
       className="w-full h-screen bg-black border-2 border-terminal-green font-mono shadow-[0_0_30px_rgba(0,255,0,0.25)] flex flex-col"
     >
-      <TerminalHeader displayCwd={displayCwd} />
+      <TerminalHeader displayLabel={headerLabel} />
 
       <TerminalOutput
         history={history}
@@ -58,7 +60,7 @@ const SecureTerminal = () => {
         input={input}
         ref={inputRef}
         onSubmit={handleSubmit}
-        displayCwd={displayCwd}
+        promptLabel={promptLabel}
         onInputChange={setInput}
         onKeyDown={handleKeyDown}
         disabled={isInputDisabled}

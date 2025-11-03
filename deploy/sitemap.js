@@ -9,6 +9,7 @@ function gen(r) {
       "/terminal/docs",
       "/radio",
       "/radio/docs",
+      "/gateway/docs",
       "/swagger"
 
     ];

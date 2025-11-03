@@ -10,6 +10,7 @@ type ExecuteResponse = {
   cwd: string;
   displayCwd?: string;
   clear?: boolean;
+  promptLabel?: string;
 };
 
 type HistoryEntry = {
@@ -18,6 +19,7 @@ type HistoryEntry = {
   command: string;
   output: string[];
   isError: boolean;
+  promptLabel: string;
 };
 
 const FALLBACK_TERMINAL_BASE = "/api/terminal/";
@@ -64,6 +66,9 @@ const toDisplayPath = (virtualPath: string | undefined | null): string => {
   return virtualPath;
 };
 
+const buildPromptLabel = (displayPath: string): string => `sandbox@gitgud.qzz.io:${displayPath}`;
+const buildHeaderLabel = (displayPath: string): string => `${buildPromptLabel(displayPath)} — isolated pod`;
+
 export function useTerminal() {
   const navigate = useNavigate();
   const [virtualCwd, setVirtualCwd] = useState<string>("/home/demo");
@@ -81,6 +86,8 @@ export function useTerminal() {
 
   // Computed values
   const displayCwd = toDisplayPath(virtualCwd);
+  const promptLabel = buildPromptLabel(displayCwd);
+  const headerLabel = buildHeaderLabel(displayCwd);
 
   const bannerLines = (() => {
     const lines = [
@@ -237,6 +244,7 @@ export function useTerminal() {
           command: raw,
           output,
           isError,
+          promptLabel: buildPromptLabel(previousDisplayCwd),
         };
 
         setHistory((prev) => [...prev, entry]);
@@ -304,6 +312,7 @@ export function useTerminal() {
           command: raw,
           output,
           isError,
+          promptLabel: payload?.promptLabel ?? buildPromptLabel(previousDisplayCwd),
         };
 
         if (payload?.clear) {
@@ -323,6 +332,7 @@ export function useTerminal() {
           command: raw,
           output: ["Failed to reach sandbox service. Please try again later."],
           isError: true,
+          promptLabel: buildPromptLabel(previousDisplayCwd),
         };
         setHistory((prev) => [...prev, entry]);
       } finally {
@@ -383,9 +393,11 @@ export function useTerminal() {
     // Computed
     bannerLines,
     bannerColor,
-    // Handlers
-    handleSubmit,
-    handleKeyDown,
+    promptLabel,
+    headerLabel,
+  // Handlers
+  handleSubmit,
+  handleKeyDown,
   };
 }
 function encodeDebugHeader(payload: Record<string, unknown>): string {

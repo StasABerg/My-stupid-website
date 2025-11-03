@@ -6,6 +6,7 @@ interface HistoryEntry {
   command: string;
   output: string[];
   isError: boolean;
+  promptLabel: string;
 }
 
 interface TerminalHistoryEntryProps {
@@ -25,9 +26,7 @@ function TerminalHistoryEntry({ entry }: TerminalHistoryEntryProps) {
   return (
     <div className="mt-3">
       <div className="flex flex-wrap gap-x-1">
-        <span className="text-terminal-green">sandbox</span>
-        <span className="text-terminal-white">:</span>
-        <span className="text-terminal-cyan">{entry.cwd}</span>
+        <span className="text-terminal-cyan">{entry.promptLabel}</span>
         <span className="text-terminal-white">$</span>
         <span className="text-terminal-yellow">{entry.command}</span>
       </div>
