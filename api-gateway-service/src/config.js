@@ -78,6 +78,21 @@ function parsePositiveInt(value, fallback) {
 const redisUrlFromEnv = process.env.CACHE_REDIS_URL ?? process.env.REDIS_URL ?? "";
 const cacheRedisEnabled = typeof redisUrlFromEnv === "string" && redisUrlFromEnv.trim().length > 0;
 
+const sessionRedisUrlFromEnv = process.env.SESSION_REDIS_URL ?? "";
+const sessionRedisUrlCandidate = typeof sessionRedisUrlFromEnv === "string" ? sessionRedisUrlFromEnv.trim() : "";
+const sessionRedisUrlFallback = cacheRedisEnabled ? redisUrlFromEnv.trim() : "";
+const sessionRedisUrl = sessionRedisUrlCandidate || sessionRedisUrlFallback;
+const sessionRedisEnabled = sessionRedisUrl.length > 0;
+const sessionRedisKeyPrefix = process.env.SESSION_REDIS_KEY_PREFIX?.trim() || "gateway:session:";
+const sessionRedisConnectTimeoutMs = parsePositiveInt(
+  process.env.SESSION_REDIS_CONNECT_TIMEOUT_MS,
+  5000,
+);
+const sessionRedisTlsRejectUnauthorized = parseBoolean(
+  process.env.SESSION_REDIS_TLS_REJECT_UNAUTHORIZED,
+  true,
+);
+
 export const config = {
   port: parsePort(process.env.PORT, DEFAULT_PORT),
   radioServiceUrl,
@@ -90,6 +105,16 @@ export const config = {
     secret: deriveSessionSecret(process.env.SESSION_SECRET),
     maxAgeMs:
       parseDurationSeconds(process.env.SESSION_MAX_AGE_SECONDS, 60 * 60 * 24 * 30) * 1000,
+    store: {
+      type: sessionRedisEnabled ? "redis" : "memory",
+      redis: {
+        enabled: sessionRedisEnabled,
+        url: sessionRedisEnabled ? sessionRedisUrl : "",
+        keyPrefix: sessionRedisKeyPrefix,
+        connectTimeoutMs: sessionRedisConnectTimeoutMs,
+        tlsRejectUnauthorized: sessionRedisTlsRejectUnauthorized,
+      },
+    },
   },
   cache: {
     ttlSeconds: parseDurationSeconds(process.env.CACHE_TTL_SECONDS, DEFAULT_CACHE_TTL_SECONDS),

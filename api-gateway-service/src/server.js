@@ -1,7 +1,9 @@
 import fastifyCookie from "@fastify/cookie";
 import fastifySession from "@fastify/session";
 import underPressure from "@fastify/under-pressure";
+import connectRedis from "connect-redis";
 import Fastify from "fastify";
+import Redis from "ioredis";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { config } from "./config.js";
@@ -21,6 +23,45 @@ const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
 
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 const cache = createCache(config.cache);
+
+const RedisStore = connectRedis(fastifySession);
+
+let sessionStore = null;
+let sessionRedisClient = null;
+
+if (config.session.store?.redis?.enabled && config.session.store.redis.url) {
+  const redisOptions = {
+    maxRetriesPerRequest: 2,
+    connectTimeout: config.session.store.redis.connectTimeoutMs,
+  };
+
+  if (
+    config.session.store.redis.url.startsWith("rediss://") &&
+    config.session.store.redis.tlsRejectUnauthorized === false
+  ) {
+    redisOptions.tls = {
+      rejectUnauthorized: false,
+    };
+  }
+
+  sessionRedisClient = new Redis(config.session.store.redis.url, redisOptions);
+  sessionRedisClient.on("error", (error) => {
+    logger.error("session.redis_error", { error });
+  });
+
+  sessionStore = new RedisStore({
+    client: sessionRedisClient,
+    prefix: config.session.store.redis.keyPrefix,
+    ttl: SESSION_TTL_SECONDS,
+    disableTouch: false,
+  });
+} else {
+  logger.warn("session.store.memory_mode", {
+    reason: "redis-disabled",
+    message:
+      "Gateway session data is using the in-memory store; configure SESSION_REDIS_URL for shared deployments.",
+  });
+}
 
 function buildCorsHeaders(origin) {
   const allowed = config.allowOrigins;
@@ -667,6 +708,7 @@ fastify.register(fastifySession, {
   cookieName: SESSION_COOKIE_NAME,
   saveUninitialized: false,
   rolling: false,
+  store: sessionStore ?? undefined,
   cookie: {
     sameSite: "strict",
     httpOnly: true,
@@ -957,9 +999,19 @@ async function shutdown() {
     await cache.shutdown();
   } catch (error) {
     logger.warn("cache.shutdown_error", { error });
-  } finally {
-    process.exit(0);
   }
+
+  if (sessionRedisClient) {
+    try {
+      await sessionRedisClient.quit();
+      logger.info("session.redis_connection_closed", {});
+    } catch (error) {
+      logger.warn("session.redis_quit_failed", { error });
+      sessionRedisClient.disconnect();
+    }
+  }
+
+  process.exit(0);
 }
 
 process.on("SIGINT", () => {
