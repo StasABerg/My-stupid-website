@@ -1,30 +1,12 @@
-import { useEffect } from "react";
+import SwaggerUI from "swagger-ui-react";
+import "swagger-ui-react/swagger-ui.css";
 
-const TARGET_URL = "/api/terminal/docs";
-
-const TerminalDocs = () => {
-  useEffect(() => {
-    // Use microtask to ensure component mounts before navigating.
-    const id = window.setTimeout(() => {
-      window.location.replace(TARGET_URL);
-    }, 0);
-
-    return () => window.clearTimeout(id);
-  }, []);
-
-  return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-4 p-6 text-center">
-      <h1 className="text-3xl font-semibold tracking-tight">Terminal API Documentation</h1>
-      <p className="text-muted-foreground">
-        Redirecting you to the Swagger UI. If nothing happens,{" "}
-        <a className="text-primary underline" href={TARGET_URL}>
-          open the documentation manually
-        </a>
-        .
-      </p>
-    </main>
-  );
-};
+const TerminalDocs = () => (
+  <div className="min-h-screen bg-slate-950 p-4 sm:p-8">
+    <div className="mx-auto max-w-5xl rounded-lg bg-white p-4 shadow-lg">
+      <SwaggerUI url="/api/terminal/docs/json" docExpansion="list" deepLinking={false} />
+    </div>
+  </div>
+);
 
 export default TerminalDocs;
-
