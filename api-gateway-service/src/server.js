@@ -23,8 +23,9 @@ const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 const cache = createCache(config.cache);
 
-class RedisSessionStore {
+class RedisSessionStore extends fastifySession.Store {
   constructor(client, { keyPrefix, ttlSeconds }) {
+    super();
     this.client = client;
     this.keyPrefix = keyPrefix;
     this.ttlSeconds = Math.max(ttlSeconds, 1);
@@ -385,6 +386,22 @@ function initializeSession(session) {
   };
 }
 
+async function persistSession(session) {
+  if (!session || typeof session.save !== "function") {
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    session.save((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 function refreshSession(session) {
   if (!session) {
     return null;
@@ -404,7 +421,7 @@ function extractHeaderValue(headers, target) {
   return typeof raw === "string" ? raw : null;
 }
 
-function validateSession(request, parsedUrl) {
+async function validateSession(request, parsedUrl) {
   const session = request.session;
   if (!session || typeof session.nonce !== "string") {
     return { ok: false, statusCode: 401, error: "Session required" };
@@ -443,6 +460,12 @@ function validateSession(request, parsedUrl) {
     } catch (error) {
       logger.warn("session.touch_failed", { error });
     }
+  }
+
+  try {
+    await persistSession(session);
+  } catch (error) {
+    logger.warn("session.persist_during_validation_failed", { error });
   }
 
   return {
@@ -833,6 +856,11 @@ fastify.post("/session", async (request, reply) => {
   const originAllowed = isOriginAllowed(request.headers.origin ?? null);
   const corsHeaders = buildCorsHeaders(request.headers.origin);
 
+  logger.info("session.request_received", {
+    hasCookie: Boolean(request.headers.cookie),
+    cookies: request.headers.cookie ?? null,
+  });
+
   if (!originAllowed) {
     reply
       .headers({
@@ -846,6 +874,20 @@ fastify.post("/session", async (request, reply) => {
   }
 
   const sessionInfo = initializeSession(request.session);
+  try {
+    await persistSession(request.session);
+  } catch (error) {
+    logger.error("session.persist_failed", { error });
+    reply
+      .headers({
+        ...corsHeaders,
+        "Content-Type": "application/json",
+      })
+      .code(500)
+      .send({ error: "Failed to initialize session" });
+    completeRequest(request, 500, { route: "session", reason: "persist-failed" });
+    return;
+  }
 
   reply
     .headers({
@@ -858,6 +900,10 @@ fastify.post("/session", async (request, reply) => {
       csrfToken: sessionInfo.nonce,
       expiresAt: sessionInfo.expiresAt,
     });
+
+  logger.info("session.response_headers", {
+    setCookie: reply.getHeader("set-cookie") ?? null,
+  });
   completeRequest(request, 200, {
     route: "session",
     expiresAt: sessionInfo.expiresAt,
@@ -956,12 +1002,26 @@ async function handleGatewayRequest(request, reply) {
     return;
   }
 
-  const sessionValidation = validateSession(request, url);
+  const sessionValidation = await validateSession(request, url);
   if (!sessionValidation.ok) {
+    const sessionSnapshot =
+      request.session &&
+      typeof request.session === "object"
+        ? Object.fromEntries(
+            Object.entries(request.session).filter(([key]) => key !== "cookie"),
+          )
+        : null;
     logger.warn("session.validation_failed", {
       ...requestContext,
       statusCode: sessionValidation.statusCode,
       error: sessionValidation.error,
+      hasSessionCookie: Boolean(req.headers.cookie),
+      sessionCookieNames: req.headers.cookie
+        ? req.headers.cookie
+            .split(";")
+            .map((part) => part.trim().split("=")[0])
+        : [],
+      sessionSnapshot,
     });
     res.writeHead(sessionValidation.statusCode, {
       "Content-Type": "application/json",
