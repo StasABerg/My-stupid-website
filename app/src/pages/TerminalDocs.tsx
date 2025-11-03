@@ -1,7 +1,9 @@
+import { Suspense, lazy } from "react";
 import { Link } from "react-router-dom";
-import SwaggerUI from "swagger-ui-react";
 import "swagger-ui-react/swagger-ui.css";
 import { TerminalPrompt } from "@/components/SecureTerminal";
+
+const SwaggerUIBundle = lazy(() => import("swagger-ui-react"));
 
 const TerminalDocs = () => (
   <div className="min-h-screen bg-slate-950 p-4 sm:p-8">
@@ -21,7 +23,9 @@ const TerminalDocs = () => (
       />
     </div>
     <div className="mx-auto max-w-5xl rounded-lg bg-white p-4 shadow-lg">
-      <SwaggerUI url="/api/terminal/docs/json" docExpansion="list" deepLinking={false} />
+      <Suspense fallback={<p className="font-mono text-sm text-slate-500">Loading API reference…</p>}>
+        <SwaggerUIBundle url="/api/terminal/docs/json" docExpansion="list" deepLinking={false} />
+      </Suspense>
     </div>
   </div>
 );

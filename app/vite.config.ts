@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => ({
             { test: (value) => value.includes("date-fns"), name: "date-fns" },
             { test: (value) => value.includes("zod"), name: "zod" },
             { test: (value) => value.includes("hls.js"), name: "hls" },
+            { test: (value) => value.includes("swagger-ui"), name: "swagger" },
             { test: (value) => value.includes("embla-carousel"), name: "carousel" },
             { test: (value) => value.includes("recharts"), name: "recharts" },
           ];
