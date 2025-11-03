@@ -43,13 +43,29 @@ export default defineConfig(({ mode }) => ({
             { test: (value) => value.includes("recharts"), name: "recharts" },
           ];
 
+          const normalizedId = id.replace(/\\/g, "/");
+
           for (const matcher of matchers) {
             if (matcher.test(id)) {
               return matcher.name;
             }
           }
 
-          return "vendor";
+          const segments = normalizedId.split("/node_modules/")[1]?.split("/") ?? [];
+          if (!segments.length) {
+            return "vendor";
+          }
+
+          const [scopeOrName, maybeName] = segments;
+          const packageName = scopeOrName?.startsWith("@")
+            ? `${scopeOrName}/${maybeName ?? ""}`
+            : scopeOrName;
+
+          if (!packageName) {
+            return "vendor";
+          }
+
+          return packageName.replace(/[@/]/g, "-");
         },
       },
     },
