@@ -14,7 +14,8 @@ const RADIO_PREFIX = "/radio";
 const TERMINAL_PREFIX = "/terminal";
 const SESSION_COOKIE_NAME = config.session.cookieName;
 const SESSION_MAX_AGE_MS = config.session.maxAgeMs;
-const SESSION_SECRET = config.session.secret;
+let SESSION_SECRET = config.session.secret;
+const SESSION_SECRET_GENERATED = config.session.secretGenerated;
 const SESSION_TTL_SECONDS = Math.floor(SESSION_MAX_AGE_MS / 1000);
 
 const ABSOLUTE_URL_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
@@ -119,6 +120,26 @@ if (config.session.store?.redis?.enabled && config.session.store.redis.url) {
       "Gateway session data is using the in-memory store; configure SESSION_REDIS_URL for shared deployments.",
   });
 }
+
+if (SESSION_SECRET_GENERATED && sessionRedisClient && config.session.store?.redis?.keyPrefix) {
+  const secretKey = `${config.session.store.redis.keyPrefix}__secret`;
+  try {
+    await sessionRedisClient.setnx(secretKey, SESSION_SECRET);
+    const sharedSecret = await sessionRedisClient.get(secretKey);
+    if (sharedSecret && sharedSecret.length >= 32) {
+      if (sharedSecret !== SESSION_SECRET) {
+        logger.info("session.secret_synchronized", {
+          source: "redis",
+        });
+      }
+      SESSION_SECRET = sharedSecret;
+      config.session.secret = sharedSecret;
+    }
+  } catch (error) {
+    logger.warn("session.secret_sync_failed", { error });
+  }
+}
+
 
 function buildCorsHeaders(origin) {
   const allowed = config.allowOrigins;
