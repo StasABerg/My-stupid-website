@@ -3,6 +3,7 @@ import { ensureNormalizedStation } from "../../stations/normalize.js";
 import { ensureProcessedStations } from "../../stations/processedPayload.js";
 import { parseStationsQuery } from "./stationsQuery.js";
 import { projectStationForClient } from "./projectStation.js";
+import { schemaRefs } from "../openapi.js";
 
 function buildStationsResponse({ totalStations, matches, totalMatches, meta, config }) {
   return {
@@ -161,7 +162,42 @@ export function registerStationsRoutes(
   app,
   { config, ensureRedis, stationsLoader, updateStations, redis },
 ) {
-  app.get("/stations", async (request, reply) => {
+  const stationsRouteSchema = {
+    tags: ["Stations"],
+    summary: "List radio stations",
+    description:
+      "Returns paginated radio stations with optional filters by country, language, tag, genre, or search term.",
+    querystring: {
+      $ref: schemaRefs.stationsQuerystring,
+    },
+    response: {
+      200: {
+        $ref: schemaRefs.stationListResponse,
+      },
+      400: {
+        description: "Invalid query parameters supplied.",
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          error: { type: "string" },
+          details: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+      },
+      500: {
+        description: "Failed to load stations from cache or storage.",
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          error: { type: "string" },
+        },
+      },
+    },
+  };
+
+  app.get("/stations", { schema: stationsRouteSchema }, async (request, reply) => {
     try {
       await ensureRedis();
       const parsedQuery = parseStationsQuery(request.query, { config });

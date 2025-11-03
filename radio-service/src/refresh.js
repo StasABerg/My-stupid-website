@@ -1,18 +1,20 @@
 import { validateConfig } from "./config/index.js";
-import { createRedisClient } from "./redis.js";
 import { updateStations } from "./service.js";
 import { logger } from "./logger.js";
+import Redis from "ioredis";
 
 async function main() {
   validateConfig();
-  const redis = createRedisClient();
-  await redis.connect();
-  const { payload } = await updateStations(redis);
-  logger.info("refresh.completed", {
-    total: payload.total,
-    updatedAt: payload.updatedAt,
-  });
-  await redis.quit();
+  const redis = new Redis(process.env.REDIS_URL);
+  try {
+    const { payload } = await updateStations(redis);
+    logger.info("refresh.completed", {
+      total: payload.total,
+      updatedAt: payload.updatedAt,
+    });
+  } finally {
+    await redis.quit();
+  }
 }
 
 main().catch((error) => {

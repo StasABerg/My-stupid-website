@@ -1,12 +1,9 @@
 import { config, validateConfig } from "../config/index.js";
-import { createRedisClient } from "../redis.js";
 import { loadStations, recordStationClick, updateStations } from "../service.js";
 import { logger } from "../logger.js";
 import { createApp } from "./app.js";
 
 validateConfig();
-
-const redis = createRedisClient();
 
 logger.info("s3.configuration", {
   endpoint: config.s3.endpoint,
@@ -16,16 +13,7 @@ logger.info("s3.configuration", {
   bucket: config.s3.bucket,
 });
 
-async function ensureRedis() {
-  if (redis.status !== "ready") {
-    await redis.connect();
-  }
-}
-
 const app = createApp({
-  config,
-  redis,
-  ensureRedis,
   loadStations,
   updateStations,
   recordStationClick,
@@ -49,13 +37,6 @@ async function shutdown(signal) {
     await app.close();
   } catch (error) {
     logger.warn("server.close_failed", { error });
-  }
-  try {
-    await redis.quit();
-    logger.info("redis.connection_closed", {});
-  } catch (error) {
-    logger.warn("redis.quit_failed", { error });
-    redis.disconnect();
   } finally {
     logger.info("server.shutdown_complete", { signal });
     process.exit(0);

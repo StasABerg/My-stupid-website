@@ -1,5 +1,6 @@
 import { logger } from "../../logger.js";
 import { projectStationForClient } from "./projectStation.js";
+import { schemaRefs } from "../openapi.js";
 
 const SESSION_TOKEN_PATTERN = /^[a-f0-9]{16,}$/i;
 const STATION_ID_PATTERN = /^[A-Za-z0-9:_-]{3,128}$/;
@@ -262,7 +263,86 @@ async function respondWithFavorites(
 }
 
 export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoader }) {
-  app.get("/favorites", async (request, reply) => {
+  const favoritesResponseRef = { $ref: schemaRefs.favoritesResponse };
+  const standardErrorSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      error: { type: "string" },
+    },
+  };
+  const unauthorizedSchema = {
+    ...standardErrorSchema,
+    description: "A valid session token was not provided.",
+  };
+  const getFavoritesSchema = {
+    tags: ["Favorites"],
+    summary: "Retrieve favorites for a client session",
+    description: "Returns the current list of favorite stations stored for the provided session token.",
+    response: {
+      200: favoritesResponseRef,
+      401: unauthorizedSchema,
+      500: {
+        ...standardErrorSchema,
+        description: "The service failed to read favorites from Redis.",
+      },
+    },
+  };
+
+  const upsertFavoriteSchema = {
+    tags: ["Favorites"],
+    summary: "Add or update a favorite station",
+    description:
+      "Stores a station as a favorite for the session. Optionally accepts a slot index to control ordering.",
+    params: {
+      $ref: schemaRefs.stationIdentifierParams,
+    },
+    body: {
+      $ref: schemaRefs.favoritesUpsertBody,
+    },
+    response: {
+      200: favoritesResponseRef,
+      400: {
+        ...standardErrorSchema,
+        description: "The request body or station identifier was invalid.",
+      },
+      401: unauthorizedSchema,
+      404: {
+        ...standardErrorSchema,
+        description: "The requested station identifier was not found.",
+      },
+      409: {
+        ...standardErrorSchema,
+        description: "All favorite slots are filled and no replacement slot was provided.",
+      },
+      500: {
+        ...standardErrorSchema,
+        description: "An unexpected error occurred while saving favorites.",
+      },
+    },
+  };
+
+  const deleteFavoriteSchema = {
+    tags: ["Favorites"],
+    summary: "Remove a favorite station",
+    params: {
+      $ref: schemaRefs.stationIdentifierParams,
+    },
+    response: {
+      200: favoritesResponseRef,
+      400: {
+        ...standardErrorSchema,
+        description: "The station identifier was invalid.",
+      },
+      401: unauthorizedSchema,
+      500: {
+        ...standardErrorSchema,
+        description: "The service failed to remove the favorite.",
+      },
+    },
+  };
+
+  app.get("/favorites", { schema: getFavoritesSchema }, async (request, reply) => {
     const session = extractSessionToken(request);
     if (!session.ok) {
       reply.status(session.status).send({ error: session.error });
@@ -282,7 +362,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
     }
   });
 
-  app.put("/favorites/:stationId", async (request, reply) => {
+  app.put("/favorites/:stationId", { schema: upsertFavoriteSchema }, async (request, reply) => {
     const session = extractSessionToken(request);
     if (!session.ok) {
       reply.status(session.status).send({ error: session.error });
@@ -389,7 +469,7 @@ export function registerFavoritesRoutes(app, { ensureRedis, redis, stationsLoade
     }
   });
 
-  app.delete("/favorites/:stationId", async (request, reply) => {
+  app.delete("/favorites/:stationId", { schema: deleteFavoriteSchema }, async (request, reply) => {
     const session = extractSessionToken(request);
     if (!session.ok) {
       reply.status(session.status).send({ error: session.error });

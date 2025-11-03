@@ -10,7 +10,12 @@ async function findStationById(stationsLoader, stationId) {
 }
 
 export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader }) {
-  app.get("/stations/:stationId/stream", async (request, reply) => {
+  const streamRouteBaseSchema = {
+    tags: ["Stations"],
+    hide: true,
+  };
+
+  app.get("/stations/:stationId/stream", { schema: streamRouteBaseSchema }, async (request, reply) => {
     try {
       await ensureRedis();
       const stationId = request.params.stationId?.trim();
@@ -80,7 +85,10 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
     }
   });
 
-  app.get("/stations/:stationId/stream/segment", async (request, reply) => {
+  app.get(
+    "/stations/:stationId/stream/segment",
+    { schema: streamRouteBaseSchema },
+    async (request, reply) => {
     try {
       await ensureRedis();
       const stationId = request.params.stationId?.trim();
@@ -164,5 +172,6 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
       });
       reply.status(500).send({ error: "Failed to proxy stream segment." });
     }
-  });
+    },
+  );
 }
