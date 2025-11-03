@@ -1,7 +1,6 @@
 import fastifyCookie from "@fastify/cookie";
 import fastifySession from "@fastify/session";
 import underPressure from "@fastify/under-pressure";
-import connectRedis from "connect-redis";
 import Fastify from "fastify";
 import Redis from "ioredis";
 import crypto from "node:crypto";
@@ -24,7 +23,66 @@ const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
 const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 const cache = createCache(config.cache);
 
-const RedisStore = connectRedis(fastifySession);
+class RedisSessionStore {
+  constructor(client, { keyPrefix, ttlSeconds }) {
+    this.client = client;
+    this.keyPrefix = keyPrefix;
+    this.ttlSeconds = Math.max(ttlSeconds, 1);
+  }
+
+  buildKey(sessionId) {
+    return `${this.keyPrefix}${sessionId}`;
+  }
+
+  async get(sessionId, callback) {
+    try {
+      const raw = await this.client.get(this.buildKey(sessionId));
+      if (!raw) {
+        callback?.(null, null);
+        return null;
+      }
+      const value = JSON.parse(raw);
+      callback?.(null, value);
+      return value;
+    } catch (error) {
+      logger.warn("session.store.redis_get_failed", { sessionId, error });
+      callback?.(error);
+      return null;
+    }
+  }
+
+  async set(sessionId, session, callback) {
+    try {
+      const payload = JSON.stringify(session);
+      await this.client.set(this.buildKey(sessionId), payload, "EX", this.ttlSeconds);
+      callback?.(null);
+    } catch (error) {
+      logger.warn("session.store.redis_set_failed", { sessionId, error });
+      callback?.(error);
+    }
+  }
+
+  async destroy(sessionId, callback) {
+    try {
+      await this.client.del(this.buildKey(sessionId));
+      callback?.(null);
+    } catch (error) {
+      logger.warn("session.store.redis_destroy_failed", { sessionId, error });
+      callback?.(error);
+    }
+  }
+
+  async touch(sessionId, session, callback) {
+    try {
+      const payload = JSON.stringify(session);
+      await this.client.set(this.buildKey(sessionId), payload, "EX", this.ttlSeconds);
+      callback?.(null);
+    } catch (error) {
+      logger.warn("session.store.redis_touch_failed", { sessionId, error });
+      callback?.(error);
+    }
+  }
+}
 
 let sessionStore = null;
 let sessionRedisClient = null;
@@ -49,11 +107,9 @@ if (config.session.store?.redis?.enabled && config.session.store.redis.url) {
     logger.error("session.redis_error", { error });
   });
 
-  sessionStore = new RedisStore({
-    client: sessionRedisClient,
-    prefix: config.session.store.redis.keyPrefix,
-    ttl: SESSION_TTL_SECONDS,
-    disableTouch: false,
+  sessionStore = new RedisSessionStore(sessionRedisClient, {
+    keyPrefix: config.session.store.redis.keyPrefix,
+    ttlSeconds: SESSION_TTL_SECONDS,
   });
 } else {
   logger.warn("session.store.memory_mode", {
