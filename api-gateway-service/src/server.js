@@ -2,887 +2,59 @@ import fastifyCookie from "@fastify/cookie";
 import fastifySession from "@fastify/session";
 import underPressure from "@fastify/under-pressure";
 import Fastify from "fastify";
-import Redis from "ioredis";
-import crypto from "node:crypto";
-import { Readable } from "node:stream";
 import { config } from "./config.js";
 import { createCache } from "./cache/index.js";
 import { logger } from "./logger.js";
+import { createSessionManager } from "./server/session-manager.js";
+import { createCorsHelpers } from "./server/cors.js";
+import { createRoutingHelpers } from "./server/routing.js";
+import {
+  sanitizeRequestHeaders,
+  sanitizeResponseHeaders,
+  sanitizeHeadersForCache,
+  resolveClientIp,
+  appendForwardedFor,
+  findHeaderKey,
+} from "./server/headers.js";
+import { createProxyHandler } from "./server/proxy.js";
+import { createRequestContextManager } from "./server/request-context.js";
 
-const ALLOWED_SERVICE_HOSTNAMES = new Set(config.allowedServiceHostnames);
 const RADIO_PREFIX = "/radio";
 const TERMINAL_PREFIX = "/terminal";
 const SESSION_COOKIE_NAME = config.session.cookieName;
-const SESSION_MAX_AGE_MS = config.session.maxAgeMs;
-let SESSION_SECRET = config.session.secret;
-const SESSION_SECRET_GENERATED = config.session.secretGenerated;
-const SESSION_TTL_SECONDS = Math.floor(SESSION_MAX_AGE_MS / 1000);
+const SESSION_TTL_SECONDS = Math.floor(config.session.maxAgeMs / 1000);
 
-const ABSOLUTE_URL_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
-const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
-
-const VALID_PREFIXES = [RADIO_PREFIX, TERMINAL_PREFIX];
 const cache = createCache(config.cache);
 
-class RedisSessionStore extends fastifySession.Store {
-  constructor(client, { keyPrefix, ttlSeconds }) {
-    super();
-    this.client = client;
-    this.keyPrefix = keyPrefix;
-    this.ttlSeconds = Math.max(ttlSeconds, 1);
-  }
-
-  buildKey(sessionId) {
-    return `${this.keyPrefix}${sessionId}`;
-  }
-
-  async get(sessionId, callback) {
-    try {
-      const raw = await this.client.get(this.buildKey(sessionId));
-      if (!raw) {
-        callback?.(null, null);
-        return null;
-      }
-      const value = JSON.parse(raw);
-      callback?.(null, value);
-      return value;
-    } catch (error) {
-      logger.warn("session.store.redis_get_failed", { sessionId, error });
-      callback?.(error);
-      return null;
-    }
-  }
-
-  async set(sessionId, session, callback) {
-    try {
-      const payload = JSON.stringify(session);
-      await this.client.set(this.buildKey(sessionId), payload, "EX", this.ttlSeconds);
-      callback?.(null);
-    } catch (error) {
-      logger.warn("session.store.redis_set_failed", { sessionId, error });
-      callback?.(error);
-    }
-  }
-
-  async destroy(sessionId, callback) {
-    try {
-      await this.client.del(this.buildKey(sessionId));
-      callback?.(null);
-    } catch (error) {
-      logger.warn("session.store.redis_destroy_failed", { sessionId, error });
-      callback?.(error);
-    }
-  }
-
-  async touch(sessionId, session, callback) {
-    try {
-      const payload = JSON.stringify(session);
-      await this.client.set(this.buildKey(sessionId), payload, "EX", this.ttlSeconds);
-      callback?.(null);
-    } catch (error) {
-      logger.warn("session.store.redis_touch_failed", { sessionId, error });
-      callback?.(error);
-    }
-  }
-}
-
-let sessionStore = null;
-let sessionRedisClient = null;
-
-if (config.session.store?.redis?.enabled && config.session.store.redis.url) {
-  const redisOptions = {
-    maxRetriesPerRequest: 2,
-    connectTimeout: config.session.store.redis.connectTimeoutMs,
-  };
-
-  if (
-    config.session.store.redis.url.startsWith("rediss://") &&
-    config.session.store.redis.tlsRejectUnauthorized === false
-  ) {
-    redisOptions.tls = {
-      rejectUnauthorized: false,
-    };
-  }
-
-  sessionRedisClient = new Redis(config.session.store.redis.url, redisOptions);
-  sessionRedisClient.on("error", (error) => {
-    logger.error("session.redis_error", { error });
-  });
-
-  sessionStore = new RedisSessionStore(sessionRedisClient, {
-    keyPrefix: config.session.store.redis.keyPrefix,
-    ttlSeconds: SESSION_TTL_SECONDS,
-  });
-} else {
-  logger.warn("session.store.memory_mode", {
-    reason: "redis-disabled",
-    message:
-      "Gateway session data is using the in-memory store; configure SESSION_REDIS_URL for shared deployments.",
-  });
-}
-
-if (SESSION_SECRET_GENERATED && sessionRedisClient && config.session.store?.redis?.keyPrefix) {
-  const secretKey = `${config.session.store.redis.keyPrefix}__secret`;
-  try {
-    await sessionRedisClient.setnx(secretKey, SESSION_SECRET);
-    const sharedSecret = await sessionRedisClient.get(secretKey);
-    if (sharedSecret && sharedSecret.length >= 32) {
-      if (sharedSecret !== SESSION_SECRET) {
-        logger.info("session.secret_synchronized", {
-          source: "redis",
-        });
-      }
-      SESSION_SECRET = sharedSecret;
-      config.session.secret = sharedSecret;
-    }
-  } catch (error) {
-    logger.warn("session.secret_sync_failed", { error });
-  }
-}
-
-const CSRF_SESSION_KEY_PREFIX =
-  config.session.store?.redis?.keyPrefix
-    ? `${config.session.store.redis.keyPrefix}nonce:`
-    : "gateway:session:nonce:";
-
-const inMemoryCsrfSessions = new Map();
-
-function buildCsrfSessionKey(token) {
-  return `${CSRF_SESSION_KEY_PREFIX}${token}`;
-}
-
-async function storeCsrfSessionRecord(token, sessionData) {
-  if (!token) return;
-  if (sessionRedisClient) {
-    try {
-      await sessionRedisClient.set(
-        buildCsrfSessionKey(token),
-        JSON.stringify(sessionData),
-        "EX",
-        SESSION_TTL_SECONDS,
-      );
-    } catch (error) {
-      logger.warn("session.csrf_store_failed", { error });
-    }
-    return;
-  }
-
-  inMemoryCsrfSessions.set(token, { ...sessionData });
-}
-
-async function loadCsrfSessionRecord(token) {
-  if (!token) return null;
-  if (sessionRedisClient) {
-    try {
-      const raw = await sessionRedisClient.get(buildCsrfSessionKey(token));
-      if (!raw) {
-        return null;
-      }
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") {
-        return null;
-      }
-      return parsed;
-    } catch (error) {
-      logger.warn("session.csrf_lookup_failed", { error });
-      return null;
-    }
-  }
-
-  const record = inMemoryCsrfSessions.get(token);
-  if (!record) {
-    return null;
-  }
-  if (record.expiresAt && Date.now() > record.expiresAt) {
-    inMemoryCsrfSessions.delete(token);
-    return null;
-  }
-  return record;
-}
-
-async function deleteCsrfSessionRecord(token) {
-  if (!token) return;
-  if (sessionRedisClient) {
-    try {
-      await sessionRedisClient.del(buildCsrfSessionKey(token));
-    } catch (error) {
-      logger.warn("session.csrf_delete_failed", { error });
-    }
-    return;
-  }
-  inMemoryCsrfSessions.delete(token);
-}
-
-function buildCorsHeaders(origin) {
-  const allowed = config.allowOrigins;
-  const wildcard = allowed.includes("*");
-  if (!origin) {
-    const headers = { Vary: "Origin" };
-    if (allowed.length === 0 || wildcard) {
-      return headers;
-    }
-    return headers;
-  }
-
-  if (allowed.length === 0 || wildcard || allowed.includes(origin)) {
-    const headers = {
-      Vary: "Origin",
-      "Access-Control-Allow-Origin": wildcard ? "*" : origin,
-      "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,PATCH,OPTIONS",
-      "Access-Control-Allow-Headers": "authorization,content-type,x-gateway-csrf",
-    };
-
-    if (!wildcard) {
-      headers["Access-Control-Allow-Credentials"] = "true";
-    }
-
-    return headers;
-  }
-
-  return { Vary: "Origin" };
-}
-
-function isOriginAllowed(origin) {
-  const allowed = config.allowOrigins;
-  if (allowed.length === 0 || allowed.includes("*")) {
-    return true;
-  }
-  if (!origin) {
-    return false;
-  }
-  return allowed.includes(origin);
-}
-
-function handlePreflight(req, res) {
-  const headers = buildCorsHeaders(req.headers.origin);
-  res.writeHead(204, {
-    ...headers,
-    "Access-Control-Max-Age": "600",
-  });
-  res.end();
-}
-
-const HOP_BY_HOP_HEADERS = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-connection",
-  "transfer-encoding",
-  "upgrade",
-  "te",
-  "trailer",
-  "proxy-authorization",
-  "proxy-authenticate",
-  "host",
-  "content-length",
-  "expect",
-]);
-
-function decodeUntilStable(value) {
-  let current = value;
-  for (let i = 0; i < 3; i += 1) {
-    try {
-      const decoded = decodeURIComponent(current);
-      if (decoded === current) {
-        return current;
-      }
-      current = decoded;
-    } catch (error) {
-      return current;
-    }
-  }
-  return current;
-}
-
-function containsTraversal(value) {
-  return (
-    value.includes("..") ||
-    value.includes("\\") ||
-    value.includes("//") ||
-    /%2e%2f|%2f%2e|%5c|%2f%2f|%2e%2e/i.test(value)
-  );
-}
-
-function parseRequestUrl(rawUrl) {
-  if (typeof rawUrl !== "string" || rawUrl.length === 0) {
-    return { ok: false, statusCode: 400, error: "Missing request URL", reason: "missing" };
-  }
-  if (CONTROL_CHAR_PATTERN.test(rawUrl) || rawUrl.includes("\\")) {
-    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "invalid-characters" };
-  }
-  if (ABSOLUTE_URL_PATTERN.test(rawUrl) || rawUrl.startsWith("//")) {
-    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "absolute-form" };
-  }
-  let parsed;
-  try {
-    parsed = new URL(rawUrl, "http://localhost");
-  } catch {
-    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "parse-failed" };
-  }
-  if (
-    parsed.hostname !== "localhost" ||
-    parsed.port ||
-    parsed.username ||
-    parsed.password
-  ) {
-    return { ok: false, statusCode: 400, error: "Invalid request URL", reason: "unexpected-authority" };
-  }
-  return { ok: true, url: parsed };
-}
-
-function sanitizePath(prefix, rawSuffix, context = {}) {
-  if (!VALID_PREFIXES.includes(prefix)) {
-    return null;
-  }
-  // Only allow single leading slash, prohibit path traversal, encoded traversal, backslashes, double slashes
-  let suffix = rawSuffix || "/";
-  if (!suffix.startsWith("/")) suffix = "/" + suffix;
-  // Prohibit path traversal attempts even if encoded
-  const decoded = decodeUntilStable(suffix);
-  if (containsTraversal(suffix) || containsTraversal(decoded)) {
-    logger.warn("request.blocked_ssrf_attempt", {
-      ...context,
-      prefix,
-      suffix,
-    });
-    return null;
-  }
-  // Optionally normalize: collapse multiple slashes
-  suffix = suffix.replace(/\/{2,}/g, "/");
-  return suffix;
-}
-
-function determineTarget(pathname, context = {}) {
-  if (pathname === RADIO_PREFIX || pathname.startsWith(`${RADIO_PREFIX}/`)) {
-    const rawSuffix = pathname.slice(RADIO_PREFIX.length) || "/";
-    const sanitized = sanitizePath(RADIO_PREFIX, rawSuffix, context);
-    if (!sanitized) return null;
-    return {
-      baseUrl: config.radioServiceUrl,
-      path: sanitized,
-      service: "radio",
-    };
-  }
-
-  if (pathname === TERMINAL_PREFIX || pathname.startsWith(`${TERMINAL_PREFIX}/`)) {
-    const rawSuffix = pathname.slice(TERMINAL_PREFIX.length) || "/";
-    const sanitized = sanitizePath(TERMINAL_PREFIX, rawSuffix, context);
-    if (!sanitized) return null;
-    return {
-      baseUrl: config.terminalServiceUrl,
-      path: sanitized,
-      service: "terminal",
-    };
-  }
-
-  return null;
-}
-
-function sanitizeRequestHeaders(headers) {
-  const result = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (!value) continue;
-    const lowerKey = key.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(lowerKey)) continue;
-    result[key] = Array.isArray(value) ? value.join(", ") : value;
-  }
-  return result;
-}
-
-function sanitizeResponseHeaders(headers) {
-  const result = {};
-  headers.forEach((value, key) => {
-    if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) return;
-    result[key] = value;
-  });
-  return result;
-}
-
-function sanitizeHeadersForCache(headers) {
-  const filtered = { ...headers };
-  for (const key of Object.keys(filtered)) {
-    const lower = key.toLowerCase();
-    if (lower === "set-cookie" || lower === "set-cookie2" || lower === "content-length") {
-      delete filtered[key];
-    }
-  }
-  return filtered;
-}
-
-function shouldCacheRequest(req, target) {
-  if (req.method !== "GET" || !target) {
-    return false;
-  }
-  if (target.service === "radio" && target.path.startsWith("/stations")) {
-    return true;
-  }
-  return false;
-}
-
-function buildCacheKey(req, target, parsedUrl) {
-  const parsed = parsedUrl ?? new URL(req.url ?? "/", "http://localhost");
-  const params = Array.from(parsed.searchParams.entries()).sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
-  const serialized =
-    params.length > 0 ? params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&") : "";
-  const suffix = serialized.length > 0 ? `?${serialized}` : "";
-  return `${target.service}:${target.path}${suffix}`;
-}
-
-if (ALLOWED_SERVICE_HOSTNAMES.size === 0) {
-  logger.error("config.allowed_service_hostnames_missing", {});
-  process.exit(1);
-}
-
-function validateBaseUrl(serviceName, serviceUrl) {
-  let parsed;
-  try {
-    parsed = new URL(serviceUrl);
-  } catch (error) {
-    throw new Error(`Invalid ${serviceName}: ${serviceUrl}`);
-  }
-  if (!ALLOWED_SERVICE_HOSTNAMES.has(parsed.hostname)) {
-    throw new Error(
-      `Blocked SSRF risk for ${serviceName}: hostname "${parsed.hostname}" is not allowed. Allowed: ${Array.from(
-        ALLOWED_SERVICE_HOSTNAMES,
-      ).join(", ")}`,
-    );
-  }
-  return parsed;
-}
-
-try {
-  validateBaseUrl("radioServiceUrl", config.radioServiceUrl);
-  validateBaseUrl("terminalServiceUrl", config.terminalServiceUrl);
-} catch (error) {
-  logger.error("config.invalid_base_url", { error });
-  process.exit(1);
-}
-
-function generateSessionNonce() {
-  return crypto.randomBytes(16).toString("hex");
-}
-
-function initializeSession(session) {
-  if (!session) {
-    throw new Error("Session plugin is not initialized");
-  }
-  const issuedAt = Date.now();
-  const nonce = generateSessionNonce();
-  session.nonce = nonce;
-  session.csrfToken = nonce;
-  session.issuedAt = issuedAt;
-  session.expiresAt = issuedAt + SESSION_MAX_AGE_MS;
-  return {
-    nonce,
-    expiresAt: session.expiresAt,
-  };
-}
-
-async function persistSession(session) {
-  if (!session || typeof session.save !== "function") {
-    return;
-  }
-
-  await new Promise((resolve, reject) => {
-    session.save((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-function refreshSession(session) {
-  if (!session) {
-    return null;
-  }
-  const refreshedAt = Date.now();
-  session.expiresAt = refreshedAt + SESSION_MAX_AGE_MS;
-  return session.expiresAt;
-}
-
-function extractHeaderValue(headers, target) {
-  const key = findHeaderKey(headers, target);
-  if (!key) return null;
-  const raw = headers[key];
-  if (Array.isArray(raw)) {
-    return raw.length > 0 ? raw[0] : null;
-  }
-  return typeof raw === "string" ? raw : null;
-}
-
-async function validateSession(request, parsedUrl) {
-  if (!request.session || typeof request.session !== "object") {
-    request.session = {};
-  }
-  const session = request.session;
-
-  const csrfHeader = extractHeaderValue(request.headers, "x-gateway-csrf");
-  let csrfToken = typeof csrfHeader === "string" && csrfHeader.trim().length > 0 ? csrfHeader.trim() : null;
-  if (!csrfToken && parsedUrl) {
-    const param = parsedUrl.searchParams.get("csrfToken");
-    if (typeof param === "string" && param.trim().length > 0) {
-      csrfToken = param.trim();
-    }
-  }
-
-  if (typeof session.nonce !== "string" && csrfToken) {
-    const csrfRecord = await loadCsrfSessionRecord(csrfToken);
-    if (csrfRecord && csrfRecord.nonce && csrfRecord.expiresAt) {
-      if (Date.now() > csrfRecord.expiresAt) {
-        await deleteCsrfSessionRecord(csrfToken);
-      } else {
-        session.nonce = csrfRecord.nonce;
-        session.expiresAt = csrfRecord.expiresAt;
-        session.issuedAt = csrfRecord.issuedAt ?? Date.now();
-      }
-    }
-  }
-
-  if (typeof session.nonce !== "string") {
-    return { ok: false, statusCode: 401, error: "Session required" };
-  }
-
-  const expiresAtValue = Number.parseInt(session.expiresAt ?? "", 10);
-  if (!Number.isFinite(expiresAtValue)) {
-    return { ok: false, statusCode: 401, error: "Invalid session" };
-  }
-
-  if (Date.now() > expiresAtValue) {
-    await deleteCsrfSessionRecord(session.nonce);
-    return { ok: false, statusCode: 401, error: "Session expired" };
-  }
-
-  const method = (request.raw.method ?? "").toUpperCase();
-  const csrfRequired = method !== "OPTIONS";
-  if (csrfRequired) {
-    if (!csrfToken || csrfToken !== session.nonce) {
-      return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
-    }
-  }
-
-  refreshSession(session);
-  if (typeof session.touch === "function") {
-    try {
-      session.touch();
-    } catch (error) {
-      logger.warn("session.touch_failed", { error });
-    }
-  }
-
-  try {
-    await persistSession(session);
-  } catch (error) {
-    logger.warn("session.persist_during_validation_failed", { error });
-  }
-
-  await storeCsrfSessionRecord(session.nonce, {
-    nonce: session.nonce,
-    expiresAt: session.expiresAt,
-  });
-
-  return {
-    ok: true,
-    session: {
-      nonce: session.nonce,
-      expiresAt: session.expiresAt,
-    },
-  };
-}
-
-function buildProxyRequestBody(request, signal) {
-  const req = request.raw;
-  if (req.method === "GET" || req.method === "HEAD") {
-    return null;
-  }
-
-  const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : "";
-  if (request.body !== undefined && request.body !== null) {
-    if (Buffer.isBuffer(request.body) || request.body instanceof Uint8Array) {
-      return request.body;
-    }
-    if (typeof request.body === "string") {
-      return request.body;
-    }
-    if (contentType.startsWith("application/json")) {
-      return JSON.stringify(request.body);
-    }
-  }
-
-  if (signal.aborted) {
-    req.destroy(new Error("Request aborted"));
-    return null;
-  }
-
-  signal.addEventListener(
-    "abort",
-    () => {
-      req.destroy(new Error("Request aborted"));
-    },
-    { once: true },
-  );
-
-  return Readable.toWeb(req);
-}
-
-async function proxyRequest(
-  request,
-  res,
-  target,
-  session,
-  corsHeaders,
-  cacheOptions,
-  parsedUrl,
-  requestContext,
-) {
-  const req = request.raw;
-  const parsed = parsedUrl ?? new URL(req.url ?? "/", "http://localhost");
-  const targetUrl = new URL(target.path + parsed.search, `${target.baseUrl}`);
-  const allowedHostname = new URL(target.baseUrl).hostname;
-  if (
-    (targetUrl.protocol !== "https:" && targetUrl.protocol !== "http:") ||
-    targetUrl.hostname !== allowedHostname
-  ) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Upstream target rejected" }));
-    return;
-  }
-
-  const abort = new AbortController();
-  const timeout = setTimeout(() => abort.abort(), config.requestTimeoutMs);
-
-  try {
-    const body = buildProxyRequestBody(request, abort.signal);
-
-    const outgoingHeaders = sanitizeRequestHeaders(req.headers);
-    const { ip: clientIp, source: clientIpSource } = resolveClientIp(req);
-    if (session?.nonce) {
-      outgoingHeaders["X-Gateway-Session"] = session.nonce;
-    }
-    if (clientIp) {
-      const connectingKey = findHeaderKey(outgoingHeaders, "cf-connecting-ip");
-      const connectionKey = findHeaderKey(outgoingHeaders, "cf-connection-ip");
-      if (clientIpSource === "cf-connection-ip") {
-        if (connectionKey) {
-          outgoingHeaders[connectionKey] = clientIp;
-        } else {
-          outgoingHeaders["CF-Connection-IP"] = clientIp;
-        }
-        if (connectingKey) {
-          outgoingHeaders[connectingKey] = clientIp;
-        } else {
-          outgoingHeaders["CF-Connecting-IP"] = clientIp;
-        }
-      } else {
-        if (connectingKey) {
-          outgoingHeaders[connectingKey] = clientIp;
-        } else {
-          outgoingHeaders["CF-Connecting-IP"] = clientIp;
-        }
-        if (connectionKey) {
-          outgoingHeaders[connectionKey] = clientIp;
-        } else {
-          outgoingHeaders["CF-Connection-IP"] = clientIp;
-        }
-      }
-      outgoingHeaders["X-Real-IP"] = clientIp;
-    }
-    appendForwardedFor(outgoingHeaders, req.socket?.remoteAddress ?? null);
-
-    const fetchOptions = {
-      method: req.method,
-      headers: outgoingHeaders,
-      signal: abort.signal,
-    };
-
-    if (body != null) {
-      fetchOptions.body = body;
-      fetchOptions.duplex = "half";
-    }
-
-    const upstreamResponse = await fetch(targetUrl, fetchOptions);
-
-    const headers = sanitizeResponseHeaders(upstreamResponse.headers);
-    const cacheable =
-      cacheOptions?.cacheable &&
-      (upstreamResponse.status === 200 || upstreamResponse.status === 204) &&
-      typeof headers["content-type"] === "string" &&
-      headers["content-type"].includes("application/json");
-    const bufferedChunks = cacheable ? [] : null;
-    const responseHeaders = {
-      ...headers,
-      ...corsHeaders,
-      "X-Cache": cacheOptions?.cacheable ? "MISS" : "BYPASS",
-    };
-
-    res.writeHead(upstreamResponse.status, responseHeaders);
-
-    if (upstreamResponse.body) {
-      for await (const chunk of upstreamResponse.body) {
-        res.write(chunk);
-        if (bufferedChunks) {
-          bufferedChunks.push(Buffer.from(chunk));
-        }
-      }
-    }
-    res.end();
-
-    if (bufferedChunks && cacheOptions?.cacheKey) {
-      try {
-        const payloadBuffer = Buffer.concat(bufferedChunks);
-        const cacheRecord = JSON.stringify({
-          status: upstreamResponse.status,
-          headers: sanitizeHeadersForCache(headers),
-          body: payloadBuffer.toString("utf8"),
-        });
-        await cache.set(cacheOptions.cacheKey, cacheRecord, config.cache.ttlSeconds);
-      } catch (error) {
-        logger.warn("cache.store_error", {
-          ...requestContext,
-          cacheKey: cacheOptions.cacheKey,
-          error,
-        });
-      }
-    }
-
-    return {
-      status: upstreamResponse.status,
-      cacheStatus: cacheOptions?.cacheable ? "MISS" : "BYPASS",
-    };
-  } catch (error) {
-    const status = error.name === "AbortError" ? 504 : 502;
-    logger.error("proxy.error", {
-      ...requestContext,
-      status,
-      target: target.baseUrl,
-      error,
-    });
-    if (!res.headersSent) {
-      res.writeHead(status, {
-        "Content-Type": "application/json",
-        ...corsHeaders,
-      });
-    }
-    if (!res.writableEnded) {
-      if (!res.headersSent) {
-        res.end(JSON.stringify({ error: "Upstream request failed" }));
-      } else {
-        res.end();
-      }
-    }
-    return { status, error };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function findHeaderKey(headers, target) {
-  const lowerTarget = target.toLowerCase();
-  return Object.keys(headers).find((key) => key.toLowerCase() === lowerTarget) ?? null;
-}
-
-function appendForwardedFor(headers, remoteAddress) {
-  if (!remoteAddress) {
-    return;
-  }
-  const normalized = normalizeAddress(remoteAddress);
-  if (!normalized) {
-    return;
-  }
-  const existingKey = findHeaderKey(headers, "x-forwarded-for");
-  if (existingKey) {
-    const parts = headers[existingKey]
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    if (!parts.includes(normalized)) {
-      parts.push(normalized);
-    }
-    headers[existingKey] = parts.join(", ");
-  } else {
-    headers["X-Forwarded-For"] = normalized;
-  }
-}
-
-function normalizeAddress(address) {
-  if (!address) return null;
-  if (address.startsWith("::ffff:")) {
-    return address.slice(7);
-  }
-  if (address === "::1") {
-    return "127.0.0.1";
-  }
-  return address;
-}
-
-function resolveClientIp(req) {
-  const headerCandidates = ["cf-connecting-ip", "cf-connection-ip"];
-  for (const header of headerCandidates) {
-    const raw = extractHeaderValue(req.headers, header);
-    if (typeof raw === "string" && raw.trim().length > 0) {
-      const normalized = normalizeAddress(raw.trim());
-      if (normalized) {
-        return { ip: normalized, source: header };
-      }
-    }
-  }
-
-  const forwardedRaw = extractHeaderValue(req.headers, "x-forwarded-for");
-  if (forwardedRaw && forwardedRaw.trim().length > 0) {
-    const first = forwardedRaw.split(",")[0].trim();
-    const normalized = normalizeAddress(first);
-    if (normalized) {
-      return { ip: normalized, source: "x-forwarded-for" };
-    }
-  }
-
-  const socketAddress = normalizeAddress(req.socket?.remoteAddress ?? null);
-  if (socketAddress) {
-    return { ip: socketAddress, source: "remote-address" };
-  }
-
-  return { ip: null, source: null };
-}
-
-function createRequestContext(request) {
-  const req = request.raw;
-  const requestIdHeader = req.headers["x-request-id"];
-  const requestId =
-    typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
-      ? requestIdHeader.trim()
-      : crypto.randomUUID();
-  const baseContext = {
-    requestId,
-    method: req.method,
-    rawUrl: req.url ?? null,
-    origin: req.headers.origin ?? null,
-    remoteAddress: req.socket?.remoteAddress ?? null,
-  };
-  request.appContext = {
-    baseContext,
-    startedAt: process.hrtime.bigint(),
-    completed: false,
-  };
-  logger.info("request.received", baseContext);
-}
-
-function completeRequest(request, statusCode, details = {}) {
-  const context = request.appContext;
-  if (!context || context.completed) {
-    return;
-  }
-  context.completed = true;
-  const durationMs = Number(process.hrtime.bigint() - context.startedAt) / 1_000_000;
-  logger.info("request.completed", {
-    ...context.baseContext,
-    statusCode,
-    durationMs,
-    ...details,
-  });
-}
+const sessionManager = await createSessionManager(config, logger);
+const {
+  sessionSecret: SESSION_SECRET,
+  sessionStore,
+  initializeSession,
+  persistSession,
+  validateSession,
+  recordIssuedSession,
+  shutdown: shutdownSessionManager,
+} = sessionManager;
+
+const { buildCorsHeaders, isOriginAllowed, handlePreflight } = createCorsHelpers(config);
+
+const {
+  parseRequestUrl,
+  determineTarget,
+  shouldCacheRequest,
+  buildCacheKey,
+  validateBaseUrls,
+} = createRoutingHelpers({
+  config,
+  logger,
+  radioPrefix: RADIO_PREFIX,
+  terminalPrefix: TERMINAL_PREFIX,
+});
+
+validateBaseUrls();
+
+const { createRequestContext, completeRequest } = createRequestContextManager(logger);
 
 const fastify = Fastify({
   trustProxy: config.trustProxy,
@@ -934,6 +106,13 @@ fastify.register(underPressure, {
 
 fastify.addHook("onRequest", (request, _reply, done) => {
   createRequestContext(request);
+  done();
+});
+
+fastify.addHook("onResponse", (request, reply, done) => {
+  if (request.appContext && !request.appContext.completed) {
+    completeRequest(request, reply.statusCode);
+  }
   done();
 });
 
@@ -992,7 +171,7 @@ fastify.post("/session", async (request, reply) => {
   const sessionInfo = initializeSession(request.session);
   try {
     await persistSession(request.session);
-    await storeCsrfSessionRecord(sessionInfo.nonce, sessionInfo);
+    await recordIssuedSession(sessionInfo);
   } catch (error) {
     logger.error("session.persist_failed", { error });
     reply
@@ -1040,6 +219,20 @@ fastify.route({
       .code(405)
       .send({ error: "Method Not Allowed" });
     completeRequest(request, 405, { route: "session", reason: "method-not-allowed" });
+  },
+});
+
+const { proxyRequest } = createProxyHandler({
+  config,
+  cache,
+  logger,
+  helpers: {
+    sanitizeRequestHeaders,
+    sanitizeResponseHeaders,
+    sanitizeHeadersForCache,
+    resolveClientIp,
+    appendForwardedFor,
+    findHeaderKey,
   },
 });
 
@@ -1122,8 +315,7 @@ async function handleGatewayRequest(request, reply) {
   const sessionValidation = await validateSession(request, url);
   if (!sessionValidation.ok) {
     const sessionSnapshot =
-      request.session &&
-      typeof request.session === "object"
+      request.session && typeof request.session === "object"
         ? Object.fromEntries(
             Object.entries(request.session).filter(([key]) => key !== "cookie"),
           )
@@ -1234,14 +426,10 @@ async function shutdown() {
     logger.warn("cache.shutdown_error", { error });
   }
 
-  if (sessionRedisClient) {
-    try {
-      await sessionRedisClient.quit();
-      logger.info("session.redis_connection_closed", {});
-    } catch (error) {
-      logger.warn("session.redis_quit_failed", { error });
-      sessionRedisClient.disconnect();
-    }
+  try {
+    await shutdownSessionManager();
+  } catch (error) {
+    logger.warn("session.manager_shutdown_failed", { error });
   }
 
   process.exit(0);

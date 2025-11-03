@@ -6,7 +6,9 @@ function gen(r) {
       "/games",
       "/games/do-nothing",
       "/terminal",
-      "/radio"
+      "/terminal/docs",
+      "/radio",
+      "/radio/docs"
 
     ];
   var today = new Date().toISOString().slice(0, 10);
