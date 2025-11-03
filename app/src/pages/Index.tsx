@@ -95,6 +95,16 @@ const Index = () => {
                   ssh-sandbox/
                 </Link>
               </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <Link
+                  to="/swagger"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Browse API documentation"
+                >
+                  swagger/
+                </Link>
+              </p>
             </nav>
           </div>
 

@@ -312,7 +312,16 @@ async function handleGatewayRequest(request, reply) {
     return;
   }
 
-  const sessionValidation = await validateSession(request, url);
+  const docsAccess =
+    (target.service === "radio" || target.service === "terminal") && target.path.startsWith("/docs");
+
+  let sessionValidation;
+  if (docsAccess) {
+    const result = await validateSession(request, url);
+    sessionValidation = result.ok ? result : { ok: true, session: null };
+  } else {
+    sessionValidation = await validateSession(request, url);
+  }
   if (!sessionValidation.ok) {
     const sessionSnapshot =
       request.session && typeof request.session === "object"

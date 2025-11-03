@@ -8,7 +8,8 @@ function gen(r) {
       "/terminal",
       "/terminal/docs",
       "/radio",
-      "/radio/docs"
+      "/radio/docs",
+      "/swagger"
 
     ];
   var today = new Date().toISOString().slice(0, 10);
