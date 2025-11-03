@@ -766,16 +766,20 @@ fastify.post("/session", async (request, reply) => {
   });
 });
 
-fastify.all("/session", (request, reply) => {
-  const corsHeaders = buildCorsHeaders(request.headers.origin);
-  reply
-    .headers({
-      ...corsHeaders,
-      "Content-Type": "application/json",
-    })
-    .code(405)
-    .send({ error: "Method Not Allowed" });
-  completeRequest(request, 405, { route: "session", reason: "method-not-allowed" });
+fastify.route({
+  method: ["GET", "PUT", "PATCH", "DELETE", "HEAD"],
+  url: "/session",
+  handler: (request, reply) => {
+    const corsHeaders = buildCorsHeaders(request.headers.origin);
+    reply
+      .headers({
+        ...corsHeaders,
+        "Content-Type": "application/json",
+      })
+      .code(405)
+      .send({ error: "Method Not Allowed" });
+    completeRequest(request, 405, { route: "session", reason: "method-not-allowed" });
+  },
 });
 
 fastify.all("*", async (request, reply) => {
