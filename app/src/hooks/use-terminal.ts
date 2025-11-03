@@ -10,6 +10,7 @@ type ExecuteResponse = {
   cwd: string;
   displayCwd?: string;
   clear?: boolean;
+  promptLabel?: string;
 };
 
 type HistoryEntry = {
@@ -18,6 +19,7 @@ type HistoryEntry = {
   command: string;
   output: string[];
   isError: boolean;
+  promptLabel: string;
 };
 
 const FALLBACK_TERMINAL_BASE = "/api/terminal/";
@@ -25,6 +27,8 @@ const FALLBACK_TERMINAL_BASE = "/api/terminal/";
 const RAW_TERMINAL_BASE =
   (import.meta.env.VITE_TERMINAL_API_BASE_URL ?? import.meta.env.VITE_TERMINAL_API_BASE ?? FALLBACK_TERMINAL_BASE)
     .trim() || FALLBACK_TERMINAL_BASE;
+
+const DEFAULT_VIRTUAL_CWD = "/home/demo";
 
 if (import.meta.env.DEV) {
   console.debug("terminal-service.base", { raw: RAW_TERMINAL_BASE, fallback: FALLBACK_TERMINAL_BASE });
@@ -57,16 +61,30 @@ function buildTerminalUrl(path: string): string {
 
 const toDisplayPath = (virtualPath: string | undefined | null): string => {
   if (!virtualPath || virtualPath === "/") return "~";
-  if (virtualPath === "/home/demo") return "~";
-  if (virtualPath.startsWith("/home/demo/")) {
-    return `~${virtualPath.slice("/home/demo".length)}`;
+  if (virtualPath === DEFAULT_VIRTUAL_CWD) return "~";
+  if (virtualPath.startsWith(`${DEFAULT_VIRTUAL_CWD}/`)) {
+    return `~${virtualPath.slice(DEFAULT_VIRTUAL_CWD.length)}`;
   }
   return virtualPath;
 };
 
+const resolveDisplayCwd = (virtualPath: string, candidate?: string | null): string => {
+  if (typeof candidate === "string") {
+    const trimmed = candidate.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return toDisplayPath(virtualPath);
+};
+
+const buildPromptLabel = (displayPath: string): string => `sandbox@gitgud.qzz.io:${displayPath}`;
+const buildHeaderLabel = (displayPath: string): string => `${buildPromptLabel(displayPath)} — isolated pod`;
+
 export function useTerminal() {
   const navigate = useNavigate();
-  const [virtualCwd, setVirtualCwd] = useState<string>("/home/demo");
+  const [virtualCwd, setVirtualCwd] = useState<string>(DEFAULT_VIRTUAL_CWD);
+  const [displayCwd, setDisplayCwd] = useState<string>(toDisplayPath(DEFAULT_VIRTUAL_CWD));
   const [input, setInput] = useState<string>("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
@@ -80,7 +98,8 @@ export function useTerminal() {
   const commandId = useRef(0);
 
   // Computed values
-  const displayCwd = toDisplayPath(virtualCwd);
+  const promptLabel = buildPromptLabel(displayCwd);
+  const headerLabel = buildHeaderLabel(displayCwd);
 
   const bannerLines = (() => {
     const lines = [
@@ -144,9 +163,11 @@ export function useTerminal() {
 
         const nextVirtual = typeof payload.virtualCwd === "string"
           ? payload.virtualCwd
-          : "/home/demo";
+          : DEFAULT_VIRTUAL_CWD;
+        const nextDisplay = resolveDisplayCwd(nextVirtual, payload?.displayCwd);
 
         setVirtualCwd(nextVirtual);
+        setDisplayCwd(nextDisplay);
         setSupportedCommands(
           Array.isArray(payload.supportedCommands)
             ? payload.supportedCommands
@@ -237,6 +258,7 @@ export function useTerminal() {
           command: raw,
           output,
           isError,
+          promptLabel: buildPromptLabel(previousDisplayCwd),
         };
 
         setHistory((prev) => [...prev, entry]);
@@ -276,7 +298,7 @@ export function useTerminal() {
         }
 
         const nextVirtual = payload?.cwd ?? previousVirtualCwd;
-        const nextDisplay = payload?.displayCwd ?? toDisplayPath(nextVirtual);
+        const nextDisplay = resolveDisplayCwd(nextVirtual, payload?.displayCwd);
         const isError = Boolean(payload?.error) || !response.ok;
         let output: string[] = Array.isArray(payload?.output)
           ? (payload?.output as string[])
@@ -304,6 +326,7 @@ export function useTerminal() {
           command: raw,
           output,
           isError,
+          promptLabel: payload?.promptLabel ?? buildPromptLabel(previousDisplayCwd),
         };
 
         if (payload?.clear) {
@@ -313,6 +336,7 @@ export function useTerminal() {
         }
 
         setVirtualCwd(nextVirtual);
+        setDisplayCwd(nextDisplay);
       } catch (error) {
         if (import.meta.env.DEV) {
           console.error("terminal-service.execute_request_failed", { error });
@@ -323,6 +347,7 @@ export function useTerminal() {
           command: raw,
           output: ["Failed to reach sandbox service. Please try again later."],
           isError: true,
+          promptLabel: buildPromptLabel(previousDisplayCwd),
         };
         setHistory((prev) => [...prev, entry]);
       } finally {
@@ -383,9 +408,11 @@ export function useTerminal() {
     // Computed
     bannerLines,
     bannerColor,
-    // Handlers
-    handleSubmit,
-    handleKeyDown,
+    promptLabel,
+    headerLabel,
+  // Handlers
+  handleSubmit,
+  handleKeyDown,
   };
 }
 function encodeDebugHeader(payload: Record<string, unknown>): string {

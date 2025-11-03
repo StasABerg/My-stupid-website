@@ -1,11 +1,19 @@
-import rateLimit from "express-rate-limit";
-
-export function createRateLimiter() {
-  return rateLimit({
-    windowMs: 15 * 60 * 1000,
+export function createRateLimitOptions() {
+  const fifteenMinutesMs = 15 * 60 * 1000;
+  return {
+    global: true,
     max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-    skip: (req) => req.path === "/healthz",
-  });
+    timeWindow: fifteenMinutesMs,
+    skipOnError: false,
+    addHeaders: {
+      "x-ratelimit-limit": true,
+      "x-ratelimit-remaining": true,
+      "x-ratelimit-reset": true,
+      "retry-after": true,
+    },
+    allowList: (request) => {
+      const url = request.routeOptions?.url ?? request.routerPath;
+      return url === "/healthz";
+    },
+  };
 }

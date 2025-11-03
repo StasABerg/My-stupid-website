@@ -1,4 +1,7 @@
+import { formatLsDate } from "@/lib/terminalFs";
 import { Link } from "react-router-dom";
+
+const todayLabel = formatLsDate(new Date());
 import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
 
 const Documents = () => {
@@ -13,7 +16,7 @@ const Documents = () => {
           <div className="mb-4 pl-2 sm:pl-4">
             <nav aria-label="Document links" role="navigation">
               <p className="text-terminal-white whitespace-nowrap">
-                <span className="hidden sm:inline">-rw-r--r-- 1 user user 1024 Oct 13 2025 </span>
+                <span className="hidden sm:inline">-rw-r--r-- 1 user user 1024 {todayLabel} </span>
                 <a 
                   href="https://github.com/StasABerg" 
                   target="_blank" 
@@ -25,7 +28,7 @@ const Documents = () => {
                 </a>
               </p>
               <p className="text-terminal-white whitespace-nowrap">
-                <span className="hidden sm:inline">-rw-r--r-- 1 user user 1024 Oct 13 2025 </span>
+                <span className="hidden sm:inline">-rw-r--r-- 1 user user 1024 {todayLabel} </span>
                 <a 
                   href="https://linkedin.com/in/stasaberg" 
                   target="_blank" 

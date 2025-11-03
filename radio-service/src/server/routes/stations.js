@@ -3,6 +3,7 @@ import { ensureNormalizedStation } from "../../stations/normalize.js";
 import { ensureProcessedStations } from "../../stations/processedPayload.js";
 import { parseStationsQuery } from "./stationsQuery.js";
 import { projectStationForClient } from "./projectStation.js";
+import { schemaRefs } from "../openapi.js";
 
 function buildStationsResponse({ totalStations, matches, totalMatches, meta, config }) {
   return {
@@ -161,12 +162,47 @@ export function registerStationsRoutes(
   app,
   { config, ensureRedis, stationsLoader, updateStations, redis },
 ) {
-  app.get("/stations", async (req, res) => {
+  const stationsRouteSchema = {
+    tags: ["Stations"],
+    summary: "List radio stations",
+    description:
+      "Returns paginated radio stations with optional filters by country, language, tag, genre, or search term.",
+    querystring: {
+      $ref: schemaRefs.stationsQuerystring,
+    },
+    response: {
+      200: {
+        $ref: schemaRefs.stationListResponse,
+      },
+      400: {
+        description: "Invalid query parameters supplied.",
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          error: { type: "string" },
+          details: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+      },
+      500: {
+        description: "Failed to load stations from cache or storage.",
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          error: { type: "string" },
+        },
+      },
+    },
+  };
+
+  app.get("/stations", { schema: stationsRouteSchema }, async (request, reply) => {
     try {
       await ensureRedis();
-      const parsedQuery = parseStationsQuery(req.query, { config });
+      const parsedQuery = parseStationsQuery(request.query, { config });
       if (!parsedQuery.ok) {
-        res.status(400).json({
+        reply.status(400).send({
           error: "Invalid query parameters",
           details: parsedQuery.errors,
         });
@@ -211,42 +247,45 @@ export function registerStationsRoutes(
         config,
       });
 
-      res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
-      res.json(response);
+      reply.header("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
+      reply.send(response);
     } catch (error) {
       logger.error("stations.load_error", {
         error,
-        query: req.query,
+        query: request.query,
       });
-      res.status(500).json({ error: "Failed to load stations" });
+      reply.status(500).send({ error: "Failed to load stations" });
     }
   });
 
-  function requireRefreshAuth(req, res, next) {
-    const authorization = req.get("authorization") ?? "";
+  async function requireRefreshAuth(request, reply) {
+    const authorization = request.headers["authorization"] ?? "";
     const expected = `Bearer ${config.refreshToken}`;
     if (authorization !== expected) {
-      res.status(401).json({ error: "Unauthorized" });
+      reply.status(401).send({ error: "Unauthorized" });
       return;
     }
-    next();
   }
 
-  app.post("/stations/refresh", requireRefreshAuth, async (_req, res) => {
-    try {
-      await ensureRedis();
-      const { payload, cacheSource } = await updateStations(redis);
-      res.json({
-        meta: {
-          total: payload.total,
-          updatedAt: payload.updatedAt,
-          cacheSource,
-          origin: payload.source ?? null,
-        },
-      });
-    } catch (error) {
-      logger.error("stations.refresh_error", { error });
-      res.status(500).json({ error: "Failed to refresh stations" });
-    }
-  });
+  app.post(
+    "/stations/refresh",
+    { preHandler: requireRefreshAuth },
+    async (_request, reply) => {
+      try {
+        await ensureRedis();
+        const { payload, cacheSource } = await updateStations(redis);
+        reply.send({
+          meta: {
+            total: payload.total,
+            updatedAt: payload.updatedAt,
+            cacheSource,
+            origin: payload.source ?? null,
+          },
+        });
+      } catch (error) {
+        logger.error("stations.refresh_error", { error });
+        reply.status(500).send({ error: "Failed to refresh stations" });
+      }
+    },
+  );
 }

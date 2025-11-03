@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { authorizedFetch } from "@/lib/gateway-session";
+import { getFavoritesSessionId } from "@/lib/favorites-session";
 import { RADIO_API_BASE, type RadioStation } from "./useRadioStations";
 
 type FavoritesResponse = {
@@ -16,6 +17,16 @@ type FavoritesQueryData = FavoritesResponse;
 const FAVORITES_QUERY_KEY = ["radio", "favorites"];
 const DEFAULT_MAX_SLOTS = 6;
 const FAVORITES_ENDPOINT = `${RADIO_API_BASE}/favorites`;
+const FAVORITES_SESSION_HEADER = "X-Favorites-Session";
+
+function withFavoritesSession(init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers ?? {});
+  headers.set(FAVORITES_SESSION_HEADER, getFavoritesSessionId());
+  return {
+    ...init,
+    headers,
+  };
+}
 
 function normalizeFavoritesResponse(payload: unknown): FavoritesResponse {
   const value = typeof payload === "object" && payload !== null ? payload : {};
@@ -67,7 +78,7 @@ async function parseFavoritesResponse(response: Response): Promise<FavoritesResp
 }
 
 async function fetchFavorites(): Promise<FavoritesResponse> {
-  const response = await authorizedFetch(FAVORITES_ENDPOINT);
+  const response = await authorizedFetch(FAVORITES_ENDPOINT, withFavoritesSession());
   return parseFavoritesResponse(response);
 }
 
@@ -103,7 +114,7 @@ export function useRadioFavorites() {
             }
           : { method: "PUT" };
 
-      const response = await authorizedFetch(url, init);
+      const response = await authorizedFetch(url, withFavoritesSession(init));
       return parseFavoritesResponse(response);
     },
     onSuccess: setFavoritesCache,
@@ -112,7 +123,7 @@ export function useRadioFavorites() {
   const removeFavoriteMutation = useMutation<FavoritesResponse, Error, { stationId: string }>({
     mutationFn: async ({ stationId }) => {
       const url = `${FAVORITES_ENDPOINT}/${encodeURIComponent(stationId)}`;
-      const response = await authorizedFetch(url, { method: "DELETE" });
+      const response = await authorizedFetch(url, withFavoritesSession({ method: "DELETE" }));
       return parseFavoritesResponse(response);
     },
     onSuccess: setFavoritesCache,

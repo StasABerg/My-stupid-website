@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 
 interface TerminalInputProps {
-  displayCwd: string;
+  promptLabel: string;
   input: string;
   onInputChange: (value: string) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
@@ -10,7 +10,7 @@ interface TerminalInputProps {
 }
 
 const TerminalInput = forwardRef<HTMLInputElement, TerminalInputProps>(
-  ({ displayCwd, input, onInputChange, onKeyDown, onSubmit, disabled }, ref) => {
+  ({ promptLabel, input, onInputChange, onKeyDown, onSubmit, disabled }, ref) => {
     return (
       <form
         onSubmit={onSubmit}
@@ -20,9 +20,7 @@ const TerminalInput = forwardRef<HTMLInputElement, TerminalInputProps>(
           Terminal input
         </label>
         <div className="flex items-center gap-1 text-xs sm:text-sm">
-          <span className="text-terminal-green">sandbox</span>
-          <span className="text-terminal-white">:</span>
-          <span className="text-terminal-cyan">{displayCwd}</span>
+          <span className="text-terminal-cyan">{promptLabel}</span>
           <span className="text-terminal-white">$</span>
         </div>
         <input

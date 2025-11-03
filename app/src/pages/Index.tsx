@@ -1,7 +1,10 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
+import { formatLsDate } from "@/lib/terminalFs";
 
 const Index = () => {
+  const todayLabel = useMemo(() => formatLsDate(new Date()), []);
 
   return (
     <div className="h-screen bg-black">
@@ -56,7 +59,7 @@ const Index = () => {
           <div className="mb-4 pl-2 sm:pl-4 overflow-x-auto">
             <nav aria-label="Main directories" role="navigation">
               <p className="text-terminal-cyan whitespace-nowrap">
-                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
                 <Link 
                   to="/documents"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
@@ -66,7 +69,7 @@ const Index = () => {
                 </Link>
               </p>
               <p className="text-terminal-cyan whitespace-nowrap">
-                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
                 <Link
                   to="/games"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
@@ -76,7 +79,7 @@ const Index = () => {
                 </Link>
               </p>
               <p className="text-terminal-cyan whitespace-nowrap">
-                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
                 <Link
                   to="/radio"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
@@ -86,13 +89,23 @@ const Index = () => {
                 </Link>
               </p>
               <p className="text-terminal-cyan whitespace-nowrap">
-                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 Oct 13 2025 </span>
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
                 <Link
                   to="/terminal"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
                   aria-label="Open restricted SSH sandbox"
                 >
                   ssh-sandbox/
+                </Link>
+              </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
+                <Link
+                  to="/swagger"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Browse API documentation"
+                >
+                  swagger/
                 </Link>
               </p>
             </nav>

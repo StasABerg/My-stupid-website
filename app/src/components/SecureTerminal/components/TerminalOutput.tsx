@@ -8,6 +8,7 @@ interface HistoryEntry {
   command: string;
   output: string[];
   isError: boolean;
+  promptLabel: string;
 }
 
 interface TerminalOutputProps {

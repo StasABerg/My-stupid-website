@@ -38,9 +38,12 @@ export default defineConfig(({ mode }) => ({
             { test: (value) => value.includes("date-fns"), name: "date-fns" },
             { test: (value) => value.includes("zod"), name: "zod" },
             { test: (value) => value.includes("hls.js"), name: "hls" },
+            { test: (value) => value.includes("swagger-ui"), name: "swagger" },
             { test: (value) => value.includes("embla-carousel"), name: "carousel" },
             { test: (value) => value.includes("recharts"), name: "recharts" },
           ];
+
+          const normalizedId = id.replace(/\\/g, "/");
 
           for (const matcher of matchers) {
             if (matcher.test(id)) {
@@ -48,7 +51,21 @@ export default defineConfig(({ mode }) => ({
             }
           }
 
-          return "vendor";
+          const segments = normalizedId.split("/node_modules/")[1]?.split("/") ?? [];
+          if (!segments.length) {
+            return "vendor";
+          }
+
+          const [scopeOrName, maybeName] = segments;
+          const packageName = scopeOrName?.startsWith("@")
+            ? `${scopeOrName}/${maybeName ?? ""}`
+            : scopeOrName;
+
+          if (!packageName) {
+            return "vendor";
+          }
+
+          return packageName.replace(/[@/]/g, "-");
         },
       },
     },
