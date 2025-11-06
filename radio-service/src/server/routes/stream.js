@@ -162,19 +162,50 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         clearTimeout(timeout);
       }
 
-      reply.hijack();
-      reply.raw.statusCode = upstream.status;
+      const csrfToken =
+        typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
+          ? request.query.csrfToken.trim()
+          : null;
+      const csrfProof =
+        typeof request.query.csrfProof === "string" && request.query.csrfProof.trim().length > 0
+          ? request.query.csrfProof.trim()
+          : null;
 
-      upstream.headers.forEach((value, key) => {
-        if (!/^transfer-encoding$/i.test(key)) {
-          reply.raw.setHeader(key, value);
+      const contentType = upstream.headers.get("content-type") ?? "";
+      if (!shouldTreatAsPlaylist(targetUrl.toString(), contentType)) {
+        reply.hijack();
+        reply.raw.statusCode = upstream.status;
+
+        upstream.headers.forEach((value, key) => {
+          if (!/^transfer-encoding$/i.test(key)) {
+            reply.raw.setHeader(key, value);
+          }
+        });
+        reply.raw.setHeader("Cache-Control", "no-store");
+        for await (const chunk of upstream.body ?? []) {
+          reply.raw.write(chunk);
         }
-      });
-      reply.raw.setHeader("Cache-Control", "no-store");
-      for await (const chunk of upstream.body ?? []) {
-        reply.raw.write(chunk);
+        reply.raw.end();
+        return;
       }
-      reply.raw.end();
+
+      const extraParams = {};
+      if (csrfToken) {
+        extraParams.csrfToken = csrfToken;
+      }
+      if (csrfProof) {
+        extraParams.csrfProof = csrfProof;
+      }
+
+      const text = await upstream.text();
+      const rewritten = rewritePlaylist(targetUrl.toString(), text, {
+        extraParams: Object.keys(extraParams).length > 0 ? extraParams : undefined,
+      });
+      reply
+        .status(200)
+        .header("Content-Type", "application/vnd.apple.mpegurl")
+        .header("Cache-Control", "no-store")
+        .send(rewritten);
     } catch (error) {
       logger.error("stream.segment_error", {
         stationId: request.params.stationId ?? null,
