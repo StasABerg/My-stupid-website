@@ -441,26 +441,22 @@ export async function createSessionManager(config, logger) {
       }
     }
 
-    if (!finalNonce && csrfProof) {
+    if (csrfProof) {
       const verified = verifyCsrfProof(sessionSecret, csrfProof);
-      if (verified) {
-        if (Date.now() > verified.expiresAt) {
-          await deleteCsrfSessionRecord(verified.nonce, csrfProof);
-        } else {
-          finalNonce = verified.nonce;
-          finalExpiresAt = verified.expiresAt;
-          finalProof = csrfProof;
-          if (!csrfToken) {
-            csrfToken = verified.nonce;
-          } else if (csrfToken !== verified.nonce) {
-            return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
-          }
-          logger.debug?.("session.csrf_proof_verified", {
-            nonce: session.nonce,
-            expiresAt: session.expiresAt,
-          });
+      if (verified && Date.now() <= verified.expiresAt) {
+        if (csrfToken && csrfToken !== verified.nonce) {
+          return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
         }
-      } else {
+        return {
+          ok: true,
+          session: {
+            nonce: verified.nonce,
+            expiresAt: verified.expiresAt,
+            csrfProof,
+          },
+        };
+      }
+      if (!verified) {
         logger.warn("session.csrf_proof_invalid", {
           proofLength: csrfProof.length,
         });
