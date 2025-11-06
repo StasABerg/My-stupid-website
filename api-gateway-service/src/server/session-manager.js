@@ -291,11 +291,7 @@ export async function createSessionManager(config, logger) {
         : "gateway:session:__csrf_proof_secret";
 
     try {
-      await client.setnx(secretKey, proofSecret);
-      const sharedSecret = await client.get(secretKey);
-      if (sharedSecret && sharedSecret.length >= 32) {
-        proofSecret = sharedSecret;
-      }
+      await client.set(secretKey, proofSecret);
     } catch (error) {
       logger.warn("session.csrf_proof_secret_sync_failed", { error });
     }

@@ -40,26 +40,20 @@ const allowedServiceHostnames = Array.from(
   new Set([...derivedHosts, ...explicitAllowedHosts]),
 );
 
+const DEFAULT_SECRET_SEED = "my-stupid-website-secret-seed";
+
 function deriveSecret(rawSecret, { label }) {
   const value = rawSecret?.trim();
   if (value && value.length >= 32) {
     return { value, generated: false };
   }
 
-  const deterministicSeed = [
-    process.env.INSTANCE_SECRET_SEED ?? "",
-    value ?? "",
-    DEFAULT_RADIO_BASE_URL,
-    DEFAULT_TERMINAL_BASE_URL,
-    process.env.NODE_ENV ?? "",
-    label ?? "",
-  ]
-    .filter((part) => typeof part === "string" && part.length > 0)
-    .join("|");
+  const seedSource = (process.env.INSTANCE_SECRET_SEED ?? DEFAULT_SECRET_SEED).trim();
+  const deterministicSeed = `${seedSource}|${label ?? "secret"}`;
 
   const generated = crypto.createHash("sha256").update(deterministicSeed).digest("hex");
   logger.warn(`${label ?? "secret"}.derived`, {
-    message: `${label ?? "Secret"} not provided or too short; using deterministic fallback. Provide a strong value via environment variables for better security.`,
+    message: `${label ?? "Secret"} not provided or too short; using deterministic fallback derived from INSTANCE_SECRET_SEED. Set ${label?.toUpperCase() ?? "the secret"} for stronger guarantees.`,
   });
   return { value: generated, generated: true };
 }
