@@ -81,10 +81,10 @@ function parsePositiveInt(value, fallback) {
 }
 
 const derivedSessionSecret = deriveSecret(process.env.SESSION_SECRET, { label: "session.secret" });
-const derivedCsrfProofSecret = deriveSecret(
-  process.env.HLS_CSRF_SECRET ?? process.env.SESSION_SECRET,
-  { label: "csrf.proof_secret" },
-);
+const derivedCsrfProofSecret = {
+  value: derivedSessionSecret.value,
+  generated: derivedSessionSecret.generated,
+};
 
 const redisUrlFromEnv = process.env.CACHE_REDIS_URL ?? process.env.REDIS_URL ?? "";
 const cacheRedisEnabled = typeof redisUrlFromEnv === "string" && redisUrlFromEnv.trim().length > 0;
