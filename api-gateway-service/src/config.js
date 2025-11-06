@@ -46,9 +46,19 @@ function deriveSessionSecret(rawSecret) {
     return { value, generated: false };
   }
 
-  const generated = crypto.randomBytes(32).toString("hex");
+  const deterministicSeed = [
+    process.env.INSTANCE_SECRET_SEED ?? "",
+    DEFAULT_RADIO_BASE_URL,
+    DEFAULT_TERMINAL_BASE_URL,
+    process.env.NODE_ENV ?? "",
+  ]
+    .filter((part) => typeof part === "string" && part.length > 0)
+    .join("|");
+
+  const generated = crypto.createHash("sha256").update(deterministicSeed).digest("hex");
   logger.warn("session.secret_ephemeral", {
-    message: "SESSION_SECRET not provided or too short; using ephemeral key",
+    message:
+      "SESSION_SECRET not provided or too short; deriving deterministic key from configuration. Provide SESSION_SECRET for stronger guarantees.",
   });
   return { value: generated, generated: true };
 }
