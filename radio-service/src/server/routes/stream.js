@@ -34,6 +34,17 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
           ? request.query.csrfToken.trim()
           : null;
+      const csrfProof =
+        typeof request.query.csrfProof === "string" && request.query.csrfProof.trim().length > 0
+          ? request.query.csrfProof.trim()
+          : null;
+      const extraParams = {};
+      if (csrfToken) {
+        extraParams.csrfToken = csrfToken;
+      }
+      if (csrfProof) {
+        extraParams.csrfProof = csrfProof;
+      }
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), config.streamProxy.timeoutMs);
@@ -72,7 +83,7 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
 
       const text = await upstream.text();
       const rewritten = rewritePlaylist(station.streamUrl, text, {
-        extraParams: csrfToken ? { csrfToken } : undefined,
+        extraParams: Object.keys(extraParams).length > 0 ? extraParams : undefined,
       });
       reply
         .status(200)
