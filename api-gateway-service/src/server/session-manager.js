@@ -237,6 +237,33 @@ export async function createSessionManager(config, logger) {
   const inMemoryCsrfSessions = new Map();
   const inMemoryCsrfProofs = new Map();
 
+  async function ensureRedisClientReady(client) {
+    if (!client) return;
+    if (client.status === "ready") {
+      return;
+    }
+    if (client.status === "connecting" || client.status === "reconnecting") {
+      await new Promise((resolve, reject) => {
+        const cleanup = () => {
+          client.off("ready", handleReady);
+          client.off("error", handleError);
+        };
+        const handleReady = () => {
+          cleanup();
+          resolve();
+        };
+        const handleError = (error) => {
+          cleanup();
+          reject(error);
+        };
+        client.once("ready", handleReady);
+        client.once("error", handleError);
+      });
+      return;
+    }
+    await client.connect();
+  }
+
   const syncProofSecretViaRedis = async () => {
     const client = sessionRedisClient ?? (config.cache?.redis?.enabled && config.cache.redis.url
       ? new Redis(config.cache.redis.url, {
@@ -256,9 +283,7 @@ export async function createSessionManager(config, logger) {
     }
 
     proofSecretRedisClient = client;
-    if (client.status !== "ready") {
-      await client.connect();
-    }
+    await ensureRedisClientReady(client);
 
     const secretKey =
       config.session.store?.redis?.keyPrefix !== undefined
