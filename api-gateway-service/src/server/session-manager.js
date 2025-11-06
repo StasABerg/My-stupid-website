@@ -411,15 +411,6 @@ export async function createSessionManager(config, logger) {
     const session = ensureSessionObject(request.session);
     request.session = session;
 
-    let finalNonce =
-      typeof session.nonce === "string" && session.nonce.length > 0 ? session.nonce : null;
-    let finalExpiresAt =
-      Number.isFinite(session.expiresAt) && session.expiresAt > 0 ? Number(session.expiresAt) : null;
-    let finalProof =
-      typeof session.csrfProof === "string" && session.csrfProof.length > 0
-        ? session.csrfProof
-        : null;
-
     const csrfProofHeader = extractHeaderValue(request.headers, "x-gateway-csrf-proof");
     let csrfProof =
       typeof csrfProofHeader === "string" && csrfProofHeader.trim().length > 0
@@ -447,14 +438,11 @@ export async function createSessionManager(config, logger) {
         if (csrfToken && csrfToken !== verified.nonce) {
           return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
         }
-        return {
-          ok: true,
-          session: {
-            nonce: verified.nonce,
-            expiresAt: verified.expiresAt,
-            csrfProof,
-          },
-        };
+        session.nonce = verified.nonce;
+        session.csrfProof = csrfProof;
+        session.expiresAt = verified.expiresAt;
+        session.issuedAt = Math.max(0, verified.expiresAt - SESSION_MAX_AGE_MS);
+        return { ok: true, session: { nonce: session.nonce, expiresAt: session.expiresAt, csrfProof } };
       }
       if (!verified) {
         logger.warn("session.csrf_proof_invalid", {
@@ -462,6 +450,15 @@ export async function createSessionManager(config, logger) {
         });
       }
     }
+
+    let finalNonce =
+      typeof session.nonce === "string" && session.nonce.length > 0 ? session.nonce : null;
+    let finalExpiresAt =
+      Number.isFinite(session.expiresAt) && session.expiresAt > 0 ? Number(session.expiresAt) : null;
+    let finalProof =
+      typeof session.csrfProof === "string" && session.csrfProof.length > 0
+        ? session.csrfProof
+        : null;
 
     if (!finalNonce && csrfToken) {
       const csrfRecord = await loadCsrfSessionRecord(csrfToken);
