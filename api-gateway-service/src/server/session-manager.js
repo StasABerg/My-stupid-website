@@ -348,14 +348,14 @@ export async function createSessionManager(config, logger) {
     const session = ensureSessionObject(request.session);
     request.session = session;
 
-    const csrfHeader = extractHeaderValue(request.headers, "x-gateway-csrf");
-    let csrfToken =
-      typeof csrfHeader === "string" && csrfHeader.trim().length > 0 ? csrfHeader.trim() : null;
     const csrfProofHeader = extractHeaderValue(request.headers, "x-gateway-csrf-proof");
     let csrfProof =
       typeof csrfProofHeader === "string" && csrfProofHeader.trim().length > 0
         ? csrfProofHeader.trim()
         : null;
+    const csrfHeader = extractHeaderValue(request.headers, "x-gateway-csrf");
+    let csrfToken =
+      typeof csrfHeader === "string" && csrfHeader.trim().length > 0 ? csrfHeader.trim() : null;
     if (!csrfToken && parsedUrl) {
       const param = parsedUrl.searchParams.get("csrfToken");
       if (typeof param === "string" && param.trim().length > 0) {
@@ -366,6 +366,29 @@ export async function createSessionManager(config, logger) {
       const param = parsedUrl.searchParams.get("csrfProof");
       if (typeof param === "string" && param.trim().length > 0) {
         csrfProof = param.trim();
+      }
+    }
+
+    if (typeof session.nonce !== "string" && csrfProof) {
+      const verified = verifyCsrfProof(sessionSecret, csrfProof);
+      if (verified) {
+        if (Date.now() > verified.expiresAt) {
+          await deleteCsrfSessionRecord(verified.nonce);
+        } else {
+          session.nonce = verified.nonce;
+          session.expiresAt = verified.expiresAt;
+          session.issuedAt = Math.max(0, verified.expiresAt - SESSION_MAX_AGE_MS);
+          session.csrfProof = csrfProof;
+          if (!csrfToken) {
+            csrfToken = verified.nonce;
+          } else if (csrfToken !== verified.nonce) {
+            return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
+          }
+        }
+      } else {
+        logger.warn("session.csrf_proof_invalid", {
+          proofLength: csrfProof.length,
+        });
       }
     }
 
@@ -385,21 +408,6 @@ export async function createSessionManager(config, logger) {
           if (!csrfProof && session.csrfProof) {
             csrfProof = session.csrfProof;
           }
-        }
-      }
-    }
-
-    if (typeof session.nonce !== "string" && csrfProof) {
-      const verified = verifyCsrfProof(sessionSecret, csrfProof);
-      if (verified) {
-        if (Date.now() > verified.expiresAt) {
-          await deleteCsrfSessionRecord(verified.nonce);
-        } else if (!csrfToken || verified.nonce === csrfToken) {
-          session.nonce = verified.nonce;
-          session.expiresAt = verified.expiresAt;
-          session.issuedAt = Math.max(0, verified.expiresAt - SESSION_MAX_AGE_MS);
-          session.csrfProof = csrfProof;
-          csrfToken = verified.nonce;
         }
       }
     }
