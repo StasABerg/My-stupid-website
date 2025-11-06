@@ -439,10 +439,26 @@ export async function createSessionManager(config, logger) {
           return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
         }
         session.nonce = verified.nonce;
-        session.csrfProof = csrfProof;
         session.expiresAt = verified.expiresAt;
         session.issuedAt = Math.max(0, verified.expiresAt - SESSION_MAX_AGE_MS);
-        return { ok: true, session: { nonce: session.nonce, expiresAt: session.expiresAt, csrfProof } };
+
+        const refreshedExpiresAt = refreshSession(session);
+        session.csrfProof = buildCsrfProof(sessionSecret, session.nonce, refreshedExpiresAt);
+
+        await storeCsrfSessionRecord(session.nonce, {
+          nonce: session.nonce,
+          expiresAt: session.expiresAt,
+          csrfProof: session.csrfProof,
+        });
+
+        return {
+          ok: true,
+          session: {
+            nonce: session.nonce,
+            expiresAt: session.expiresAt,
+            csrfProof: session.csrfProof,
+          },
+        };
       }
       if (!verified) {
         logger.warn("session.csrf_proof_invalid", {
