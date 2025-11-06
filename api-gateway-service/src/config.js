@@ -40,7 +40,7 @@ const allowedServiceHostnames = Array.from(
   new Set([...derivedHosts, ...explicitAllowedHosts]),
 );
 
-function deriveSessionSecret(rawSecret) {
+function deriveSecret(rawSecret, { label }) {
   const value = rawSecret?.trim();
   if (value && value.length >= 32) {
     return { value, generated: false };
@@ -48,17 +48,18 @@ function deriveSessionSecret(rawSecret) {
 
   const deterministicSeed = [
     process.env.INSTANCE_SECRET_SEED ?? "",
+    value ?? "",
     DEFAULT_RADIO_BASE_URL,
     DEFAULT_TERMINAL_BASE_URL,
     process.env.NODE_ENV ?? "",
+    label ?? "",
   ]
     .filter((part) => typeof part === "string" && part.length > 0)
     .join("|");
 
   const generated = crypto.createHash("sha256").update(deterministicSeed).digest("hex");
-  logger.warn("session.secret_ephemeral", {
-    message:
-      "SESSION_SECRET not provided or too short; deriving deterministic key from configuration. Provide SESSION_SECRET for stronger guarantees.",
+  logger.warn(`${label ?? "secret"}.derived`, {
+    message: `${label ?? "Secret"} not provided or too short; using deterministic fallback. Provide a strong value via environment variables for better security.`,
   });
   return { value: generated, generated: true };
 }
@@ -85,7 +86,11 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-const derivedSessionSecret = deriveSessionSecret(process.env.SESSION_SECRET);
+const derivedSessionSecret = deriveSecret(process.env.SESSION_SECRET, { label: "session.secret" });
+const derivedCsrfProofSecret = deriveSecret(
+  process.env.HLS_CSRF_SECRET ?? process.env.SESSION_SECRET,
+  { label: "csrf.proof_secret" },
+);
 
 const redisUrlFromEnv = process.env.CACHE_REDIS_URL ?? process.env.REDIS_URL ?? "";
 const cacheRedisEnabled = typeof redisUrlFromEnv === "string" && redisUrlFromEnv.trim().length > 0;
@@ -146,4 +151,6 @@ export const config = {
       ),
     },
   },
+  csrfProofSecret: derivedCsrfProofSecret.value,
+  csrfProofSecretGenerated: derivedCsrfProofSecret.generated,
 };

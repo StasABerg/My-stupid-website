@@ -170,6 +170,7 @@ export async function createSessionManager(config, logger) {
   const SESSION_TTL_SECONDS = Math.floor(SESSION_MAX_AGE_MS / 1000);
 
   let sessionSecret = config.session.secret;
+  const proofSecret = config.csrfProofSecret;
   let sessionRedisClient = null;
   let sessionStore = null;
 
@@ -243,7 +244,7 @@ export async function createSessionManager(config, logger) {
       csrfProof:
         typeof sessionData?.csrfProof === "string" && sessionData.csrfProof.length > 0
           ? sessionData.csrfProof
-          : buildCsrfProof(sessionSecret, sessionData?.nonce ?? null, sessionData?.expiresAt ?? null),
+          : buildCsrfProof(proofSecret, sessionData?.nonce ?? null, sessionData?.expiresAt ?? null),
     };
     const serialized = JSON.stringify(record);
 
@@ -284,7 +285,7 @@ export async function createSessionManager(config, logger) {
           parsed.nonce &&
           parsed.expiresAt
         ) {
-          parsed.csrfProof = buildCsrfProof(sessionSecret, parsed.nonce, parsed.expiresAt);
+          parsed.csrfProof = buildCsrfProof(proofSecret, parsed.nonce, parsed.expiresAt);
         }
         return parsed;
       } catch (error) {
@@ -309,7 +310,7 @@ export async function createSessionManager(config, logger) {
       record.nonce &&
       record.expiresAt
     ) {
-      record.csrfProof = buildCsrfProof(sessionSecret, record.nonce, record.expiresAt);
+      record.csrfProof = buildCsrfProof(proofSecret, record.nonce, record.expiresAt);
     }
     return record;
   }
@@ -385,7 +386,7 @@ export async function createSessionManager(config, logger) {
     target.csrfToken = nonce;
     target.issuedAt = issuedAt;
     target.expiresAt = issuedAt + SESSION_MAX_AGE_MS;
-    target.csrfProof = buildCsrfProof(sessionSecret, nonce, target.expiresAt);
+    target.csrfProof = buildCsrfProof(proofSecret, nonce, target.expiresAt);
     return {
       nonce,
       expiresAt: target.expiresAt,
@@ -398,7 +399,7 @@ export async function createSessionManager(config, logger) {
     const refreshedAt = Date.now();
     target.expiresAt = refreshedAt + SESSION_MAX_AGE_MS;
     if (typeof target.nonce === "string" && target.nonce.length > 0) {
-      target.csrfProof = buildCsrfProof(sessionSecret, target.nonce, target.expiresAt);
+      target.csrfProof = buildCsrfProof(proofSecret, target.nonce, target.expiresAt);
     }
     return target.expiresAt;
   }
@@ -433,7 +434,7 @@ export async function createSessionManager(config, logger) {
     }
 
     if (csrfProof) {
-      const verified = verifyCsrfProof(sessionSecret, csrfProof);
+      const verified = verifyCsrfProof(proofSecret, csrfProof);
       if (verified && Date.now() <= verified.expiresAt) {
         if (csrfToken && csrfToken !== verified.nonce) {
           return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
@@ -485,7 +486,7 @@ export async function createSessionManager(config, logger) {
           finalProof =
             typeof csrfRecord.csrfProof === "string" && csrfRecord.csrfProof.length > 0
               ? csrfRecord.csrfProof
-              : buildCsrfProof(sessionSecret, csrfRecord.nonce, csrfRecord.expiresAt);
+              : buildCsrfProof(proofSecret, csrfRecord.nonce, csrfRecord.expiresAt);
           if (!csrfProof && session.csrfProof) {
             csrfProof = session.csrfProof;
           }
@@ -535,7 +536,7 @@ export async function createSessionManager(config, logger) {
     session.nonce = finalNonce;
     session.expiresAt = expiresAtValue;
     session.issuedAt = Math.max(0, expiresAtValue - SESSION_MAX_AGE_MS);
-    session.csrfProof = finalProof ?? csrfProof ?? buildCsrfProof(sessionSecret, finalNonce, expiresAtValue);
+    session.csrfProof = finalProof ?? csrfProof ?? buildCsrfProof(proofSecret, finalNonce, expiresAtValue);
 
     refreshSession(session);
     if (typeof session.touch === "function") {
@@ -558,7 +559,7 @@ export async function createSessionManager(config, logger) {
       csrfProof:
         typeof session.csrfProof === "string" && session.csrfProof.length > 0
           ? session.csrfProof
-          : buildCsrfProof(sessionSecret, session.nonce, session.expiresAt),
+          : buildCsrfProof(proofSecret, session.nonce, session.expiresAt),
     });
 
     return {
