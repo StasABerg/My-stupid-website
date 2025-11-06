@@ -441,14 +441,12 @@ export async function createSessionManager(config, logger) {
         session.nonce = verified.nonce;
         session.expiresAt = verified.expiresAt;
         session.issuedAt = Math.max(0, verified.expiresAt - SESSION_MAX_AGE_MS);
-
-        const refreshedExpiresAt = refreshSession(session);
-        session.csrfProof = buildCsrfProof(sessionSecret, session.nonce, refreshedExpiresAt);
+        session.csrfProof = csrfProof;
 
         await storeCsrfSessionRecord(session.nonce, {
           nonce: session.nonce,
           expiresAt: session.expiresAt,
-          csrfProof: session.csrfProof,
+          csrfProof,
         });
 
         return {
@@ -456,7 +454,7 @@ export async function createSessionManager(config, logger) {
           session: {
             nonce: session.nonce,
             expiresAt: session.expiresAt,
-            csrfProof: session.csrfProof,
+            csrfProof,
           },
         };
       }
