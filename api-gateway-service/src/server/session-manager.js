@@ -170,9 +170,11 @@ export async function createSessionManager(config, logger) {
   const SESSION_TTL_SECONDS = Math.floor(SESSION_MAX_AGE_MS / 1000);
 
   let sessionSecret = config.session.secret;
-  const proofSecret = config.csrfProofSecret;
+  let proofSecret = config.csrfProofSecret;
+  const proofSecretGenerated = config.csrfProofSecretGenerated;
   let sessionRedisClient = null;
   let sessionStore = null;
+  let proofSecretRedisClient = null;
 
   if (config.session.store?.redis?.enabled && config.session.store.redis.url) {
     const redisOptions = {
@@ -234,6 +236,47 @@ export async function createSessionManager(config, logger) {
 
   const inMemoryCsrfSessions = new Map();
   const inMemoryCsrfProofs = new Map();
+
+  const syncProofSecretViaRedis = async () => {
+    const client = sessionRedisClient ?? (config.cache?.redis?.enabled && config.cache.redis.url
+      ? new Redis(config.cache.redis.url, {
+          lazyConnect: true,
+          maxRetriesPerRequest: 2,
+          connectTimeout: config.cache.redis.connectTimeoutMs ?? 5000,
+        })
+      : null);
+
+    if (!client) {
+      if (proofSecretGenerated) {
+        logger.warn("session.csrf_proof_secret_unshared", {
+          message: "Generated CSRF proof secret but no Redis client available; multi-pod deployments may see mismatched proofs. Set HLS_CSRF_SECRET or enable Redis.",
+        });
+      }
+      return;
+    }
+
+    proofSecretRedisClient = client;
+    if (client.status !== "ready") {
+      await client.connect();
+    }
+
+    const secretKey =
+      config.session.store?.redis?.keyPrefix !== undefined
+        ? `${config.session.store.redis.keyPrefix}__csrf_proof_secret`
+        : "gateway:session:__csrf_proof_secret";
+
+    try {
+      await client.setnx(secretKey, proofSecret);
+      const sharedSecret = await client.get(secretKey);
+      if (sharedSecret && sharedSecret.length >= 32) {
+        proofSecret = sharedSecret;
+      }
+    } catch (error) {
+      logger.warn("session.csrf_proof_secret_sync_failed", { error });
+    }
+  };
+
+  await syncProofSecretViaRedis();
 
   async function storeCsrfSessionRecord(token, sessionData) {
     if (!token) return;
@@ -588,6 +631,16 @@ export async function createSessionManager(config, logger) {
       } catch (error) {
         logger.warn("session.redis_quit_failed", { error });
         sessionRedisClient.disconnect();
+      }
+    }
+
+    if (proofSecretRedisClient && proofSecretRedisClient !== sessionRedisClient) {
+      try {
+        await proofSecretRedisClient.quit();
+        logger.info("session.csrf_proof_secret_connection_closed", {});
+      } catch (error) {
+        logger.warn("session.csrf_proof_secret_quit_failed", { error });
+        proofSecretRedisClient.disconnect();
       }
     }
   }
