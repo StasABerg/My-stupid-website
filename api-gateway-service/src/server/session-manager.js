@@ -348,6 +348,15 @@ export async function createSessionManager(config, logger) {
     const session = ensureSessionObject(request.session);
     request.session = session;
 
+    let finalNonce =
+      typeof session.nonce === "string" && session.nonce.length > 0 ? session.nonce : null;
+    let finalExpiresAt =
+      Number.isFinite(session.expiresAt) && session.expiresAt > 0 ? Number(session.expiresAt) : null;
+    let finalProof =
+      typeof session.csrfProof === "string" && session.csrfProof.length > 0
+        ? session.csrfProof
+        : null;
+
     const csrfProofHeader = extractHeaderValue(request.headers, "x-gateway-csrf-proof");
     let csrfProof =
       typeof csrfProofHeader === "string" && csrfProofHeader.trim().length > 0
@@ -369,21 +378,24 @@ export async function createSessionManager(config, logger) {
       }
     }
 
-    if (typeof session.nonce !== "string" && csrfProof) {
+    if (!finalNonce && csrfProof) {
       const verified = verifyCsrfProof(sessionSecret, csrfProof);
       if (verified) {
         if (Date.now() > verified.expiresAt) {
           await deleteCsrfSessionRecord(verified.nonce);
         } else {
-          session.nonce = verified.nonce;
-          session.expiresAt = verified.expiresAt;
-          session.issuedAt = Math.max(0, verified.expiresAt - SESSION_MAX_AGE_MS);
-          session.csrfProof = csrfProof;
+          finalNonce = verified.nonce;
+          finalExpiresAt = verified.expiresAt;
+          finalProof = csrfProof;
           if (!csrfToken) {
             csrfToken = verified.nonce;
           } else if (csrfToken !== verified.nonce) {
             return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
           }
+          logger.debug?.("session.csrf_proof_verified", {
+            nonce: session.nonce,
+            expiresAt: session.expiresAt,
+          });
         }
       } else {
         logger.warn("session.csrf_proof_invalid", {
@@ -392,19 +404,18 @@ export async function createSessionManager(config, logger) {
       }
     }
 
-    if (typeof session.nonce !== "string" && csrfToken) {
+    if (!finalNonce && csrfToken) {
       const csrfRecord = await loadCsrfSessionRecord(csrfToken);
       if (csrfRecord && csrfRecord.nonce && csrfRecord.expiresAt) {
         if (Date.now() > csrfRecord.expiresAt) {
           await deleteCsrfSessionRecord(csrfToken);
         } else {
-          session.nonce = csrfRecord.nonce;
-          session.expiresAt = csrfRecord.expiresAt;
-          session.issuedAt = csrfRecord.issuedAt ?? Date.now();
-          session.csrfProof =
+          finalNonce = csrfRecord.nonce;
+          finalExpiresAt = csrfRecord.expiresAt;
+          finalProof =
             typeof csrfRecord.csrfProof === "string" && csrfRecord.csrfProof.length > 0
               ? csrfRecord.csrfProof
-              : buildCsrfProof(sessionSecret, session.nonce, session.expiresAt);
+              : buildCsrfProof(sessionSecret, csrfRecord.nonce, csrfRecord.expiresAt);
           if (!csrfProof && session.csrfProof) {
             csrfProof = session.csrfProof;
           }
@@ -412,27 +423,30 @@ export async function createSessionManager(config, logger) {
       }
     }
 
-    if (typeof session.nonce !== "string") {
+    if (!finalNonce) {
       return { ok: false, statusCode: 401, error: "Session required" };
     }
 
-    const expiresAtValue = Number.parseInt(session.expiresAt ?? "", 10);
+    const expiresAtValue = Number(finalExpiresAt);
     if (!Number.isFinite(expiresAtValue)) {
       return { ok: false, statusCode: 401, error: "Invalid session" };
     }
 
     if (Date.now() > expiresAtValue) {
-      await deleteCsrfSessionRecord(session.nonce);
+      await deleteCsrfSessionRecord(finalNonce);
       return { ok: false, statusCode: 401, error: "Session expired" };
     }
 
     const method = (request.raw.method ?? "").toUpperCase();
     const csrfRequired = method !== "OPTIONS";
-    if (csrfRequired) {
-      if (!csrfToken || csrfToken !== session.nonce) {
-        return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
-      }
+    if (csrfRequired && (!csrfToken || csrfToken !== finalNonce)) {
+      return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
     }
+
+    session.nonce = finalNonce;
+    session.expiresAt = expiresAtValue;
+    session.issuedAt = Math.max(0, expiresAtValue - SESSION_MAX_AGE_MS);
+    session.csrfProof = finalProof ?? csrfProof ?? buildCsrfProof(sessionSecret, finalNonce, expiresAtValue);
 
     refreshSession(session);
     if (typeof session.touch === "function") {
