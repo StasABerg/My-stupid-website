@@ -128,6 +128,10 @@ function buildCsrfSessionKey(prefix, token) {
   return `${prefix}${token}`;
 }
 
+function buildCsrfProofKey(prefix, proof) {
+  return `${prefix}${proof}`;
+}
+
 function ensureSessionObject(session) {
   if (!session || typeof session !== "object") {
     return {};
@@ -222,8 +226,13 @@ export async function createSessionManager(config, logger) {
     config.session.store?.redis?.keyPrefix !== undefined
       ? `${config.session.store.redis.keyPrefix}nonce:`
       : "gateway:session:nonce:";
+  const csrfProofKeyPrefix =
+    config.session.store?.redis?.keyPrefix !== undefined
+      ? `${config.session.store.redis.keyPrefix}proof:`
+      : "gateway:session:proof:";
 
   const inMemoryCsrfSessions = new Map();
+  const inMemoryCsrfProofs = new Map();
 
   async function storeCsrfSessionRecord(token, sessionData) {
     if (!token) return;
@@ -236,15 +245,15 @@ export async function createSessionManager(config, logger) {
           ? sessionData.csrfProof
           : buildCsrfProof(sessionSecret, sessionData?.nonce ?? null, sessionData?.expiresAt ?? null),
     };
+    const serialized = JSON.stringify(record);
 
     if (sessionRedisClient) {
       try {
-        await sessionRedisClient.set(
-          buildCsrfSessionKey(csrfKeyPrefix, token),
-          JSON.stringify(record),
-          "EX",
-          SESSION_TTL_SECONDS,
-        );
+        const ttl = SESSION_TTL_SECONDS;
+        await sessionRedisClient.set(buildCsrfSessionKey(csrfKeyPrefix, token), serialized, "EX", ttl);
+        if (record.csrfProof) {
+          await sessionRedisClient.set(buildCsrfProofKey(csrfProofKeyPrefix, record.csrfProof), serialized, "EX", ttl);
+        }
       } catch (error) {
         logger.warn("session.csrf_store_failed", { error });
       }
@@ -252,6 +261,9 @@ export async function createSessionManager(config, logger) {
     }
 
     inMemoryCsrfSessions.set(token, record);
+    if (record.csrfProof) {
+      inMemoryCsrfProofs.set(record.csrfProof, record);
+    }
   }
 
   async function loadCsrfSessionRecord(token) {
@@ -287,6 +299,9 @@ export async function createSessionManager(config, logger) {
     }
     if (record.expiresAt && Date.now() > record.expiresAt) {
       inMemoryCsrfSessions.delete(token);
+      if (record.csrfProof) {
+        inMemoryCsrfProofs.delete(record.csrfProof);
+      }
       return null;
     }
     if (
@@ -299,19 +314,67 @@ export async function createSessionManager(config, logger) {
     return record;
   }
 
-  async function deleteCsrfSessionRecord(token) {
-    if (!token) return;
+  async function loadCsrfProofRecord(proof) {
+    if (!proof) return null;
 
     if (sessionRedisClient) {
       try {
-        await sessionRedisClient.del(buildCsrfSessionKey(csrfKeyPrefix, token));
+        const raw = await sessionRedisClient.get(buildCsrfProofKey(csrfProofKeyPrefix, proof));
+        if (!raw) {
+          return null;
+        }
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") {
+          return null;
+        }
+        return parsed;
+      } catch (error) {
+        logger.warn("session.csrf_proof_lookup_failed", { error });
+        return null;
+      }
+    }
+
+    const record = inMemoryCsrfProofs.get(proof);
+    if (!record) {
+      return null;
+    }
+    if (record.expiresAt && Date.now() > record.expiresAt) {
+      inMemoryCsrfProofs.delete(proof);
+      if (record.nonce) {
+        inMemoryCsrfSessions.delete(record.nonce);
+      }
+      return null;
+    }
+    return record;
+  }
+
+  async function deleteCsrfSessionRecord(token, proof = null) {
+    if (!token && !proof) return;
+
+    if (sessionRedisClient) {
+      try {
+        const keys = [];
+        if (token) {
+          keys.push(buildCsrfSessionKey(csrfKeyPrefix, token));
+        }
+        if (proof) {
+          keys.push(buildCsrfProofKey(csrfProofKeyPrefix, proof));
+        }
+        if (keys.length > 0) {
+          await sessionRedisClient.del(...keys);
+        }
       } catch (error) {
         logger.warn("session.csrf_delete_failed", { error });
       }
       return;
     }
 
-    inMemoryCsrfSessions.delete(token);
+    if (token) {
+      inMemoryCsrfSessions.delete(token);
+    }
+    if (proof) {
+      inMemoryCsrfProofs.delete(proof);
+    }
   }
 
   function initializeSession(session) {
@@ -382,7 +445,7 @@ export async function createSessionManager(config, logger) {
       const verified = verifyCsrfProof(sessionSecret, csrfProof);
       if (verified) {
         if (Date.now() > verified.expiresAt) {
-          await deleteCsrfSessionRecord(verified.nonce);
+          await deleteCsrfSessionRecord(verified.nonce, csrfProof);
         } else {
           finalNonce = verified.nonce;
           finalExpiresAt = verified.expiresAt;
@@ -408,7 +471,7 @@ export async function createSessionManager(config, logger) {
       const csrfRecord = await loadCsrfSessionRecord(csrfToken);
       if (csrfRecord && csrfRecord.nonce && csrfRecord.expiresAt) {
         if (Date.now() > csrfRecord.expiresAt) {
-          await deleteCsrfSessionRecord(csrfToken);
+          await deleteCsrfSessionRecord(csrfToken, csrfRecord.csrfProof ?? null);
         } else {
           finalNonce = csrfRecord.nonce;
           finalExpiresAt = csrfRecord.expiresAt;
@@ -418,6 +481,25 @@ export async function createSessionManager(config, logger) {
               : buildCsrfProof(sessionSecret, csrfRecord.nonce, csrfRecord.expiresAt);
           if (!csrfProof && session.csrfProof) {
             csrfProof = session.csrfProof;
+          }
+        }
+      }
+    }
+
+    if (!finalNonce && csrfProof) {
+      const proofRecord = await loadCsrfProofRecord(csrfProof);
+      if (proofRecord && proofRecord.nonce && proofRecord.expiresAt) {
+        if (Date.now() > proofRecord.expiresAt) {
+          await deleteCsrfSessionRecord(proofRecord.nonce, csrfProof);
+        } else {
+          finalNonce = proofRecord.nonce;
+          finalExpiresAt = proofRecord.expiresAt;
+          finalProof =
+            typeof proofRecord.csrfProof === "string" && proofRecord.csrfProof.length > 0
+              ? proofRecord.csrfProof
+              : csrfProof;
+          if (!csrfToken) {
+            csrfToken = proofRecord.nonce;
           }
         }
       }
@@ -433,7 +515,7 @@ export async function createSessionManager(config, logger) {
     }
 
     if (Date.now() > expiresAtValue) {
-      await deleteCsrfSessionRecord(finalNonce);
+      await deleteCsrfSessionRecord(finalNonce, finalProof ?? csrfProof ?? null);
       return { ok: false, statusCode: 401, error: "Session expired" };
     }
 
