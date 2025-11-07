@@ -499,13 +499,21 @@ export async function createSessionManager(config, logger) {
 
     if (csrfProof) {
       const verified = verifyCsrfProof(proofSecret, csrfProof);
-      if (verified && Date.now() <= verified.expiresAt) {
+      if (verified) {
         if (csrfToken && csrfToken !== verified.nonce) {
           return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
         }
+
+        const proofRecord = (await loadCsrfProofRecord(csrfProof)) ?? (await loadCsrfSessionRecord(verified.nonce));
+        if (!proofRecord) {
+          await deleteCsrfSessionRecord(verified.nonce, csrfProof);
+          return { ok: false, statusCode: 401, error: "Session expired" };
+        }
+
+        const refreshedExpiresAt = Date.now() + SESSION_MAX_AGE_MS;
         session.nonce = verified.nonce;
-        session.expiresAt = verified.expiresAt;
-        session.issuedAt = Math.max(0, verified.expiresAt - SESSION_MAX_AGE_MS);
+        session.expiresAt = refreshedExpiresAt;
+        session.issuedAt = Math.max(0, refreshedExpiresAt - SESSION_MAX_AGE_MS);
         session.csrfProof = csrfProof;
 
         await storeCsrfSessionRecord(session.nonce, {
@@ -523,11 +531,9 @@ export async function createSessionManager(config, logger) {
           },
         };
       }
-      if (!verified) {
-        logger.warn("session.csrf_proof_invalid", {
-          proofLength: csrfProof.length,
-        });
-      }
+      logger.warn("session.csrf_proof_invalid", {
+        proofLength: csrfProof.length,
+      });
     }
 
     let finalNonce =

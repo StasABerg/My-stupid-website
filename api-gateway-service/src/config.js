@@ -44,7 +44,12 @@ const DEFAULT_SECRET_SEED = "my-stupid-website-secret-seed";
 
 function deriveSecret(rawSecret, { label }) {
   const value = rawSecret?.trim();
-  if (value && value.length >= 32) {
+  if (value && value.length > 0) {
+    if (value.length < 32) {
+      logger.warn(`${label ?? "secret"}.short`, {
+        message: `${label ?? "Secret"} is shorter than 32 characters. Consider using a longer value for better security.`,
+      });
+    }
     return { value, generated: false };
   }
 
@@ -53,7 +58,7 @@ function deriveSecret(rawSecret, { label }) {
 
   const generated = crypto.createHash("sha256").update(deterministicSeed).digest("hex");
   logger.warn(`${label ?? "secret"}.derived`, {
-    message: `${label ?? "Secret"} not provided or too short; using deterministic fallback derived from INSTANCE_SECRET_SEED. Set ${label?.toUpperCase() ?? "the secret"} for stronger guarantees.`,
+    message: `${label ?? "Secret"} not provided; using deterministic fallback derived from INSTANCE_SECRET_SEED. Set ${label?.toUpperCase() ?? "the secret"} for stronger guarantees.`,
   });
   return { value: generated, generated: true };
 }
