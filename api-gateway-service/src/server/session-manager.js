@@ -504,7 +504,6 @@ export async function createSessionManager(config, logger) {
           return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
         }
         if (Date.now() > verified.expiresAt) {
-          await deleteCsrfSessionRecord(verified.nonce, csrfProof);
           return { ok: false, statusCode: 401, error: "Session expired" };
         }
 
@@ -513,10 +512,13 @@ export async function createSessionManager(config, logger) {
         session.issuedAt = Math.max(0, session.expiresAt - SESSION_MAX_AGE_MS);
         session.csrfProof = csrfProof;
 
-        await storeCsrfSessionRecord(session.nonce, {
+        // Best-effort refresh of stored state; do not block request on failures.
+        storeCsrfSessionRecord(session.nonce, {
           nonce: session.nonce,
           expiresAt: session.expiresAt,
           csrfProof,
+        }).catch((error) => {
+          logger.warn("session.csrf_refresh_failed", { error });
         });
 
         return {
