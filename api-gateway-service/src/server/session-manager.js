@@ -503,17 +503,14 @@ export async function createSessionManager(config, logger) {
         if (csrfToken && csrfToken !== verified.nonce) {
           return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
         }
-
-        const proofRecord = (await loadCsrfProofRecord(csrfProof)) ?? (await loadCsrfSessionRecord(verified.nonce));
-        if (!proofRecord) {
+        if (Date.now() > verified.expiresAt) {
           await deleteCsrfSessionRecord(verified.nonce, csrfProof);
           return { ok: false, statusCode: 401, error: "Session expired" };
         }
 
-        const refreshedExpiresAt = Date.now() + SESSION_MAX_AGE_MS;
         session.nonce = verified.nonce;
-        session.expiresAt = refreshedExpiresAt;
-        session.issuedAt = Math.max(0, refreshedExpiresAt - SESSION_MAX_AGE_MS);
+        session.expiresAt = Date.now() + SESSION_MAX_AGE_MS;
+        session.issuedAt = Math.max(0, session.expiresAt - SESSION_MAX_AGE_MS);
         session.csrfProof = csrfProof;
 
         await storeCsrfSessionRecord(session.nonce, {
