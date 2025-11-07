@@ -171,7 +171,6 @@ export async function createSessionManager(config, logger) {
 
   let sessionSecret = config.session.secret;
   let proofSecret = config.csrfProofSecret;
-  const proofSecretGenerated = config.csrfProofSecretGenerated;
   let sessionRedisClient = null;
   let sessionStore = null;
   let proofSecretRedisClient = null;
@@ -237,67 +236,9 @@ export async function createSessionManager(config, logger) {
   const inMemoryCsrfSessions = new Map();
   const inMemoryCsrfProofs = new Map();
 
-  async function ensureRedisClientReady(client) {
-    if (!client) return;
-    if (client.status === "ready") {
-      return;
-    }
-    if (client.status === "connecting" || client.status === "reconnecting") {
-      await new Promise((resolve, reject) => {
-        const cleanup = () => {
-          client.off("ready", handleReady);
-          client.off("error", handleError);
-        };
-        const handleReady = () => {
-          cleanup();
-          resolve();
-        };
-        const handleError = (error) => {
-          cleanup();
-          reject(error);
-        };
-        client.once("ready", handleReady);
-        client.once("error", handleError);
-      });
-      return;
-    }
-    await client.connect();
+  if (!proofSecret || proofSecret.length === 0) {
+    proofSecret = sessionSecret;
   }
-
-  const syncProofSecretViaRedis = async () => {
-    const client = sessionRedisClient ?? (config.cache?.redis?.enabled && config.cache.redis.url
-      ? new Redis(config.cache.redis.url, {
-          lazyConnect: true,
-          maxRetriesPerRequest: 2,
-          connectTimeout: config.cache.redis.connectTimeoutMs ?? 5000,
-        })
-      : null);
-
-    if (!client) {
-      if (proofSecretGenerated) {
-        logger.warn("session.csrf_proof_secret_unshared", {
-          message: "Generated CSRF proof secret but no Redis client available; multi-pod deployments may see mismatched proofs. Set HLS_CSRF_SECRET or enable Redis.",
-        });
-      }
-      return;
-    }
-
-    proofSecretRedisClient = client;
-    await ensureRedisClientReady(client);
-
-    const secretKey =
-      config.session.store?.redis?.keyPrefix !== undefined
-        ? `${config.session.store.redis.keyPrefix}__csrf_proof_secret`
-        : "gateway:session:__csrf_proof_secret";
-
-    try {
-      await client.set(secretKey, proofSecret);
-    } catch (error) {
-      logger.warn("session.csrf_proof_secret_sync_failed", { error });
-    }
-  };
-
-  await syncProofSecretViaRedis();
 
   async function storeCsrfSessionRecord(token, sessionData) {
     if (!token) return;
