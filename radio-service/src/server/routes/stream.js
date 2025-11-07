@@ -2,6 +2,31 @@ import { fetchWithKeepAlive } from "../../http/client.js";
 import { logger } from "../../logger.js";
 import { pickForwardHeaders, rewritePlaylist, shouldTreatAsPlaylist } from "./utils.js";
 
+function getHeaderValue(headers, name) {
+  const value = headers?.[name];
+  if (Array.isArray(value)) {
+    return value.find((item) => typeof item === "string" && item.trim().length > 0) ?? null;
+  }
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function resolveCsrfParams(request) {
+  const headerToken = getHeaderValue(request.headers, "x-gateway-csrf-token");
+  const headerProof = getHeaderValue(request.headers, "x-gateway-csrf-proof");
+  const queryToken =
+    typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
+      ? request.query.csrfToken.trim()
+      : null;
+  const queryProof =
+    typeof request.query.csrfProof === "string" && request.query.csrfProof.trim().length > 0
+      ? request.query.csrfProof.trim()
+      : null;
+  return {
+    csrfToken: headerToken ?? queryToken,
+    csrfProof: headerProof ?? queryProof,
+  };
+}
+
 async function findStationById(stationsLoader, stationId) {
   const { payload } = await stationsLoader();
   const stations = Array.isArray(payload?.stations) ? payload.stations : [];
@@ -30,14 +55,7 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         return;
       }
 
-      const csrfToken =
-        typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
-          ? request.query.csrfToken.trim()
-          : null;
-      const csrfProof =
-        typeof request.query.csrfProof === "string" && request.query.csrfProof.trim().length > 0
-          ? request.query.csrfProof.trim()
-          : null;
+      const { csrfToken, csrfProof } = resolveCsrfParams(request);
       const extraParams = {};
       if (csrfToken) {
         extraParams.csrfToken = csrfToken;
@@ -162,14 +180,7 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         clearTimeout(timeout);
       }
 
-      const csrfToken =
-        typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
-          ? request.query.csrfToken.trim()
-          : null;
-      const csrfProof =
-        typeof request.query.csrfProof === "string" && request.query.csrfProof.trim().length > 0
-          ? request.query.csrfProof.trim()
-          : null;
+      const { csrfToken, csrfProof } = resolveCsrfParams(request);
 
       const contentType = upstream.headers.get("content-type") ?? "";
       if (!shouldTreatAsPlaylist(targetUrl.toString(), contentType)) {

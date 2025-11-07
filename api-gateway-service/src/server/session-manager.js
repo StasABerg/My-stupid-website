@@ -451,13 +451,13 @@ export async function createSessionManager(config, logger) {
         session.nonce = verified.nonce;
         session.expiresAt = Date.now() + SESSION_MAX_AGE_MS;
         session.issuedAt = Math.max(0, session.expiresAt - SESSION_MAX_AGE_MS);
-        session.csrfProof = csrfProof;
+        session.csrfProof = buildCsrfProof(proofSecret, session.nonce, session.expiresAt);
 
         // Best-effort refresh of stored state; do not block request on failures.
         storeCsrfSessionRecord(session.nonce, {
           nonce: session.nonce,
           expiresAt: session.expiresAt,
-          csrfProof,
+          csrfProof: session.csrfProof,
         }).catch((error) => {
           logger.warn("session.csrf_refresh_failed", { error });
         });
@@ -467,7 +467,7 @@ export async function createSessionManager(config, logger) {
           session: {
             nonce: session.nonce,
             expiresAt: session.expiresAt,
-            csrfProof,
+            csrfProof: session.csrfProof,
           },
         };
       }
