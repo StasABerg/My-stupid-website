@@ -444,10 +444,6 @@ export async function createSessionManager(config, logger) {
         if (csrfToken && csrfToken !== verified.nonce) {
           return { ok: false, statusCode: 403, error: "Missing or invalid CSRF token" };
         }
-        if (Date.now() > verified.expiresAt) {
-          return { ok: false, statusCode: 401, error: "Session expired" };
-        }
-
         session.nonce = verified.nonce;
         session.expiresAt = Date.now() + SESSION_MAX_AGE_MS;
         session.issuedAt = Math.max(0, session.expiresAt - SESSION_MAX_AGE_MS);
