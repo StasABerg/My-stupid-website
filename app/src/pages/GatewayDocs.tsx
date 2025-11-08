@@ -1,6 +1,4 @@
 import { Link } from "react-router-dom";
-import SwaggerUI from "swagger-ui-react";
-import "swagger-ui-react/swagger-ui.css";
 import { TerminalPrompt } from "@/components/SecureTerminal";
 
 const GatewayDocs = () => (
@@ -21,7 +19,12 @@ const GatewayDocs = () => (
       />
     </div>
     <div className="mx-auto max-w-5xl rounded-lg bg-white p-4 shadow-lg">
-      <SwaggerUI url="/api/docs/json" docExpansion="list" deepLinking={false} />
+      <iframe
+        title="Gateway API documentation"
+        src="/api/docs"
+        className="h-[80vh] w-full border-0"
+        loading="lazy"
+      />
     </div>
   </div>
 );
