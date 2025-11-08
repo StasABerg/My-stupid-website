@@ -73,6 +73,12 @@ export function createProxyHandler({
       const outgoingHeaders = sanitizeRequestHeaders(req.headers);
       const { ip: clientIp, source: clientIpSource } = resolveClientIp(req);
       if (session?.nonce) {
+        outgoingHeaders["X-Gateway-CSRF-Token"] = session.nonce;
+      }
+      if (session?.csrfProof) {
+        outgoingHeaders["X-Gateway-CSRF-Proof"] = session.csrfProof;
+      }
+      if (session?.nonce) {
         outgoingHeaders["X-Gateway-Session"] = session.nonce;
       }
       if (clientIp) {
@@ -141,8 +147,11 @@ export function createProxyHandler({
 
       if (session?.nonce) {
         responseHeaders["X-Gateway-Session"] = session.nonce;
+        responseHeaders["X-Gateway-CSRF"] = session.nonce;
+        if (session.csrfProof) {
+          responseHeaders["X-Gateway-CSRF-Proof"] = session.csrfProof;
+        }
       }
-
       res.writeHead(upstreamResponse.status, responseHeaders);
 
       if (upstreamResponse.body) {

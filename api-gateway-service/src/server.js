@@ -65,9 +65,10 @@ const fastify = Fastify({
 const sessionResponseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["csrfToken", "expiresAt"],
+  required: ["csrfToken", "csrfProof", "expiresAt"],
   properties: {
     csrfToken: { type: "string" },
+    csrfProof: { type: "string" },
     expiresAt: { type: "number" },
   },
 };
@@ -213,7 +214,6 @@ fastify.post("/session", {
 
   logger.info("session.request_received", {
     hasCookie: Boolean(request.headers.cookie),
-    cookies: request.headers.cookie ?? null,
   });
 
   if (!originAllowed) {
@@ -254,6 +254,7 @@ fastify.post("/session", {
     .code(200)
     .send({
       csrfToken: sessionInfo.nonce,
+      csrfProof: sessionInfo.csrfProof,
       expiresAt: sessionInfo.expiresAt,
     });
 

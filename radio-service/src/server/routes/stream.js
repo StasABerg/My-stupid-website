@@ -2,6 +2,31 @@ import { fetchWithKeepAlive } from "../../http/client.js";
 import { logger } from "../../logger.js";
 import { pickForwardHeaders, rewritePlaylist, shouldTreatAsPlaylist } from "./utils.js";
 
+function getHeaderValue(headers, name) {
+  const value = headers?.[name];
+  if (Array.isArray(value)) {
+    return value.find((item) => typeof item === "string" && item.trim().length > 0) ?? null;
+  }
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function resolveCsrfParams(request) {
+  const headerToken = getHeaderValue(request.headers, "x-gateway-csrf-token");
+  const headerProof = getHeaderValue(request.headers, "x-gateway-csrf-proof");
+  const queryToken =
+    typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
+      ? request.query.csrfToken.trim()
+      : null;
+  const queryProof =
+    typeof request.query.csrfProof === "string" && request.query.csrfProof.trim().length > 0
+      ? request.query.csrfProof.trim()
+      : null;
+  return {
+    csrfToken: headerToken ?? queryToken,
+    csrfProof: headerProof ?? queryProof,
+  };
+}
+
 async function findStationById(stationsLoader, stationId) {
   const { payload } = await stationsLoader();
   const stations = Array.isArray(payload?.stations) ? payload.stations : [];
@@ -30,10 +55,14 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         return;
       }
 
-      const csrfToken =
-        typeof request.query.csrfToken === "string" && request.query.csrfToken.trim().length > 0
-          ? request.query.csrfToken.trim()
-          : null;
+      const { csrfToken, csrfProof } = resolveCsrfParams(request);
+      const extraParams = {};
+      if (csrfToken) {
+        extraParams.csrfToken = csrfToken;
+      }
+      if (csrfProof) {
+        extraParams.csrfProof = csrfProof;
+      }
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), config.streamProxy.timeoutMs);
@@ -72,7 +101,7 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
 
       const text = await upstream.text();
       const rewritten = rewritePlaylist(station.streamUrl, text, {
-        extraParams: csrfToken ? { csrfToken } : undefined,
+        extraParams: Object.keys(extraParams).length > 0 ? extraParams : undefined,
       });
       reply
         .status(200)
@@ -151,19 +180,43 @@ export function registerStreamRoutes(app, { config, ensureRedis, stationsLoader 
         clearTimeout(timeout);
       }
 
-      reply.hijack();
-      reply.raw.statusCode = upstream.status;
+      const { csrfToken, csrfProof } = resolveCsrfParams(request);
 
-      upstream.headers.forEach((value, key) => {
-        if (!/^transfer-encoding$/i.test(key)) {
-          reply.raw.setHeader(key, value);
+      const contentType = upstream.headers.get("content-type") ?? "";
+      if (!shouldTreatAsPlaylist(targetUrl.toString(), contentType)) {
+        reply.hijack();
+        reply.raw.statusCode = upstream.status;
+
+        upstream.headers.forEach((value, key) => {
+          if (!/^transfer-encoding$/i.test(key)) {
+            reply.raw.setHeader(key, value);
+          }
+        });
+        reply.raw.setHeader("Cache-Control", "no-store");
+        for await (const chunk of upstream.body ?? []) {
+          reply.raw.write(chunk);
         }
-      });
-      reply.raw.setHeader("Cache-Control", "no-store");
-      for await (const chunk of upstream.body ?? []) {
-        reply.raw.write(chunk);
+        reply.raw.end();
+        return;
       }
-      reply.raw.end();
+
+      const extraParams = {};
+      if (csrfToken) {
+        extraParams.csrfToken = csrfToken;
+      }
+      if (csrfProof) {
+        extraParams.csrfProof = csrfProof;
+      }
+
+      const text = await upstream.text();
+      const rewritten = rewritePlaylist(targetUrl.toString(), text, {
+        extraParams: Object.keys(extraParams).length > 0 ? extraParams : undefined,
+      });
+      reply
+        .status(200)
+        .header("Content-Type", "application/vnd.apple.mpegurl")
+        .header("Cache-Control", "no-store")
+        .send(rewritten);
     } catch (error) {
       logger.error("stream.segment_error", {
         stationId: request.params.stationId ?? null,

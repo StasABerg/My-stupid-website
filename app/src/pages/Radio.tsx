@@ -164,9 +164,14 @@ const Radio = () => {
       let streamPath = `${RADIO_API_BASE}/stations/${encodedId}/stream`;
 
       try {
-        const token = await ensureGatewaySession();
-        if (token && token.length > 0) {
-          streamPath = `${streamPath}?csrfToken=${encodeURIComponent(token)}`;
+        const session = await ensureGatewaySession();
+        if (session.token && session.token.length > 0) {
+          const params = new URLSearchParams();
+          params.set("csrfToken", session.token);
+          if (session.proof && session.proof.length > 0) {
+            params.set("csrfProof", session.proof);
+          }
+          streamPath = `${streamPath}?${params.toString()}`;
         }
       } catch {
         // ignore token resolution errors; fall back to unsigned streamPath

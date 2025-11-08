@@ -40,15 +40,25 @@ const allowedServiceHostnames = Array.from(
   new Set([...derivedHosts, ...explicitAllowedHosts]),
 );
 
-function deriveSessionSecret(rawSecret) {
+const DEFAULT_SECRET_SEED = "my-stupid-website-secret-seed";
+
+function deriveSecret(rawSecret, { label }) {
   const value = rawSecret?.trim();
-  if (value && value.length >= 32) {
+  if (value && value.length > 0) {
+    if (value.length < 32) {
+      logger.warn(`${label ?? "secret"}.short`, {
+        message: `${label ?? "Secret"} is shorter than 32 characters. Consider using a longer value for better security.`,
+      });
+    }
     return { value, generated: false };
   }
 
-  const generated = crypto.randomBytes(32).toString("hex");
-  logger.warn("session.secret_ephemeral", {
-    message: "SESSION_SECRET not provided or too short; using ephemeral key",
+  const seedSource = (process.env.INSTANCE_SECRET_SEED ?? DEFAULT_SECRET_SEED).trim();
+  const deterministicSeed = `${seedSource}|${label ?? "secret"}`;
+
+  const generated = crypto.createHash("sha256").update(deterministicSeed).digest("hex");
+  logger.warn(`${label ?? "secret"}.derived`, {
+    message: `${label ?? "Secret"} not provided; using deterministic fallback derived from INSTANCE_SECRET_SEED. Set ${label?.toUpperCase() ?? "the secret"} for stronger guarantees.`,
   });
   return { value: generated, generated: true };
 }
@@ -75,7 +85,11 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-const derivedSessionSecret = deriveSessionSecret(process.env.SESSION_SECRET);
+const derivedSessionSecret = deriveSecret(process.env.SESSION_SECRET, { label: "session.secret" });
+const derivedCsrfProofSecret = {
+  value: derivedSessionSecret.value,
+  generated: derivedSessionSecret.generated,
+};
 
 const redisUrlFromEnv = process.env.CACHE_REDIS_URL ?? process.env.REDIS_URL ?? "";
 const cacheRedisEnabled = typeof redisUrlFromEnv === "string" && redisUrlFromEnv.trim().length > 0;
@@ -136,4 +150,6 @@ export const config = {
       ),
     },
   },
+  csrfProofSecret: derivedCsrfProofSecret.value,
+  csrfProofSecretGenerated: derivedCsrfProofSecret.generated,
 };

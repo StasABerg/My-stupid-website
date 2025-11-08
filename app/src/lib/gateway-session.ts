@@ -1,7 +1,7 @@
-type CachedToken = { value: string; expiresAt: number };
+type CachedToken = { value: string; proof: string; expiresAt: number };
 
 let cachedToken: CachedToken | null = null;
-let pending: Promise<string> | null = null;
+let pending: Promise<CachedToken> | null = null;
 
 const LEGACY_STORAGE_KEY = "gateway.session";
 const TOKEN_STORAGE_KEY = "gateway.session.token";
@@ -45,6 +45,7 @@ function parseCachedToken(raw: string | null): CachedToken | null {
       typeof parsed === "object" &&
       parsed !== null &&
       typeof (parsed as Record<string, unknown>).value === "string" &&
+      typeof (parsed as Record<string, unknown>).proof === "string" &&
       typeof (parsed as Record<string, unknown>).expiresAt === "number"
     ) {
       return parsed as CachedToken;
@@ -171,12 +172,14 @@ const SESSION_ENDPOINT = "/api/session";
 
 function isTokenValid(token: typeof cachedToken) {
   if (!token) return false;
+  if (typeof token.value !== "string" || token.value.length === 0) return false;
+  if (typeof token.proof !== "string" || token.proof.length === 0) return false;
   const now = Date.now();
   // Refresh a little before expiry to avoid races
   return token.expiresAt - now > 30_000;
 }
 
-async function requestNewSession(): Promise<string> {
+async function requestNewSession(): Promise<CachedToken> {
   const response = await fetch(SESSION_ENDPOINT, {
     method: "POST",
     credentials: "include",
@@ -189,23 +192,26 @@ async function requestNewSession(): Promise<string> {
     throw new Error(`Failed to initialize session (status ${response.status})`);
   }
 
-  const payload: { csrfToken?: string; expiresAt?: number } = await response.json();
+  const payload: { csrfToken?: string; csrfProof?: string; expiresAt?: number } = await response.json();
   if (!payload.csrfToken || typeof payload.csrfToken !== "string") {
     throw new Error("Session response missing csrfToken");
+  }
+  if (!payload.csrfProof || typeof payload.csrfProof !== "string") {
+    throw new Error("Session response missing csrfProof");
   }
   const expiresAt =
     typeof payload.expiresAt === "number" && Number.isFinite(payload.expiresAt)
       ? payload.expiresAt
       : Date.now() + 1000 * 60 * 30;
 
-  cachedToken = { value: payload.csrfToken, expiresAt };
+  cachedToken = { value: payload.csrfToken, proof: payload.csrfProof, expiresAt };
   persistToken(cachedToken);
-  return payload.csrfToken;
+  return cachedToken;
 }
 
-export async function ensureGatewaySession(): Promise<string> {
+export async function ensureGatewaySession(): Promise<{ token: string; proof: string }> {
   if (isTokenValid(cachedToken)) {
-    return cachedToken!.value;
+    return { token: cachedToken!.value, proof: cachedToken!.proof };
   }
 
   if (!pending) {
@@ -214,13 +220,15 @@ export async function ensureGatewaySession(): Promise<string> {
     });
   }
 
-  return pending;
+  const session = await pending;
+  return { token: session.value, proof: session.proof };
 }
 
 export async function authorizedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const token = await ensureGatewaySession();
+  const session = await ensureGatewaySession();
   const headers = new Headers(init.headers ?? {});
-  headers.set("X-Gateway-CSRF", token);
+  headers.set("X-Gateway-CSRF", session.token);
+  headers.set("X-Gateway-CSRF-Proof", session.proof);
 
   const finalInit: RequestInit = {
     ...init,
@@ -239,8 +247,9 @@ export async function authorizedFetch(input: RequestInfo | URL, init: RequestIni
         pending = null;
       });
     }
-    const freshToken = await pending;
-    headers.set("X-Gateway-CSRF", freshToken);
+    const freshSession = await pending;
+    headers.set("X-Gateway-CSRF", freshSession.value);
+    headers.set("X-Gateway-CSRF-Proof", freshSession.proof);
     const retryInit: RequestInit = {
       ...init,
       headers,
