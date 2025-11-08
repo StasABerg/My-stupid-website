@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { TerminalPrompt } from "@/components/SecureTerminal";
+import { SwaggerEmbed } from "@/components/swagger";
 
 const RadioDocs = () => (
   <div className="min-h-screen bg-slate-950 p-4 sm:p-8">
@@ -19,12 +20,7 @@ const RadioDocs = () => (
       />
     </div>
     <div className="mx-auto max-w-5xl rounded-lg bg-white p-4 shadow-lg">
-      <iframe
-        title="Radio API documentation"
-        src="/api/radio/docs"
-        className="h-[80vh] w-full border-0"
-        loading="lazy"
-      />
+      <SwaggerEmbed specUrl="/api/radio/docs/json" className="min-h-[70vh]" />
     </div>
   </div>
 );

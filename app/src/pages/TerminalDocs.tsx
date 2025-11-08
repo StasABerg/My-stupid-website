@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { TerminalPrompt } from "@/components/SecureTerminal";
+import { SwaggerEmbed } from "@/components/swagger";
 
 const TerminalDocs = () => (
   <div className="min-h-screen bg-slate-950 p-4 sm:p-8">
@@ -19,12 +20,7 @@ const TerminalDocs = () => (
       />
     </div>
     <div className="mx-auto max-w-5xl rounded-lg bg-white p-4 shadow-lg">
-      <iframe
-        title="Terminal API documentation"
-        src="/api/terminal/docs"
-        className="h-[80vh] w-full border-0"
-        loading="lazy"
-      />
+      <SwaggerEmbed specUrl="/api/terminal/docs/json" className="min-h-[70vh]" />
     </div>
   </div>
 );
