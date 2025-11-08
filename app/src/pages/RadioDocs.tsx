@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
-import SwaggerUI from "swagger-ui-react";
-import "swagger-ui-react/swagger-ui.css";
 import { TerminalPrompt } from "@/components/SecureTerminal";
+import { SwaggerEmbed } from "@/components/swagger";
 
 const RadioDocs = () => (
   <div className="min-h-screen bg-slate-950 p-4 sm:p-8">
@@ -21,7 +20,7 @@ const RadioDocs = () => (
       />
     </div>
     <div className="mx-auto max-w-5xl rounded-lg bg-white p-4 shadow-lg">
-      <SwaggerUI url="/api/radio/docs/json" docExpansion="list" deepLinking={false} />
+      <SwaggerEmbed specUrl="/api/radio/docs/json" className="min-h-[70vh]" />
     </div>
   </div>
 );
