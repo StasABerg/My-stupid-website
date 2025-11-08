@@ -147,14 +147,10 @@ export function createProxyHandler({
 
       if (session?.nonce) {
         responseHeaders["X-Gateway-Session"] = session.nonce;
+        responseHeaders["X-Gateway-CSRF"] = session.nonce;
         if (session.csrfProof) {
           responseHeaders["X-Gateway-CSRF-Proof"] = session.csrfProof;
         }
-        responseHeaders["X-Gateway-CSRF-Token"] = session.nonce;
-      }
-
-      if (session?.nonce) {
-        responseHeaders["X-Gateway-Session"] = session.nonce;
       }
       res.writeHead(upstreamResponse.status, responseHeaders);
 

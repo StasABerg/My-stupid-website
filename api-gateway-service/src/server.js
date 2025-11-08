@@ -214,7 +214,6 @@ fastify.post("/session", {
 
   logger.info("session.request_received", {
     hasCookie: Boolean(request.headers.cookie),
-    cookies: request.headers.cookie ?? null,
   });
 
   if (!originAllowed) {

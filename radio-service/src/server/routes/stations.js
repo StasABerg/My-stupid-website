@@ -197,6 +197,21 @@ export function registerStationsRoutes(
     },
   };
 
+  const expectedRefreshHeader = `Bearer ${config.refreshToken}`;
+
+  const isRefreshAuthorized = (request) => {
+    const authorization = request.headers["authorization"] ?? "";
+    return authorization === expectedRefreshHeader;
+  };
+
+  const ensureRefreshAuthorization = (request, reply) => {
+    const authorized = isRefreshAuthorized(request);
+    if (!authorized) {
+      reply.status(401).send({ error: "Unauthorized" });
+    }
+    return authorized;
+  };
+
   app.get("/stations", { schema: stationsRouteSchema }, async (request, reply) => {
     try {
       await ensureRedis();
@@ -216,6 +231,10 @@ export function registerStationsRoutes(
           filters: { country, language, tag, search, genre },
         },
       } = parsedQuery;
+
+      if (forceRefresh && !ensureRefreshAuthorization(request, reply)) {
+        return;
+      }
 
       const { payload, cacheSource } = await stationsLoader({ forceRefresh });
       const processed = await ensureProcessedStations(payload);
@@ -258,18 +277,15 @@ export function registerStationsRoutes(
     }
   });
 
-  async function requireRefreshAuth(request, reply) {
-    const authorization = request.headers["authorization"] ?? "";
-    const expected = `Bearer ${config.refreshToken}`;
-    if (authorization !== expected) {
-      reply.status(401).send({ error: "Unauthorized" });
-      return;
+  function refreshAuthPreHandler(request, reply, done) {
+    if (ensureRefreshAuthorization(request, reply)) {
+      done();
     }
   }
 
   app.post(
     "/stations/refresh",
-    { preHandler: requireRefreshAuth },
+    { preHandler: refreshAuthPreHandler },
     async (_request, reply) => {
       try {
         await ensureRedis();
