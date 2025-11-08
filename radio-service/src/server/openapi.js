@@ -150,7 +150,8 @@ export function registerOpenApiSchemas(fastify) {
       refresh: {
         type: "string",
         enum: ["true"],
-        description: "Force the service to refresh station data from the origin.",
+        description:
+          "Force the service to refresh station data from the origin. Requires an Authorization: Bearer <token> header.",
       },
       limit: {
         anyOf: [

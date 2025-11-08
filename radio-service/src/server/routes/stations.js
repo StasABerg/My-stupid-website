@@ -186,6 +186,14 @@ export function registerStationsRoutes(
           },
         },
       },
+      401: {
+        description: "Authorization is required when forcing a refresh.",
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          error: { type: "string" },
+        },
+      },
       500: {
         description: "Failed to load stations from cache or storage.",
         type: "object",
