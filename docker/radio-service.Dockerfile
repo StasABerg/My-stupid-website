@@ -10,6 +10,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY radio-service/package.json ./package.json
 COPY radio-service/src ./src
+COPY radio-service/migrations ./migrations
 RUN chown -R node:node /app
 USER node
 EXPOSE 4010
