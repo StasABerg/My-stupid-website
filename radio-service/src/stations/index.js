@@ -1,4 +1,4 @@
-import { fetchStationsFromS3, scheduleStationsPersistence } from "../s3/index.js";
+import { loadStationsFromDatabase, persistStationsPayload } from "./storage.js";
 import { sanitizePersistedStationsPayload } from "./normalize.js";
 import { fetchFromRadioBrowser, notifyStationClick } from "./fetch.js";
 import { SCHEMA_VERSION } from "./schemas.js";
@@ -7,11 +7,12 @@ export {
   SCHEMA_VERSION,
   sanitizePersistedStationsPayload,
   notifyStationClick,
-  scheduleStationsPersistence,
+  persistStationsPayload,
+  loadStationsFromDatabase,
 };
 
-export async function getStationsFromS3() {
-  return fetchStationsFromS3();
+export async function getStationsFromStore() {
+  return loadStationsFromDatabase();
 }
 
 export async function refreshStations(options = {}) {

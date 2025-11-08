@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { deriveTrustProxyValue, numberFromEnv } from "./env.js";
-import { buildS3Config, validateS3Config } from "./s3.js";
+import { buildPostgresConfig, validatePostgresConfig } from "./postgres.js";
 import { buildRadioBrowserConfig, validateRadioBrowserConfig } from "./radioBrowser.js";
 import { buildApiConfig, validateApiConfig } from "./api.js";
 import { buildStreamProxyConfig, validateStreamProxyConfig } from "./streamProxy.js";
@@ -11,7 +11,7 @@ import {
 
 const allowInsecureTransports = process.env.ALLOW_INSECURE_TRANSPORT === "true";
 
-const s3 = buildS3Config(process.env);
+const postgres = buildPostgresConfig(process.env);
 const radioBrowser = buildRadioBrowserConfig(process.env, allowInsecureTransports);
 const api = buildApiConfig(process.env);
 const streamProxy = buildStreamProxyConfig(process.env);
@@ -30,7 +30,7 @@ export const config = {
   cacheKey: process.env.STATIONS_CACHE_KEY ?? "radio:stations:all",
   cacheTtlSeconds,
   memoryCacheTtlSeconds,
-  s3,
+  postgres,
   radioBrowser,
   api,
   streamProxy,
@@ -44,7 +44,7 @@ export function validateConfig() {
     throw new Error("REDIS_URL must be provided so the service can populate the cache.");
   }
 
-  validateS3Config(config.s3, config.allowInsecureTransports);
+  validatePostgresConfig(config.postgres);
   validateRadioBrowserConfig(config.radioBrowser, config.allowInsecureTransports);
   validateApiConfig(config.api);
   validateStreamProxyConfig(config.streamProxy);

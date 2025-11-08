@@ -2,15 +2,16 @@ import { config, validateConfig } from "../config/index.js";
 import { loadStations, recordStationClick, updateStations } from "../service.js";
 import { logger } from "../logger.js";
 import { createApp } from "./app.js";
+import { runMigrations } from "../db/postgres.js";
 
 validateConfig();
 
-logger.info("s3.configuration", {
-  endpoint: config.s3.endpoint,
-  region: config.s3.region,
-  signingRegion: config.s3.signingRegion,
-  signingService: config.s3.signingService,
-  bucket: config.s3.bucket,
+const postgresUrl = new URL(config.postgres.connectionString);
+logger.info("postgres.configuration", {
+  host: postgresUrl.host,
+  database: postgresUrl.pathname?.slice(1) ?? null,
+  ssl: config.postgres.ssl ? true : false,
+  maxConnections: config.postgres.maxConnections,
 });
 
 const app = createApp({
@@ -21,6 +22,7 @@ const app = createApp({
 
 async function start() {
   try {
+    await runMigrations();
     await app.listen({ port: config.port, host: "0.0.0.0" });
     logger.info("server.started", { port: config.port });
   } catch (error) {
