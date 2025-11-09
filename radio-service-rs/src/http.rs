@@ -923,7 +923,7 @@ async fn get_favorites(State(state): State<AppState>, headers: HeaderMap) -> Api
     Ok(resp)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct UpsertFavoriteBody {
     slot: Option<usize>,
 }
@@ -941,9 +941,10 @@ async fn upsert_favorite(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(station_id): Path<String>,
-    Json(body): Json<UpsertFavoriteBody>,
+    body: Option<Json<UpsertFavoriteBody>>,
 ) -> ApiResponse {
     let rate = enforce_rate_limit(&state, &headers).await?;
+    let body = body.map(|Json(payload)| payload).unwrap_or_default();
     let session = extract_session_token(&headers)?;
     let favorites_session = extract_favorites_session(&headers);
     let key = build_favorites_key(&session, favorites_session.as_deref());
