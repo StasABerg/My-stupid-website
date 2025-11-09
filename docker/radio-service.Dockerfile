@@ -1,5 +1,7 @@
 FROM rust:slim AS base
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
     apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef
@@ -23,7 +25,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release
 
 FROM debian:trixie-slim AS runner
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     useradd -r -u 1000 radio
