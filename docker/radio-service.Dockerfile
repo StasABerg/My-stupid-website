@@ -2,16 +2,18 @@ FROM rust:slim AS build
 RUN apt-get update && \
     apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-COPY radio-service-rs/Cargo.toml radio-service-rs/Cargo.lock ./radio-service-rs/
-COPY radio-service-rs/src ./radio-service-rs/src
-COPY radio-service-rs/openapi.json ./radio-service-rs/openapi.json
-COPY radio-service/migrations ./radio-service/migrations
+WORKDIR /app/radio-service-rs
+COPY radio-service-rs/Cargo.toml .
+COPY radio-service-rs/Cargo.lock .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cd radio-service-rs && \
-    CARGO_TARGET_DIR=/app/target cargo build --release && \
-    cp /app/target/release/radio-service-rs /tmp/radio-service
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo fetch
+COPY radio-service-rs/src ./src
+COPY radio-service-rs/openapi.json ./openapi.json
+COPY radio-service/migrations ../radio-service/migrations
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release
 
 FROM debian:trixie-slim AS runner
 RUN apt-get update && \
@@ -19,7 +21,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     useradd -r -u 1000 radio
 WORKDIR /app
-COPY --from=build /tmp/radio-service /usr/local/bin/radio-service
+COPY --from=build /app/radio-service-rs/target/release/radio-service-rs /usr/local/bin/radio-service
 COPY radio-service/migrations ./migrations
 ENV RUST_LOG=info
 USER radio
