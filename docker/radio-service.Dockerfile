@@ -3,13 +3,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app/radio-service-rs
-COPY radio-service-rs/Cargo.toml .
-COPY radio-service-rs/Cargo.lock .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    cargo fetch
-COPY radio-service-rs/src ./src
-COPY radio-service-rs/openapi.json ./openapi.json
+COPY radio-service-rs/ .
 COPY radio-service/migrations ../radio-service/migrations
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
