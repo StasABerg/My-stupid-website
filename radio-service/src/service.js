@@ -1,10 +1,10 @@
 import { readStationsFromCache, writeStationsToCache } from "./cache.js";
 import {
-  getStationsFromS3,
+  getStationsFromStore,
   notifyStationClick,
+  persistStationsPayload,
   refreshStations,
   sanitizePersistedStationsPayload,
-  scheduleStationsPersistence,
 } from "./stations/index.js";
 import { cacheStationsInMemory, getStationsFromMemory } from "./cache/inMemoryStationsCache.js";
 import { ensureProcessedStations } from "./stations/processedPayload.js";
@@ -16,12 +16,12 @@ function scheduleRefresh(redis) {
   if (!inflightRefreshPromise) {
     inflightRefreshPromise = (async () => {
       try {
-        const { payload, countryGroups, fingerprint } = await refreshStations({ redis });
+        const { payload, fingerprint } = await refreshStations({ redis });
         if (fingerprint && !payload.fingerprint) {
           payload.fingerprint = fingerprint;
         }
         const serialized = JSON.stringify(payload);
-        const cacheUpdated = await writeStationsToCache(redis, payload, serialized, {
+        await writeStationsToCache(redis, payload, serialized, {
           fingerprint,
         });
         cacheStationsInMemory({
@@ -29,12 +29,9 @@ function scheduleRefresh(redis) {
           cacheSource: "radio-browser",
           fingerprint,
         });
+        await persistStationsPayload(payload, { fingerprint });
         ensureProcessedStations(payload).catch((error) => {
           logger.warn("processed_stations.worker_error", { error });
-        });
-        scheduleStationsPersistence(payload, countryGroups, {
-          fingerprint,
-          changed: cacheUpdated,
         });
         return payload;
       } finally {
@@ -75,26 +72,26 @@ export async function loadStations(redis, { forceRefresh = false } = {}) {
     }
 
     try {
-      const payload = await getStationsFromS3();
-      const sanitizedS3 = sanitizePersistedStationsPayload(payload);
-      if (sanitizedS3) {
-        const serialized = JSON.stringify(sanitizedS3);
-        await writeStationsToCache(redis, sanitizedS3, serialized);
+      const payload = await getStationsFromStore();
+      const sanitizedDbPayload = sanitizePersistedStationsPayload(payload);
+      if (sanitizedDbPayload) {
+        const serialized = JSON.stringify(sanitizedDbPayload);
+        await writeStationsToCache(redis, sanitizedDbPayload, serialized);
         cacheStationsInMemory({
-          payload: sanitizedS3,
-          cacheSource: "s3",
-          fingerprint: sanitizedS3.fingerprint ?? null,
+          payload: sanitizedDbPayload,
+          cacheSource: "database",
+          fingerprint: sanitizedDbPayload.fingerprint ?? null,
         });
-        ensureProcessedStations(sanitizedS3).catch((error) => {
+        ensureProcessedStations(sanitizedDbPayload).catch((error) => {
           logger.warn("processed_stations.worker_error", { error });
         });
         scheduleRefresh(redis).catch((error) => {
           logger.warn("stations.background_refresh_error", { error });
         });
-        return { payload: sanitizedS3, cacheSource: "s3" };
+        return { payload: sanitizedDbPayload, cacheSource: "database" };
       }
     } catch (error) {
-      logger.warn("s3.read_error", { error });
+      logger.warn("database.read_error", { error });
     }
   }
 

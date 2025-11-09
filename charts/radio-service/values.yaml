@@ -54,45 +54,28 @@ env:
         name: radio-service-env
         key: REDIS_URL
         optional: true
+  - name: PG_URL
+    valueFrom:
+      secretKeyRef:
+        name: radio-service-env
+        key: PG_URL
+  - name: PG_USER
+    valueFrom:
+      secretKeyRef:
+        name: radio-service-env
+        key: PG_USER
+        optional: true
+  - name: PG_PASS
+    valueFrom:
+      secretKeyRef:
+        name: radio-service-env
+        key: PG_PASS
+        optional: true
   - name: STATIONS_CACHE_KEY
     valueFrom:
       secretKeyRef:
         name: radio-service-env
         key: STATIONS_CACHE_KEY
-        optional: true
-  - name: MINIO_ENDPOINT
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env
-        key: MINIO_ENDPOINT
-        optional: true
-  - name: MINIO_REGION
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env
-        key: MINIO_REGION
-        optional: true
-  - name: MINIO_ACCESS_KEY
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env
-        key: MINIO_ACCESS_KEY
-  - name: MINIO_SECRET_KEY
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env
-        key: MINIO_SECRET_KEY
-  - name: MINIO_BUCKET
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env
-        key: MINIO_BUCKET
-        optional: true
-  - name: STATIONS_OBJECT_KEY
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env
-        key: STATIONS_OBJECT_KEY
         optional: true
   - name: STATIONS_REFRESH_TOKEN
     valueFrom:
