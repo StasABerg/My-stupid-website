@@ -1043,6 +1043,9 @@ async fn delete_favorite(
         .read(&key)
         .await
         .map_err(ApiError::internal)?;
+    let removed = favorites
+        .iter()
+        .any(|entry| entry.id == sanitized_station_id);
     let next: Vec<FavoriteEntry> = favorites
         .into_iter()
         .filter(|entry| entry.id != sanitized_station_id)
@@ -1050,7 +1053,7 @@ async fn delete_favorite(
 
     let (response, persist, updated_entries) = build_favorites_response(&payload, next);
 
-    if persist {
+    if persist || removed {
         state
             .favorites
             .write(&key, &updated_entries)
