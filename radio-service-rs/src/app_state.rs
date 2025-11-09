@@ -222,7 +222,7 @@ impl AppState {
         let processed_cache = Arc::new(RwLock::new(None));
         let memory_cache = Arc::new(RwLock::new(None));
         let refresh_mutex = Arc::new(Mutex::new(()));
-        let rate_limiter = Arc::new(RateLimiter::new(100, Duration::from_secs(15 * 60)));
+        let rate_limiter = Arc::new(RateLimiter::new(100, Duration::from_secs(60)));
         let status_monitor = Arc::new(EventLoopMonitor::new());
         EventLoopMonitor::spawn(status_monitor.clone());
         let system = Arc::new(Mutex::new(System::new_all()));
