@@ -198,7 +198,7 @@ fn build_connection_string(
         ConfigError::Message("PG_URL must be full postgres URL or host:port/database".into())
     })?;
 
-    let mut url = format!("postgresql://");
+    let mut url = "postgresql://".to_string();
     if let Some(user) = user {
         url.push_str(&percent_encode(user));
         if let Some(password) = password {

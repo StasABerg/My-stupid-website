@@ -109,7 +109,7 @@ fn sanitize_url(raw_url: &str, options: SanitizeOptions) -> Option<String> {
     };
 
     let mut parsed = Url::parse(&normalized_input).ok()?;
-    if options.block_private_hosts && parsed.host_str().map_or(true, is_blocked_hostname) {
+    if options.block_private_hosts && parsed.host_str().is_none_or(is_blocked_hostname) {
         return None;
     }
 
@@ -119,13 +119,13 @@ fn sanitize_url(raw_url: &str, options: SanitizeOptions) -> Option<String> {
             if options.force_https || !options.allow_insecure {
                 parsed.set_scheme("https").ok()?;
                 if options.block_private_hosts
-                    && parsed.host_str().map_or(true, is_blocked_hostname)
+                    && parsed.host_str().is_none_or(is_blocked_hostname)
                 {
                     return None;
                 }
                 Some(parsed.to_string())
             } else if options.block_private_hosts
-                && parsed.host_str().map_or(true, is_blocked_hostname)
+                && parsed.host_str().is_none_or(is_blocked_hostname)
             {
                 None
             } else {
@@ -136,7 +136,7 @@ fn sanitize_url(raw_url: &str, options: SanitizeOptions) -> Option<String> {
             if !options.allow_insecure {
                 return None;
             }
-            if options.block_private_hosts && parsed.host_str().map_or(true, is_blocked_hostname) {
+            if options.block_private_hosts && parsed.host_str().is_none_or(is_blocked_hostname) {
                 return None;
             }
             Some(parsed.to_string())

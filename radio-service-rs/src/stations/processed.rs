@@ -81,10 +81,7 @@ impl ProcessedStations {
             search_texts.push(search_parts.join(" "));
         }
 
-        let mut genres: Vec<_> = genre_counts
-            .into_iter()
-            .map(|(_key, entry)| entry)
-            .collect();
+        let mut genres: Vec<_> = genre_counts.into_values().collect();
         genres.sort_unstable_by(|a, b| b.count.cmp(&a.count).then_with(|| a.label.cmp(&b.label)));
         let genres = genres
             .into_iter()

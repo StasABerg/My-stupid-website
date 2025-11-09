@@ -189,12 +189,12 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
         .route("/docs", get(swagger_ui))
         .route("/stations", get(get_stations))
         .route("/stations/refresh", post(refresh_stations))
-        .route("/stations/:station_id/stream", get(stream_station))
-        .route("/stations/:station_id/stream/segment", get(stream_segment))
-        .route("/stations/:station_id/click", post(record_click))
+        .route("/stations/{station_id}/stream", get(stream_station))
+        .route("/stations/{station_id}/stream/segment", get(stream_segment))
+        .route("/stations/{station_id}/click", post(record_click))
         .route("/favorites", get(get_favorites))
         .route(
-            "/favorites/:station_id",
+            "/favorites/{station_id}",
             put(upsert_favorite).delete(delete_favorite),
         )
         .with_state(state.clone());
@@ -392,7 +392,7 @@ fn project_stations(
     let mut filtered_indexes = Vec::new();
     for idx in indexes {
         if let Some(station) = payload.stations.get(idx) {
-            if station_matches_filters(station, &query) {
+            if station_matches_filters(station, query) {
                 filtered_indexes.push(idx);
             }
         }
@@ -582,7 +582,7 @@ fn project_station_for_client(station: &Station) -> StationListItem {
         country_code: station.country_code.clone(),
         state: station.state.clone(),
         languages: station.languages.clone(),
-        tags: station.tags.iter().cloned().take(12).collect(),
+        tags: station.tags.iter().take(12).cloned().collect(),
         bitrate: station.bitrate,
         codec: station.codec.clone(),
         hls: station.hls,
@@ -602,7 +602,7 @@ fn project_station(station: &Station) -> FavoriteStation {
         country_code: station.country_code.clone(),
         state: station.state.clone(),
         languages: station.languages.clone(),
-        tags: station.tags.iter().cloned().take(12).collect(),
+        tags: station.tags.iter().take(12).cloned().collect(),
         bitrate: station.bitrate,
         codec: station.codec.clone(),
         hls: station.hls,
@@ -754,11 +754,7 @@ fn forward_stream_response(response: reqwest::Response) -> Response {
         }
         builder = builder.header(key, value.clone());
     }
-    let body = Body::from_stream(
-        response
-            .bytes_stream()
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err)),
-    );
+    let body = Body::from_stream(response.bytes_stream().map_err(io::Error::other));
     builder
         .header("Cache-Control", "no-store")
         .body(body)
@@ -830,10 +826,12 @@ fn rewrite_playlist(base_url: &str, playlist: &str, csrf: &CsrfParams) -> String
 }
 
 fn parse_bool(value: Option<String>) -> bool {
-    match value.as_deref().map(|s| s.trim().to_ascii_lowercase()) {
-        Some(ref v) if v == "true" || v == "1" || v == "yes" => true,
-        _ => false,
-    }
+    matches!(
+        value
+            .as_deref()
+            .map(|s| s.trim().to_ascii_lowercase()),
+        Some(ref v) if v == "true" || v == "1" || v == "yes"
+    )
 }
 
 async fn get_stations(
@@ -1154,7 +1152,7 @@ async fn stream_segment(
         .map_err(|_| ApiError::BadRequest("Invalid segment URL provided."))?;
 
     let station = load_station(&state, station_id).await?;
-    let stream_origin = Url::parse(&station.stream_url).ok().map(|url| url.into());
+    let stream_origin = Url::parse(&station.stream_url).ok();
     if stream_origin
         .as_ref()
         .map(|origin: &Url| origin.origin().ascii_serialization())

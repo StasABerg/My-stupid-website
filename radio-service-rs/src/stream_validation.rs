@@ -81,7 +81,7 @@ impl StreamValidator {
                     if let Some((key, entry)) = cache_update {
                         cache_updates.insert(key, entry);
                     }
-                    accepted.push((idx, station));
+                    accepted.push((idx, *station));
                 }
                 ValidationOutcome::Dropped {
                     reason,
@@ -357,7 +357,7 @@ struct ValidatedStream {
 enum ValidationOutcome {
     Accepted {
         idx: usize,
-        station: Station,
+        station: Box<Station>,
         cache_update: Option<(String, CacheEntry)>,
     },
     Dropped {
@@ -370,7 +370,7 @@ impl ValidationOutcome {
     fn accepted(idx: usize, station: Station, cache_update: Option<(String, CacheEntry)>) -> Self {
         Self::Accepted {
             idx,
-            station,
+            station: Box::new(station),
             cache_update,
         }
     }

@@ -17,7 +17,6 @@ pub fn build_stations_fingerprint(stations: &[Station]) -> String {
 mod tests {
     use chrono::{TimeZone, Utc};
 
-    use super::build_stations_fingerprint;
     use crate::stations::{Station, StationCoordinates, StationsPayload, STATIONS_SCHEMA_VERSION};
 
     #[test]

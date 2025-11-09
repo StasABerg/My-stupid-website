@@ -373,10 +373,7 @@ impl AppState {
     }
 
     pub async fn record_station_click(&self, station_id: &str) -> anyhow::Result<()> {
-        self.radio_browser
-            .record_click(station_id)
-            .await
-            .map_err(anyhow::Error::from)
+        self.radio_browser.record_click(station_id).await
     }
 
     async fn refresh_and_cache(&self) -> anyhow::Result<StationsPayload> {
