@@ -50,8 +50,10 @@ const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
       window.onload = () => {
+        const basePath = window.location.pathname.replace(/\/$/, "");
+        const specUrl = basePath + "/json";
         window.ui = SwaggerUIBundle({
-          url: '/openapi.json',
+          url: specUrl,
           dom_id: '#swagger-ui',
           presets: [
             SwaggerUIBundle.presets.apis,
@@ -186,6 +188,7 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
         .route("/healthz", get(healthz))
         .route("/internal/status", get(internal_status))
         .route("/openapi.json", get(openapi_spec))
+        .route("/docs/json", get(openapi_spec))
         .route("/docs", get(swagger_ui))
         .route("/stations", get(get_stations))
         .route("/stations/refresh", post(refresh_stations))
