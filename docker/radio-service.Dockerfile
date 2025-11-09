@@ -1,17 +1,17 @@
-FROM node:25-alpine AS build
+FROM rust:slim AS build
 WORKDIR /app
-COPY radio-service/package.json ./
-RUN --mount=type=cache,target=/root/.npm npm install --package-lock-only --omit=dev --no-audit --no-fund
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund
+COPY radio-service-rs/Cargo.toml radio-service-rs/Cargo.lock ./radio-service-rs/
+COPY radio-service-rs/src ./radio-service-rs/src
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/radio-service-rs/target \
+    cd radio-service-rs && cargo build --release
 
-FROM node:25-alpine AS runner
+FROM debian:trixie-slim AS runner
+RUN useradd -r -u 1000 radio
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY radio-service/package.json ./package.json
-COPY radio-service/src ./src
+COPY --from=build /app/radio-service-rs/target/release/radio-service-rs /usr/local/bin/radio-service
 COPY radio-service/migrations ./migrations
-RUN chown -R node:node /app
-USER node
+ENV RUST_LOG=info
+USER radio
 EXPOSE 4010
-CMD ["node", "src/server/index.js"]
+ENTRYPOINT ["/usr/local/bin/radio-service"]

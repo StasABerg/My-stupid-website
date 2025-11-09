@@ -22,6 +22,9 @@ coverage
 **/coverage/
 **/.nyc_output/
 **/.eslintcache
+# Rust artifacts
+**/target/
+**/*.rs.bk
 .DS_Store
 Thumbs.db
 .idea/

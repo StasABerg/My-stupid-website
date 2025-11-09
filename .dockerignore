@@ -10,6 +10,7 @@ charts
 **/.turbo/
 **/.parcel-cache/
 **/.wireit/
+**/target/
 coverage
 *.log
 npm-debug.log*
