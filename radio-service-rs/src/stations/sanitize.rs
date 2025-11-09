@@ -118,8 +118,7 @@ fn sanitize_url(raw_url: &str, options: SanitizeOptions) -> Option<String> {
         "http" => {
             if options.force_https || !options.allow_insecure {
                 parsed.set_scheme("https").ok()?;
-                if options.block_private_hosts
-                    && parsed.host_str().is_none_or(is_blocked_hostname)
+                if options.block_private_hosts && parsed.host_str().is_none_or(is_blocked_hostname)
                 {
                     return None;
                 }

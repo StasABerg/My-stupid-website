@@ -1,6 +1,6 @@
 FROM rust:slim AS build
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends pkg-config libssl-dev && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY radio-service-rs/Cargo.toml radio-service-rs/Cargo.lock ./radio-service-rs/
@@ -14,7 +14,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cp /app/target/release/radio-service-rs /tmp/radio-service
 
 FROM debian:trixie-slim AS runner
-RUN useradd -r -u 1000 radio
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -r -u 1000 radio
 WORKDIR /app
 COPY --from=build /tmp/radio-service /usr/local/bin/radio-service
 COPY radio-service/migrations ./migrations

@@ -39,6 +39,7 @@ impl RadioBrowserClient {
     ) -> anyhow::Result<Self> {
         let client = Client::builder()
             .user_agent(config.user_agent.clone())
+            .danger_accept_invalid_certs(allow_insecure_transports)
             .build()?;
         let mut host_pool: Vec<String> = Vec::new();
         if !config.default_base_url.trim().is_empty() {
