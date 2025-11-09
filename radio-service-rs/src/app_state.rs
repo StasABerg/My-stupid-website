@@ -1,7 +1,7 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Context;
@@ -10,6 +10,8 @@ use deadpool_redis::{redis::AsyncCommands, Pool as RedisPool};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::atomic::{AtomicU64, Ordering};
+use sysinfo::System;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
 
@@ -39,6 +41,9 @@ pub struct AppState {
     memory_cache: Arc<RwLock<Option<MemoryEntry>>>,
     refresh_mutex: Arc<Mutex<()>>,
     rate_limiter: Arc<RateLimiter>,
+    status_monitor: Arc<EventLoopMonitor>,
+    system: Arc<Mutex<System>>,
+    started_at: Instant,
 }
 
 #[derive(Clone)]
@@ -62,7 +67,7 @@ struct SanitizedPayload {
 struct RateLimiter {
     max_requests: usize,
     window: Duration,
-    buckets: Mutex<HashMap<String, Vec<Instant>>>,
+    buckets: Mutex<HashMap<String, VecDeque<Instant>>>,
 }
 
 impl RateLimiter {
@@ -74,17 +79,99 @@ impl RateLimiter {
         }
     }
 
-    async fn check(&self, key: &str) -> bool {
+    async fn check(&self, key: &str) -> RateLimitDecision {
         let mut guard = self.buckets.lock().await;
         let now = Instant::now();
-        let entries = guard.entry(key.to_string()).or_default();
-        entries.retain(|instant| now.duration_since(*instant) <= self.window);
-        if entries.len() >= self.max_requests {
-            return false;
+        let entries = guard.entry(key.to_string()).or_insert_with(VecDeque::new);
+        while let Some(front) = entries.front() {
+            if now.duration_since(*front) > self.window {
+                entries.pop_front();
+            } else {
+                break;
+            }
         }
-        entries.push(now);
-        true
+
+        let limit = self.max_requests;
+        let reset_instant = entries
+            .front()
+            .copied()
+            .map(|instant| instant + self.window)
+            .unwrap_or(now + self.window);
+        let reset_epoch = instant_to_epoch(reset_instant);
+
+        if entries.len() >= limit {
+            return RateLimitDecision {
+                allowed: false,
+                metadata: RateLimitMetadata {
+                    limit,
+                    remaining: 0,
+                    reset_epoch,
+                },
+            };
+        }
+
+        entries.push_back(now);
+        let remaining = limit.saturating_sub(entries.len());
+
+        RateLimitDecision {
+            allowed: true,
+            metadata: RateLimitMetadata {
+                limit,
+                remaining,
+                reset_epoch,
+            },
+        }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct RateLimitMetadata {
+    pub limit: usize,
+    pub remaining: usize,
+    pub reset_epoch: u64,
+}
+
+pub struct RateLimitDecision {
+    pub allowed: bool,
+    pub metadata: RateLimitMetadata,
+}
+
+struct EventLoopMonitor {
+    lag_ns: AtomicU64,
+}
+
+impl EventLoopMonitor {
+    fn new() -> Self {
+        Self {
+            lag_ns: AtomicU64::new(0),
+        }
+    }
+
+    fn spawn(self: Arc<Self>) {
+        tokio::spawn(async move {
+            let interval = Duration::from_millis(250);
+            loop {
+                let start = Instant::now();
+                tokio::time::sleep(interval).await;
+                let elapsed = start.elapsed();
+                let lag = elapsed
+                    .checked_sub(interval)
+                    .unwrap_or_else(|| Duration::from_secs(0));
+                self.lag_ns.store(lag.as_nanos() as u64, Ordering::Relaxed);
+            }
+        });
+    }
+
+    fn current_delay_ms(&self) -> f64 {
+        self.lag_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0
+    }
+}
+
+pub struct StatusSnapshot {
+    pub event_loop_delay_ms: f64,
+    pub memory_used_bytes: u64,
+    pub memory_total_bytes: u64,
+    pub uptime_seconds: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -136,6 +223,10 @@ impl AppState {
         let memory_cache = Arc::new(RwLock::new(None));
         let refresh_mutex = Arc::new(Mutex::new(()));
         let rate_limiter = Arc::new(RateLimiter::new(100, Duration::from_secs(15 * 60)));
+        let status_monitor = Arc::new(EventLoopMonitor::new());
+        EventLoopMonitor::spawn(status_monitor.clone());
+        let system = Arc::new(Mutex::new(System::new_all()));
+        let started_at = Instant::now();
 
         Ok(Self {
             config,
@@ -150,6 +241,9 @@ impl AppState {
             memory_cache,
             refresh_mutex,
             rate_limiter,
+            status_monitor,
+            system,
+            started_at,
         })
     }
 }
@@ -431,7 +525,36 @@ impl AppState {
         Ok(())
     }
 
-    pub async fn allow_request(&self, key: &str) -> bool {
+    pub async fn check_rate_limit(&self, key: &str) -> RateLimitDecision {
         self.rate_limiter.check(key).await
     }
+
+    pub async fn status_snapshot(&self) -> StatusSnapshot {
+        let mut system = self.system.lock().await;
+        system.refresh_memory();
+        let memory_used_bytes = system.used_memory() * 1024;
+        let memory_total_bytes = system.total_memory() * 1024;
+        StatusSnapshot {
+            event_loop_delay_ms: self.status_monitor.current_delay_ms(),
+            memory_used_bytes,
+            memory_total_bytes,
+            uptime_seconds: self.started_at.elapsed().as_secs(),
+        }
+    }
+}
+
+fn instant_to_epoch(target: Instant) -> u64 {
+    let now = Instant::now();
+    let now_system = SystemTime::now();
+    let duration = if target >= now {
+        target - now
+    } else {
+        Duration::from_secs(0)
+    };
+    now_system
+        .checked_add(duration)
+        .unwrap_or(now_system)
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }

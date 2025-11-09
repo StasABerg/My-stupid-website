@@ -1,4 +1,9 @@
-use std::{collections::HashMap, io, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    io,
+    net::SocketAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     body::Body,
@@ -20,13 +25,47 @@ use tokio::{
 use url::Url;
 
 use crate::{
-    app_state::AppState,
+    app_state::{AppState, RateLimitMetadata},
     favorites::{
         build_favorites_key, dedupe_entries, is_valid_favorites_session, is_valid_session_token,
         sanitize_station_id, FavoriteEntry, FavoriteStation, MAX_FAVORITES,
     },
     stations::{intersect_lists, ProcessedStations, Station, StationsPayload},
 };
+
+const OPENAPI_SPEC: &str = include_str!("../openapi.json");
+const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Radio Service API</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+      html, body { margin: 0; padding: 0; background-color: #fafafa; }
+      #swagger-ui { width: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({
+          url: '/openapi.json',
+          dom_id: '#swagger-ui',
+          presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIBundle.SwaggerUIStandalonePreset
+          ],
+          layout: 'BaseLayout'
+        });
+      };
+    </script>
+  </body>
+</html>
+"#;
+
+type ApiResponse = Result<Response, ApiError>;
 
 #[derive(Debug)]
 enum ApiError {
@@ -41,7 +80,10 @@ enum ApiError {
     NotFound(&'static str),
     Conflict(&'static str),
     Forbidden(&'static str),
-    TooManyRequests(&'static str),
+    TooManyRequests {
+        message: &'static str,
+        info: RateLimitMetadata,
+    },
 }
 
 impl ApiError {
@@ -98,11 +140,27 @@ impl IntoResponse for ApiError {
                 Json(ErrorResponse { error: message }),
             )
                 .into_response(),
-            ApiError::TooManyRequests(message) => (
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(ErrorResponse { error: message }),
-            )
-                .into_response(),
+            ApiError::TooManyRequests { message, info } => {
+                let mut response = (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(ErrorResponse { error: message }),
+                )
+                    .into_response();
+                apply_rate_limit_headers(response.headers_mut(), &info);
+                let retry_after = info
+                    .reset_epoch
+                    .saturating_sub(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs(),
+                    )
+                    .max(1);
+                if let Ok(value) = HeaderValue::from_str(&retry_after.to_string()) {
+                    response.headers_mut().insert(header::RETRY_AFTER, value);
+                }
+                response
+            }
             ApiError::Internal(error) => {
                 tracing::error!(error = ?error, "internal error");
                 (
@@ -122,25 +180,13 @@ struct HealthResponse<'a> {
     status: &'a str,
 }
 
-#[derive(Serialize)]
-struct StatusChecks {
-    redis: String,
-    postgres: String,
-}
-
-#[derive(Serialize)]
-struct StatusResponseBody {
-    status: String,
-    #[serde(rename = "timestamp")]
-    timestamp: String,
-    checks: StatusChecks,
-}
-
 pub async fn serve(state: AppState) -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], state.config.port));
     let router = Router::new()
         .route("/healthz", get(healthz))
         .route("/internal/status", get(internal_status))
+        .route("/openapi.json", get(openapi_spec))
+        .route("/docs", get(swagger_ui))
         .route("/stations", get(get_stations))
         .route("/stations/refresh", post(refresh_stations))
         .route("/stations/:station_id/stream", get(stream_station))
@@ -180,29 +226,25 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
 async fn internal_status(State(state): State<AppState>) -> impl IntoResponse {
     let redis_ok = state.ping_redis().await.is_ok();
     let postgres_ok = state.ping_postgres().await.is_ok();
+    let metrics = state.status_snapshot().await;
     let overall_ok = redis_ok && postgres_ok;
-    let status = if overall_ok {
-        "ok".to_string()
-    } else {
-        "error".to_string()
-    };
-
-    let body = StatusResponseBody {
-        status,
-        timestamp: Utc::now().to_rfc3339(),
-        checks: StatusChecks {
-            redis: if redis_ok {
-                "ok".into()
-            } else {
-                "error".into()
-            },
-            postgres: if postgres_ok {
-                "ok".into()
-            } else {
-                "error".into()
-            },
+    let status = if overall_ok { "ok" } else { "error" };
+    let body = json!({
+        "status": status,
+        "timestamp": Utc::now().to_rfc3339(),
+        "checks": {
+            "redis": if redis_ok { "ok" } else { "error" },
+            "postgres": if postgres_ok { "ok" } else { "error" },
         },
-    };
+        "metrics": {
+            "eventLoopDelayMs": metrics.event_loop_delay_ms,
+            "memory": {
+                "rssBytes": metrics.memory_used_bytes,
+                "totalBytes": metrics.memory_total_bytes,
+            },
+            "uptimeSeconds": metrics.uptime_seconds,
+        }
+    });
 
     let code = if overall_ok {
         StatusCode::OK
@@ -210,6 +252,34 @@ async fn internal_status(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::SERVICE_UNAVAILABLE
     };
     (code, Json(body))
+}
+
+async fn openapi_spec() -> impl IntoResponse {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "public, max-age=60")
+        .body(Body::from(OPENAPI_SPEC))
+        .unwrap_or_else(|err| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(err.to_string()))
+                .unwrap()
+        })
+}
+
+async fn swagger_ui() -> impl IntoResponse {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::from(SWAGGER_UI_HTML))
+        .unwrap_or_else(|err| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(err.to_string()))
+                .unwrap()
+        })
 }
 
 #[derive(Serialize)]
@@ -541,14 +611,39 @@ fn project_station(station: &Station) -> FavoriteStation {
     }
 }
 
-async fn enforce_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+fn apply_rate_limit_headers(headers: &mut HeaderMap, info: &RateLimitMetadata) {
+    let limit = info.limit.to_string();
+    if let Ok(value) = HeaderValue::from_str(&limit) {
+        headers.insert("x-ratelimit-limit", value);
+    }
+    let remaining = info.remaining.to_string();
+    if let Ok(value) = HeaderValue::from_str(&remaining) {
+        headers.insert("x-ratelimit-remaining", value);
+    }
+    let reset = info.reset_epoch.to_string();
+    if let Ok(value) = HeaderValue::from_str(&reset) {
+        headers.insert("x-ratelimit-reset", value);
+    }
+}
+
+fn with_rate_limit(mut response: Response, info: &RateLimitMetadata) -> Response {
+    apply_rate_limit_headers(response.headers_mut(), info);
+    response
+}
+
+async fn enforce_rate_limit(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<RateLimitMetadata, ApiError> {
     let key = resolve_client_key(headers);
-    if state.allow_request(&key).await {
-        Ok(())
+    let decision = state.check_rate_limit(&key).await;
+    if decision.allowed {
+        Ok(decision.metadata)
     } else {
-        Err(ApiError::TooManyRequests(
-            "Too many requests. Please try again soon.",
-        ))
+        Err(ApiError::TooManyRequests {
+            message: "Too many requests. Please try again soon.",
+            info: decision.metadata,
+        })
     }
 }
 
@@ -745,8 +840,8 @@ async fn get_stations(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<StationsQueryParams>,
-) -> Result<Response, ApiError> {
-    enforce_rate_limit(&state, &headers).await?;
+) -> ApiResponse {
+    let rate = enforce_rate_limit(&state, &headers).await?;
     let normalized_query = match query.normalized(
         state.config.api.default_page_size,
         state.config.api.max_page_size,
@@ -785,14 +880,12 @@ async fn get_stations(
         header::CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=30, stale-while-revalidate=120"),
     );
+    apply_rate_limit_headers(reply.headers_mut(), &rate);
     Ok(reply)
 }
 
-async fn get_favorites(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<impl IntoResponse, ApiError> {
-    enforce_rate_limit(&state, &headers).await?;
+async fn get_favorites(State(state): State<AppState>, headers: HeaderMap) -> ApiResponse {
+    let rate = enforce_rate_limit(&state, &headers).await?;
     let session = extract_session_token(&headers)?;
     let favorites_session = extract_favorites_session(&headers);
     let key = build_favorites_key(&session, favorites_session.as_deref());
@@ -824,7 +917,9 @@ async fn get_favorites(
             .map_err(ApiError::internal)?;
     }
 
-    Ok(Json(response))
+    let mut resp = Json(response).into_response();
+    apply_rate_limit_headers(resp.headers_mut(), &rate);
+    Ok(resp)
 }
 
 #[derive(Deserialize)]
@@ -846,8 +941,8 @@ async fn upsert_favorite(
     headers: HeaderMap,
     Path(station_id): Path<String>,
     Json(body): Json<UpsertFavoriteBody>,
-) -> Result<impl IntoResponse, ApiError> {
-    enforce_rate_limit(&state, &headers).await?;
+) -> ApiResponse {
+    let rate = enforce_rate_limit(&state, &headers).await?;
     let session = extract_session_token(&headers)?;
     let favorites_session = extract_favorites_session(&headers);
     let key = build_favorites_key(&session, favorites_session.as_deref());
@@ -917,15 +1012,17 @@ async fn upsert_favorite(
         .await
         .map_err(ApiError::internal)?;
 
-    Ok(Json(response))
+    let mut resp = Json(response).into_response();
+    apply_rate_limit_headers(resp.headers_mut(), &rate);
+    Ok(resp)
 }
 
 async fn delete_favorite(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(station_id): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
-    enforce_rate_limit(&state, &headers).await?;
+) -> ApiResponse {
+    let rate = enforce_rate_limit(&state, &headers).await?;
     let session = extract_session_token(&headers)?;
     let favorites_session = extract_favorites_session(&headers);
     let key = build_favorites_key(&session, favorites_session.as_deref());
@@ -965,7 +1062,9 @@ async fn delete_favorite(
             .map_err(ApiError::internal)?;
     }
 
-    Ok(Json(response))
+    let mut resp = Json(response).into_response();
+    apply_rate_limit_headers(resp.headers_mut(), &rate);
+    Ok(resp)
 }
 
 async fn stream_station(
@@ -978,7 +1077,7 @@ async fn stream_station(
     if station_id.is_empty() {
         return Err(ApiError::BadRequest("Station identifier is required."));
     }
-    enforce_rate_limit(&state, &headers).await?;
+    let rate = enforce_rate_limit(&state, &headers).await?;
 
     let station = load_station(&state, station_id).await?;
     let request = state
@@ -997,7 +1096,10 @@ async fn stream_station(
     if !response.status().is_success() {
         let status = response.status();
         let message = format!("Upstream returned {}", status.as_u16());
-        return Ok(upstream_error_response(status, message));
+        return Ok(with_rate_limit(
+            upstream_error_response(status, message),
+            &rate,
+        ));
     }
 
     let content_type = response
@@ -1009,7 +1111,7 @@ async fn stream_station(
     let csrf_params = resolve_csrf_params(&headers, &params);
 
     if !should_treat_as_playlist(&station.stream_url, content_type) {
-        return Ok(forward_stream_response(response));
+        return Ok(with_rate_limit(forward_stream_response(response), &rate));
     }
 
     let playlist = response
@@ -1023,9 +1125,10 @@ async fn stream_station(
         .header("Content-Type", "application/vnd.apple.mpegurl")
         .header("Cache-Control", "no-store");
     let body = Body::from(rewritten);
-    Ok(builder
+    let response = builder
         .body(body)
-        .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?)
+        .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
+    Ok(with_rate_limit(response, &rate))
 }
 
 async fn stream_segment(
@@ -1043,7 +1146,7 @@ async fn stream_segment(
             "A source query parameter is required.",
         ));
     }
-    enforce_rate_limit(&state, &headers).await?;
+    let rate = enforce_rate_limit(&state, &headers).await?;
 
     let decoded = urlencoding::decode(&query.source)
         .map_err(|_| ApiError::BadRequest("Invalid segment URL provided."))?;
@@ -1081,7 +1184,10 @@ async fn stream_segment(
     if !response.status().is_success() {
         let status = response.status();
         let message = format!("Upstream returned {}", status.as_u16());
-        return Ok(upstream_error_response(status, message));
+        return Ok(with_rate_limit(
+            upstream_error_response(status, message),
+            &rate,
+        ));
     }
 
     let content_type = response
@@ -1100,7 +1206,7 @@ async fn stream_segment(
     let csrf_params = resolve_csrf_params(&headers, &query_map);
 
     if !should_treat_as_playlist(target.as_str(), content_type) {
-        return Ok(forward_stream_response(response));
+        return Ok(with_rate_limit(forward_stream_response(response), &rate));
     }
 
     let playlist = response
@@ -1109,12 +1215,15 @@ async fn stream_segment(
         .map_err(|_| ApiError::ServiceUnavailable("Failed to read playlist from upstream."))?;
     let rewritten = rewrite_playlist(target.as_str(), &playlist, &csrf_params);
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "application/vnd.apple.mpegurl")
-        .header("Cache-Control", "no-store")
-        .body(Body::from(rewritten))
-        .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?)
+    Ok(with_rate_limit(
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/vnd.apple.mpegurl")
+            .header("Cache-Control", "no-store")
+            .body(Body::from(rewritten))
+            .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?,
+        &rate,
+    ))
 }
 
 #[derive(Serialize)]
@@ -1126,17 +1235,19 @@ async fn record_click(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(station_id): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> ApiResponse {
     let station_id = station_id.trim();
     if station_id.is_empty() {
         return Err(ApiError::BadRequest("Station identifier is required"));
     }
-    enforce_rate_limit(&state, &headers).await?;
+    let rate = enforce_rate_limit(&state, &headers).await?;
     state
         .record_station_click(station_id)
         .await
         .map_err(ApiError::internal)?;
-    Ok((StatusCode::ACCEPTED, Json(ClickResponse { status: "ok" })))
+    let mut resp = (StatusCode::ACCEPTED, Json(ClickResponse { status: "ok" })).into_response();
+    apply_rate_limit_headers(resp.headers_mut(), &rate);
+    Ok(resp)
 }
 
 #[derive(Serialize)]
@@ -1154,21 +1265,21 @@ struct RefreshMeta {
     origin: Option<String>,
 }
 
-async fn refresh_stations(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<RefreshResponse>, ApiError> {
-    enforce_rate_limit(&state, &headers).await?;
+async fn refresh_stations(State(state): State<AppState>, headers: HeaderMap) -> ApiResponse {
+    let rate = enforce_rate_limit(&state, &headers).await?;
     ensure_refresh_authorized(&headers, &state.config.refresh_token)?;
     let payload = state.update_stations().await.map_err(ApiError::internal)?;
-    Ok(Json(RefreshResponse {
+    let mut resp = Json(RefreshResponse {
         meta: RefreshMeta {
             total: payload.total,
             updated_at: payload.updated_at.to_rfc3339(),
             cache_source: "radio-browser".into(),
             origin: payload.source.clone(),
         },
-    }))
+    })
+    .into_response();
+    apply_rate_limit_headers(resp.headers_mut(), &rate);
+    Ok(resp)
 }
 
 async fn shutdown_signal() {
