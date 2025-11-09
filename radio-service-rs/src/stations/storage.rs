@@ -206,41 +206,8 @@ impl StationStorage {
 
         const COLUMNS: &str = r#"(id, payload_id, name, stream_url, homepage, favicon, country, country_code, state, languages, tags, coordinates, bitrate, codec, hls, is_online, last_checked_at, last_changed_at, click_count, click_trend, votes)"#;
         const INSERT_BATCH_SIZE: usize = 500;
-
-        for chunk in stations.chunks(INSERT_BATCH_SIZE) {
-            let mut builder = QueryBuilder::<Postgres>::new("INSERT INTO stations ");
-            builder.push(COLUMNS);
-            builder.push(" VALUES ");
-            builder.push_values(chunk, |mut b, station| {
-                b.push_bind(&station.id);
-                b.push_bind(payload_id);
-                b.push_bind(&station.name);
-                b.push_bind(&station.stream_url);
-                b.push_bind(&station.homepage);
-                b.push_bind(&station.favicon);
-                b.push_bind(&station.country);
-                b.push_bind(&station.country_code);
-                b.push_bind(&station.state);
-                b.push_bind(&station.languages);
-                b.push_bind(&station.tags);
-                let coords = station
-                    .coordinates
-                    .as_ref()
-                    .and_then(|value| serde_json::to_value(value).ok());
-                b.push_bind(coords);
-                b.push_bind(station.bitrate);
-                b.push_bind(&station.codec);
-                b.push_bind(station.hls);
-                b.push_bind(station.is_online);
-                b.push_bind(&station.last_checked_at);
-                b.push_bind(&station.last_changed_at);
-                b.push_bind(station.click_count);
-                b.push_bind(station.click_trend);
-                b.push_bind(station.votes);
-            });
-
-            builder.push(
-                " ON CONFLICT (id) DO UPDATE SET
+        const UPSERT_SUFFIX: &str = r#"
+            ON CONFLICT (id) DO UPDATE SET
                 payload_id = EXCLUDED.payload_id,
                 name = EXCLUDED.name,
                 stream_url = EXCLUDED.stream_url,
@@ -261,9 +228,45 @@ impl StationStorage {
                 click_count = EXCLUDED.click_count,
                 click_trend = EXCLUDED.click_trend,
                 votes = EXCLUDED.votes,
-                updated_at = NOW()",
-            );
+                updated_at = NOW()
+        "#;
 
+        for chunk in stations.chunks(INSERT_BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let mut builder = QueryBuilder::<Postgres>::new("INSERT INTO stations ");
+            builder.push(COLUMNS).push(' ');
+            builder.push_values(chunk.iter(), |mut row, station| {
+                let coordinates = station
+                    .coordinates
+                    .as_ref()
+                    .and_then(|value| serde_json::to_value(value).ok());
+
+                row.push_bind(&station.id)
+                    .push_bind(payload_id)
+                    .push_bind(&station.name)
+                    .push_bind(&station.stream_url)
+                    .push_bind(&station.homepage)
+                    .push_bind(&station.favicon)
+                    .push_bind(&station.country)
+                    .push_bind(&station.country_code)
+                    .push_bind(&station.state)
+                    .push_bind(&station.languages)
+                    .push_bind(&station.tags)
+                    .push_bind(coordinates)
+                    .push_bind(station.bitrate)
+                    .push_bind(&station.codec)
+                    .push_bind(station.hls)
+                    .push_bind(station.is_online)
+                    .push_bind(&station.last_checked_at)
+                    .push_bind(&station.last_changed_at)
+                    .push_bind(station.click_count)
+                    .push_bind(station.click_trend)
+                    .push_bind(station.votes);
+            });
+
+            builder.push(UPSERT_SUFFIX);
             builder.build().execute(&mut **tx).await?;
         }
 
