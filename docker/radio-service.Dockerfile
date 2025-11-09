@@ -4,6 +4,7 @@ COPY radio-service-rs/Cargo.toml radio-service-rs/Cargo.lock ./radio-service-rs/
 COPY radio-service-rs/src ./radio-service-rs/src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/radio-service-rs/target \
+    apt install pkg-config \
     cd radio-service-rs && cargo build --release
 
 FROM debian:trixie-slim AS runner
