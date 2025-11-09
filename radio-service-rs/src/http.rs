@@ -33,7 +33,7 @@ use crate::{
     stations::{intersect_lists, ProcessedStations, Station, StationsPayload},
 };
 
-const OPENAPI_SPEC: &str = include_str!("../openapi.json");
+const OPENAPI_SPEC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/openapi.json"));
 const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
   <head>
