@@ -465,12 +465,20 @@ impl AppState {
             }
         }
 
+        let ttl = self.config.cache_ttl_seconds;
+        let station_count = payload.stations.len();
         if self.config.cache_ttl_seconds > 0 {
             conn.set_ex::<_, _, ()>(&self.config.cache_key, body, self.config.cache_ttl_seconds)
                 .await?;
         } else {
             conn.set::<_, _, ()>(&self.config.cache_key, body).await?;
         }
+        info!(
+            event = "stations.cache.write",
+            redis_key = %self.config.cache_key,
+            ttl_seconds = ttl,
+            count = station_count
+        );
 
         Ok(())
     }
