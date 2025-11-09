@@ -8,7 +8,6 @@ COPY radio-service-rs/src ./radio-service-rs/src
 COPY radio-service-rs/openapi.json ./radio-service-rs/openapi.json
 COPY radio-service/migrations ./radio-service/migrations
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/radio-service-rs/target \
     cd radio-service-rs && cargo build --release
 
 FROM debian:trixie-slim AS runner
