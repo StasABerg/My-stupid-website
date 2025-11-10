@@ -1,17 +1,40 @@
-FROM node:25-alpine AS build
+FROM rust:slim AS base
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-chef
 WORKDIR /app
-COPY radio-service/package.json ./
-RUN --mount=type=cache,target=/root/.npm npm install --package-lock-only --omit=dev --no-audit --no-fund
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund
 
-FROM node:25-alpine AS runner
+FROM base AS planner
+COPY radio-service-rs ./radio-service-rs
+WORKDIR /app/radio-service-rs
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM base AS build
+WORKDIR /app/radio-service-rs
+COPY --from=planner /app/radio-service-rs/recipe.json ./recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo chef cook --release --recipe-path recipe.json
+COPY radio-service-rs/ .
+COPY radio-service/migrations ../radio-service/migrations
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release
+
+FROM debian:trixie-slim AS runner
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -r -u 1000 radio
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY radio-service/package.json ./package.json
-COPY radio-service/src ./src
+COPY --from=build /app/radio-service-rs/target/release/radio-service-rs /usr/local/bin/radio-service
 COPY radio-service/migrations ./migrations
-RUN chown -R node:node /app
-USER node
+ENV RUST_LOG=info
+USER radio
 EXPOSE 4010
-CMD ["node", "src/server/index.js"]
+ENTRYPOINT ["/usr/local/bin/radio-service"]

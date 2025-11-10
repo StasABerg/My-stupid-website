@@ -1,0 +1,390 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Radio Service API",
+    "description": "Endpoints for radio station discovery, favorites, and health checks.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/api/radio",
+      "description": "External base path via gateway"
+    }
+  ],
+  "tags": [
+    { "name": "Stations", "description": "Station catalog and playback endpoints." },
+    { "name": "Favorites", "description": "Manage per-session station favorites." },
+    { "name": "Health", "description": "Operational health and status endpoints." }
+  ],
+  "paths": {
+    "/stations": {
+      "get": {
+        "tags": ["Stations"],
+        "summary": "List radio stations",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["true"] },
+            "description": "Force a refresh of the station catalog."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "oneOf": [
+                { "type": "string", "enum": ["all"] },
+                { "type": "string", "pattern": "^\\d+$" }
+              ]
+            },
+            "description": "Maximum number of stations to return."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "string", "pattern": "^\\d+$" },
+            "description": "Offset to start returning stations from."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": { "type": "string", "pattern": "^\\d+$" },
+            "description": "1-based page index used to derive the offset."
+          },
+          { "name": "language", "in": "query", "schema": { "type": "string" } },
+          { "name": "country", "in": "query", "schema": { "type": "string" } },
+          { "name": "tag", "in": "query", "schema": { "type": "string" } },
+          { "name": "genre", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stations retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/StationListResponse" }
+              }
+            }
+          },
+          "400": { "description": "Invalid query parameters supplied." },
+          "500": { "description": "Failed to load stations from cache or storage." }
+        }
+      }
+    },
+    "/stations/refresh": {
+      "post": {
+        "tags": ["Stations"],
+        "summary": "Refresh the station catalog",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Refresh completed successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "total": { "type": "integer" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "cacheSource": { "type": "string" },
+                        "origin": { "type": ["string", "null"] }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized refresh request." },
+          "500": { "description": "Failed to refresh stations." }
+        }
+      }
+    },
+    "/stations/{stationId}/stream": {
+      "get": {
+        "tags": ["Stations"],
+        "summary": "Proxy a station playlist/stream",
+        "parameters": [
+          { "$ref": "#/components/parameters/StationIdentifier" },
+          {
+            "name": "csrfToken",
+            "in": "query",
+            "schema": { "type": "string" },
+            "required": false
+          },
+          {
+            "name": "csrfProof",
+            "in": "query",
+            "schema": { "type": "string" },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": { "description": "Stream proxied successfully." },
+          "400": { "description": "Invalid station identifier supplied." },
+          "404": { "description": "Station not found." },
+          "502": { "description": "Failed to reach upstream stream URL." }
+        }
+      }
+    },
+    "/stations/{stationId}/stream/segment": {
+      "get": {
+        "tags": ["Stations"],
+        "summary": "Proxy an individual stream segment",
+        "parameters": [
+          { "$ref": "#/components/parameters/StationIdentifier" },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": { "type": "string" },
+            "required": true,
+            "description": "Encoded upstream segment URL."
+          },
+          {
+            "name": "csrfToken",
+            "in": "query",
+            "schema": { "type": "string" },
+            "required": false
+          },
+          {
+            "name": "csrfProof",
+            "in": "query",
+            "schema": { "type": "string" },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": { "description": "Segment proxied successfully." },
+          "400": { "description": "Invalid segment URL provided." },
+          "403": { "description": "Segment URL is not permitted." },
+          "502": { "description": "Failed to retrieve stream segment." }
+        }
+      }
+    },
+    "/stations/{stationId}/click": {
+      "post": {
+        "tags": ["Stations"],
+        "summary": "Record a station click",
+        "parameters": [{ "$ref": "#/components/parameters/StationIdentifier" }],
+        "responses": {
+          "202": { "description": "Click recorded successfully." },
+          "400": { "description": "Invalid station identifier supplied." },
+          "500": { "description": "Failed to record station click." }
+        }
+      }
+    },
+    "/favorites": {
+      "get": {
+        "tags": ["Favorites"],
+        "summary": "List favorites for the current session",
+        "parameters": [
+          {
+            "name": "x-gateway-session",
+            "in": "header",
+            "schema": { "type": "string", "minLength": 16 },
+            "required": true
+          },
+          {
+            "name": "x-favorites-session",
+            "in": "header",
+            "schema": { "type": "string" },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Favorites retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FavoritesResponse" }
+              }
+            }
+          },
+          "401": { "description": "Session token required." }
+        }
+      }
+    },
+    "/favorites/{stationId}": {
+      "put": {
+        "tags": ["Favorites"],
+        "summary": "Save or update a favorite",
+        "parameters": [
+          { "$ref": "#/components/parameters/StationIdentifier" },
+          {
+            "name": "x-gateway-session",
+            "in": "header",
+            "schema": { "type": "string", "minLength": 16 },
+            "required": true
+          },
+          {
+            "name": "x-favorites-session",
+            "in": "header",
+            "schema": { "type": "string" },
+            "required": false
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FavoritesUpsertBody" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Favorite saved successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FavoritesResponse" }
+              }
+            }
+          },
+          "400": { "description": "Invalid request supplied." },
+          "401": { "description": "Session token required." }
+        }
+      },
+      "delete": {
+        "tags": ["Favorites"],
+        "summary": "Remove a favorite",
+        "parameters": [
+          { "$ref": "#/components/parameters/StationIdentifier" },
+          {
+            "name": "x-gateway-session",
+            "in": "header",
+            "schema": { "type": "string", "minLength": 16 },
+            "required": true
+          },
+          {
+            "name": "x-favorites-session",
+            "in": "header",
+            "schema": { "type": "string" },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Favorite removed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FavoritesResponse" }
+              }
+            }
+          },
+          "401": { "description": "Session token required." }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" }
+    },
+    "parameters": {
+      "StationIdentifier": {
+        "name": "stationId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9:_-]+$"
+        }
+      }
+    },
+    "schemas": {
+      "Station": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "streamUrl", "languages", "tags", "hls", "isOnline", "clickCount"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "streamUrl": { "type": "string", "format": "uri" },
+          "homepage": { "type": ["string", "null"], "format": "uri" },
+          "favicon": { "type": ["string", "null"], "format": "uri" },
+          "country": { "type": ["string", "null"] },
+          "countryCode": { "type": ["string", "null"], "minLength": 2, "maxLength": 3 },
+          "state": { "type": ["string", "null"] },
+          "languages": { "type": "array", "items": { "type": "string" } },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "bitrate": { "type": ["integer", "null"] },
+          "codec": { "type": ["string", "null"] },
+          "hls": { "type": "boolean" },
+          "isOnline": { "type": "boolean" },
+          "clickCount": { "type": "integer" }
+        }
+      },
+      "StationListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["meta", "items"],
+        "properties": {
+          "meta": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "total": { "type": "integer" },
+              "filtered": { "type": "integer" },
+              "matches": { "type": "integer" },
+              "hasMore": { "type": "boolean" },
+              "page": { "type": "integer" },
+              "limit": { "type": "integer" },
+              "maxLimit": { "type": ["integer", "null"] },
+              "requestedLimit": {
+                "anyOf": [
+                  { "type": "integer" },
+                  { "type": "string", "enum": ["all"] },
+                  { "type": "null" }
+                ]
+              },
+              "offset": { "type": "integer" },
+              "cacheSource": { "type": ["string", "null"] },
+              "origin": { "type": ["string", "null"] },
+              "updatedAt": { "type": ["string", "null"], "format": "date-time" },
+              "countries": { "type": "array", "items": { "type": "string" } },
+              "genres": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Station" }
+          }
+        }
+      },
+      "FavoritesResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["meta", "items"],
+        "properties": {
+          "meta": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": { "maxSlots": { "type": "integer" } }
+          },
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Station" }
+          }
+        }
+      },
+      "FavoritesUpsertBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "description": "Optional slot index (0-based)."
+          }
+        }
+      }
+    }
+  }
+}
