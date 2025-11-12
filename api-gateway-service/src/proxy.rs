@@ -6,6 +6,7 @@ use crate::headers::{
 use crate::logger::Logger;
 use crate::routing::Target;
 use crate::session::SessionSnapshot;
+use async_trait::async_trait;
 use axum::body::Body;
 use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, Response, StatusCode, header};
@@ -14,6 +15,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
+
+#[async_trait]
+pub trait GatewayProxy: Send + Sync {
+    async fn forward(
+        &self,
+        parts: http::request::Parts,
+        body_bytes: Option<Bytes>,
+        options: ProxyOptions<'_>,
+    ) -> Response<Body>;
+}
 
 pub struct Proxy {
     client: Client,
@@ -50,8 +61,11 @@ impl Proxy {
             trust_proxy,
         }
     }
+}
 
-    pub async fn forward(
+#[async_trait]
+impl GatewayProxy for Proxy {
+    async fn forward(
         &self,
         parts: http::request::Parts,
         body_bytes: Option<Bytes>,

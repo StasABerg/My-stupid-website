@@ -60,6 +60,8 @@ spec:
             - name: CORS_ALLOW_ORIGINS
               value: "{{ join "," .Values.allowOrigins }}"
             {{- end }}
+            - name: TRUST_PROXY
+              value: {{ ternary "true" "false" (default false .Values.trustProxy) | quote }}
             - name: SESSION_COOKIE_NAME
               value: "{{ .Values.session.cookieName }}"
             - name: SESSION_MAX_AGE_SECONDS

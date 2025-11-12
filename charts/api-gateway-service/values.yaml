@@ -46,6 +46,7 @@ terminalService:
   port: 80
 
 allowOrigins: []
+trustProxy: true
 
 session:
   cookieName: gateway.sid
