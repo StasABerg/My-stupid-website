@@ -1,0 +1,342 @@
+use crate::cache::CacheHandle;
+use crate::headers::{
+    append_forwarded_for, find_header_key, resolve_client_ip, sanitize_headers_for_cache,
+    sanitize_request_headers, sanitize_response_headers,
+};
+use crate::logger::Logger;
+use crate::routing::Target;
+use crate::session::SessionSnapshot;
+use axum::body::Body;
+use bytes::Bytes;
+use http::{HeaderMap, HeaderName, HeaderValue, Response, StatusCode, header};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::time::Duration;
+
+pub struct Proxy {
+    client: Client,
+    cache: CacheHandle,
+    logger: Logger,
+    timeout: Duration,
+    trust_proxy: bool,
+}
+
+pub struct ProxyOptions<'a> {
+    pub target: &'a Target,
+    pub query: Option<&'a str>,
+    pub session: Option<&'a SessionSnapshot>,
+    pub cors_headers: HeaderMap,
+    pub cache_key: Option<String>,
+    pub cacheable: bool,
+    pub remote_addr: Option<SocketAddr>,
+    pub request_id: &'a str,
+}
+
+impl Proxy {
+    pub fn new(
+        client: Client,
+        cache: CacheHandle,
+        logger: Logger,
+        timeout: Duration,
+        trust_proxy: bool,
+    ) -> Self {
+        Self {
+            client,
+            cache,
+            logger,
+            timeout,
+            trust_proxy,
+        }
+    }
+
+    pub async fn forward(
+        &self,
+        parts: http::request::Parts,
+        body_bytes: Option<Bytes>,
+        options: ProxyOptions<'_>,
+    ) -> Response<Body> {
+        if options.cacheable
+            && let Some(cache_key) = &options.cache_key
+            && let Some(cached) = self.cache.get(cache_key).await
+            && let Ok(entry) = serde_json::from_str::<CacheEntry>(&cached)
+        {
+            return build_cached_response(entry, &options.cors_headers);
+        }
+
+        let target_url = build_target_url(options.target, options.query);
+        let mut outbound_headers = sanitize_request_headers(&parts.headers);
+        append_forwarded_for(&mut outbound_headers, options.remote_addr.as_ref());
+        let client_ip = resolve_client_ip(
+            &parts.headers,
+            options.remote_addr.as_ref(),
+            self.trust_proxy,
+        );
+        if let Some(ip) = &client_ip.ip {
+            self.logger.debug(
+                "request.client_ip_resolved",
+                serde_json::json!({ "ip": ip, "source": client_ip.source }),
+            );
+        }
+        set_client_ip_headers(&mut outbound_headers, &client_ip);
+
+        if let Some(session) = options.session {
+            outbound_headers.insert(
+                HeaderName::from_static("x-gateway-csrf-token"),
+                HeaderValue::from_str(&session.nonce)
+                    .unwrap_or_else(|_| HeaderValue::from_static("")),
+            );
+            outbound_headers.insert(
+                HeaderName::from_static("x-gateway-session"),
+                HeaderValue::from_str(&session.nonce)
+                    .unwrap_or_else(|_| HeaderValue::from_static("")),
+            );
+            outbound_headers.insert(
+                HeaderName::from_static("x-gateway-csrf-proof"),
+                HeaderValue::from_str(&session.csrf_proof)
+                    .unwrap_or_else(|_| HeaderValue::from_static("")),
+            );
+        }
+
+        let mut request_builder = self
+            .client
+            .request(parts.method.clone(), &target_url)
+            .headers(convert_headers(&outbound_headers));
+
+        if let Some(body) = body_bytes {
+            request_builder = request_builder.body(body);
+        }
+
+        let response = tokio::time::timeout(self.timeout, request_builder.send()).await;
+        let response = match response {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(error)) => {
+                self.logger.error(
+                    "proxy.request_failed",
+                    serde_json::json!({
+                        "requestId": options.request_id,
+                        "target": target_url,
+                        "error": error.to_string(),
+                    }),
+                );
+                return build_error_response(
+                    StatusCode::BAD_GATEWAY,
+                    "Upstream request failed",
+                    &options.cors_headers,
+                );
+            }
+            Err(_) => {
+                self.logger.warn(
+                    "proxy.request_timeout",
+                    serde_json::json!({
+                        "requestId": options.request_id,
+                        "target": target_url,
+                    }),
+                );
+                return build_error_response(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "Upstream request timed out",
+                    &options.cors_headers,
+                );
+            }
+        };
+
+        let status = response.status();
+        let headers = sanitize_response_headers(response.headers());
+        let bytes = match response.bytes().await {
+            Ok(body) => body,
+            Err(error) => {
+                self.logger.error(
+                    "proxy.response_read_failed",
+                    serde_json::json!({
+                        "requestId": options.request_id,
+                        "target": target_url,
+                        "error": error.to_string(),
+                    }),
+                );
+                return build_error_response(
+                    StatusCode::BAD_GATEWAY,
+                    "Upstream response invalid",
+                    &options.cors_headers,
+                );
+            }
+        };
+
+        let mut response_headers = HeaderMap::new();
+        for (key, value) in headers.iter() {
+            response_headers.insert(key.clone(), value.clone());
+        }
+        for (key, value) in options.cors_headers.iter() {
+            response_headers.insert(key.clone(), value.clone());
+        }
+        response_headers.insert(
+            HeaderName::from_static("x-cache"),
+            HeaderValue::from_static("MISS"),
+        );
+
+        if response_headers.get(header::CONTENT_TYPE).is_none() {
+            response_headers.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+        }
+
+        if let Some(session) = options.session {
+            if response_headers.get("x-gateway-session").is_none() {
+                response_headers.insert(
+                    HeaderName::from_static("x-gateway-session"),
+                    HeaderValue::from_str(&session.nonce)
+                        .unwrap_or_else(|_| HeaderValue::from_static("")),
+                );
+            }
+            response_headers.insert(
+                HeaderName::from_static("x-gateway-csrf"),
+                HeaderValue::from_str(&session.nonce)
+                    .unwrap_or_else(|_| HeaderValue::from_static("")),
+            );
+            response_headers.insert(
+                HeaderName::from_static("x-gateway-csrf-proof"),
+                HeaderValue::from_str(&session.csrf_proof)
+                    .unwrap_or_else(|_| HeaderValue::from_static("")),
+            );
+        }
+
+        if options.cacheable
+            && let Some(cache_key) = &options.cache_key
+            && let Some(content_type) = response_headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+            && content_type.contains("application/json")
+            && status.is_success()
+        {
+            let cache_headers = sanitize_headers_for_cache(&headers);
+            let entry = CacheEntry {
+                status: status.as_u16(),
+                headers: header_map_to_string(cache_headers),
+                body: String::from_utf8_lossy(&bytes).to_string(),
+            };
+            if let Ok(serialized) = serde_json::to_string(&entry) {
+                self.cache.set(cache_key, &serialized, None).await;
+            }
+        }
+
+        response_headers.remove(header::CONTENT_LENGTH);
+        let mut builder = Response::builder().status(status);
+        *builder.headers_mut().unwrap() = response_headers;
+        builder.body(Body::from(bytes)).unwrap_or_else(|_| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("{}"))
+                .expect("failed to build proxy fallback response")
+        })
+    }
+}
+
+fn build_target_url(target: &Target, query: Option<&str>) -> String {
+    let mut url = format!("{}{}", target.base_url, target.path);
+    if let Some(q) = query
+        && !q.is_empty()
+    {
+        url.push('?');
+        url.push_str(q);
+    }
+    url
+}
+
+fn convert_headers(headers: &HeaderMap) -> reqwest::header::HeaderMap {
+    let mut map = reqwest::header::HeaderMap::new();
+    for (key, value) in headers.iter() {
+        if let Ok(name) = reqwest::header::HeaderName::from_bytes(key.as_str().as_bytes()) {
+            map.insert(name, value.clone());
+        }
+    }
+    map
+}
+
+fn set_client_ip_headers(headers: &mut HeaderMap, client_ip: &crate::headers::ClientIp) {
+    if let Some(ip) = &client_ip.ip {
+        let connecting_key = find_header_key(headers, "cf-connecting-ip")
+            .unwrap_or(HeaderName::from_static("cf-connecting-ip"));
+        headers.insert(
+            connecting_key,
+            HeaderValue::from_str(ip).unwrap_or_else(|_| HeaderValue::from_static("")),
+        );
+        let connection_key = find_header_key(headers, "cf-connection-ip")
+            .unwrap_or(HeaderName::from_static("cf-connection-ip"));
+        headers.insert(
+            connection_key,
+            HeaderValue::from_str(ip).unwrap_or_else(|_| HeaderValue::from_static("")),
+        );
+        headers.insert(
+            HeaderName::from_static("x-real-ip"),
+            HeaderValue::from_str(ip).unwrap_or_else(|_| HeaderValue::from_static("")),
+        );
+    }
+}
+
+fn build_error_response(status: StatusCode, message: &str, cors: &HeaderMap) -> Response<Body> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    for (key, value) in cors.iter() {
+        headers.insert(key.clone(), value.clone());
+    }
+    let body = serde_json::json!({ "error": message }).to_string();
+    let mut builder = Response::builder().status(status);
+    *builder.headers_mut().unwrap() = headers;
+    builder.body(Body::from(body)).unwrap_or_else(|_| {
+        Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("{}"))
+            .expect("failed to build error response")
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+struct CacheEntry {
+    status: u16,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+fn build_cached_response(entry: CacheEntry, cors_headers: &HeaderMap) -> Response<Body> {
+    let mut headers = HeaderMap::new();
+    for (key, value) in entry.headers.iter() {
+        if let Ok(name) = HeaderName::from_bytes(key.as_bytes())
+            && let Ok(header_value) = HeaderValue::from_str(value)
+        {
+            headers.insert(name, header_value);
+        }
+    }
+    for (key, value) in cors_headers.iter() {
+        headers.insert(key.clone(), value.clone());
+    }
+    headers.insert(
+        HeaderName::from_static("x-cache"),
+        HeaderValue::from_static("HIT"),
+    );
+    let mut builder =
+        Response::builder().status(StatusCode::from_u16(entry.status).unwrap_or(StatusCode::OK));
+    *builder.headers_mut().unwrap() = headers;
+    builder.body(Body::from(entry.body)).unwrap_or_else(|_| {
+        Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("{}"))
+            .expect("failed to build cached response fallback")
+    })
+}
+
+fn header_map_to_string(headers: HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(key, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|raw| (key.as_str().to_string(), raw.to_string()))
+        })
+        .collect()
+}

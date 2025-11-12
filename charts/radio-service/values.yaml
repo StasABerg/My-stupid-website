@@ -94,11 +94,11 @@ initContainers: []
 
 resources:
   requests:
-    cpu: 1000m
-    memory: 2Gi
+    cpu: 200m
+    memory: 512m
   limits:
-    cpu: 2000m
-    memory: 4Gi
+    cpu: 1000m
+    memory: 1Gi
 
 autoscaling:
   enabled: true
@@ -106,6 +106,24 @@ autoscaling:
   maxReplicas: 4
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 75
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 40
+          periodSeconds: 60
 
 livenessProbe:
   httpGet:
