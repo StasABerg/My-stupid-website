@@ -96,6 +96,7 @@ async fn main() -> Result<()> {
         .route("/internal/status", get(handle_internal_status))
         .route("/docs", get(handle_docs_html))
         .route("/docs/openapi.json", get(handle_docs_spec))
+        .route("/docs/json", get(handle_docs_spec))
         .fallback(handle_proxy)
         .with_state(state.clone());
 
