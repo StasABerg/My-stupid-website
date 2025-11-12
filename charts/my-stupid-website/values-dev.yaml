@@ -1,4 +1,7 @@
 ingress:
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: "my-stupid-website-dev-waf@kubernetescrd"
   hosts:
     - host: dev.gitgud.qzz.io
       paths:
