@@ -19,7 +19,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo chef cook --release --recipe-path recipe.json
 COPY radio-service-rs/ .
-COPY radio-service/migrations ../radio-service/migrations
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo build --release
@@ -33,7 +32,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
     useradd -r -u 1000 radio
 WORKDIR /app
 COPY --from=build /app/radio-service-rs/target/release/radio-service-rs /usr/local/bin/radio-service
-COPY radio-service/migrations ./migrations
+COPY --from=build /app/radio-service-rs/migrations ./migrations
 ENV RUST_LOG=info
 USER radio
 EXPOSE 4010

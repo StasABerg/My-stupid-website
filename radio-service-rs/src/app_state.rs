@@ -316,7 +316,9 @@ impl AppState {
             if let Some(payload) = self.read_stations_from_cache().await? {
                 if let Some(sanitized) = self.sanitize_payload(payload) {
                     let mut payload = sanitized.payload;
-                    payload.ensure_fingerprint();
+                    payload
+                        .ensure_fingerprint()
+                        .context("failed to compute cache fingerprint")?;
                     if sanitized.upgraded {
                         info!(source = "redis", "cache.upgraded");
                         self.write_stations_to_cache(&payload).await?;
@@ -339,7 +341,9 @@ impl AppState {
             if let Some(payload) = self.stations.load_latest_payload().await? {
                 if let Some(sanitized) = self.sanitize_payload(payload) {
                     let mut payload = sanitized.payload;
-                    payload.ensure_fingerprint();
+                    payload
+                        .ensure_fingerprint()
+                        .context("failed to compute database fingerprint")?;
                     if sanitized.upgraded {
                         info!(source = "database", "cache.upgraded");
                     }
@@ -378,7 +382,11 @@ impl AppState {
 
     async fn refresh_and_cache(&self) -> anyhow::Result<StationsPayload> {
         let _guard = self.refresh_mutex.lock().await;
-        let result = refresh::run_refresh(self).await?;
+        let mut result = refresh::run_refresh(self).await?;
+        result
+            .payload
+            .ensure_fingerprint()
+            .context("failed to compute refreshed fingerprint")?;
         self.write_stations_to_cache(&result.payload).await?;
         self.cache_in_memory(result.payload.clone(), "radio-browser")
             .await;
@@ -510,8 +518,10 @@ impl AppState {
         if let Some(fingerprint) = payload.fingerprint.as_deref() {
             if let Ok(existing_payload) = serde_json::from_str::<CachedStationsPayload>(existing) {
                 if let Ok(mut parsed) = StationsPayload::try_from(existing_payload) {
-                    if parsed.ensure_fingerprint() == fingerprint {
-                        return true;
+                    if let Ok(parsed_fingerprint) = parsed.ensure_fingerprint() {
+                        if parsed_fingerprint == fingerprint {
+                            return true;
+                        }
                     }
                 }
             }

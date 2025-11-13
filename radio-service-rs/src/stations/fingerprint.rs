@@ -1,16 +1,16 @@
+use anyhow::Result;
 use sha2::{Digest, Sha256};
 
 use super::Station;
 
-pub fn build_stations_fingerprint(stations: &[Station]) -> String {
+pub fn build_stations_fingerprint(stations: &[Station]) -> Result<String> {
     let mut hasher = Sha256::new();
     for station in stations {
-        let serialized =
-            serde_json::to_vec(station).expect("station serialization should not fail");
+        let serialized = serde_json::to_vec(station)?;
         hasher.update(serialized);
         hasher.update(b"\n");
     }
-    hex::encode(hasher.finalize())
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[cfg(test)]
@@ -54,8 +54,8 @@ mod tests {
             fingerprint: None,
         };
 
-        let fp1 = payload.ensure_fingerprint().to_string();
-        let fp2 = payload.ensure_fingerprint().to_string();
+        let fp1 = payload.ensure_fingerprint().unwrap().to_string();
+        let fp2 = payload.ensure_fingerprint().unwrap().to_string();
         assert_eq!(fp1, fp2);
     }
 }

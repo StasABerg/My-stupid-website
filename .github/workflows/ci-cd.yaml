@@ -183,7 +183,6 @@ jobs:
         run: |
           helm upgrade --install my-stupid-website-dev charts/my-stupid-website \
             -f charts/my-stupid-website/values-dev.yaml \
-            --reuse-values \
             --namespace my-stupid-website-dev --create-namespace \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify
@@ -214,7 +213,6 @@ jobs:
       - name: Helm upgrade (prod)
         run: |
           helm upgrade --install my-stupid-website charts/my-stupid-website \
-            --reuse-values \
             --namespace my-stupid-website --create-namespace \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
             --atomic --wait --kube-insecure-skip-tls-verify

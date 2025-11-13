@@ -143,7 +143,7 @@ impl RadioBrowserClient {
             stations,
             fingerprint: None,
         };
-        payload.ensure_fingerprint();
+        payload.ensure_fingerprint()?;
         Ok(payload)
     }
 

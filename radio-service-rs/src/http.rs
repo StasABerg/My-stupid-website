@@ -69,6 +69,13 @@ const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
 
 type ApiResponse = Result<Response, ApiError>;
 
+fn json_response<T>(status: StatusCode, payload: T) -> Response
+where
+    T: Serialize,
+{
+    (status, Json(payload)).into_response()
+}
+
 #[derive(Debug)]
 enum ApiError {
     ServiceUnavailable(&'static str),
@@ -212,21 +219,20 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
+async fn healthz(State(state): State<AppState>) -> Response {
     match state.ping_redis().await {
-        Ok(_) => Json(HealthResponse { status: "ok" }).into_response(),
-        Err(error) => (
+        Ok(_) => json_response(StatusCode::OK, HealthResponse { status: "ok" }),
+        Err(error) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
+            json!({
                 "status": "error",
                 "message": error.to_string(),
-            })),
-        )
-            .into_response(),
+            }),
+        ),
     }
 }
 
-async fn internal_status(State(state): State<AppState>) -> impl IntoResponse {
+async fn internal_status(State(state): State<AppState>) -> Response {
     let redis_ok = state.ping_redis().await.is_ok();
     let postgres_ok = state.ping_postgres().await.is_ok();
     let metrics = state.status_snapshot().await;
@@ -254,7 +260,7 @@ async fn internal_status(State(state): State<AppState>) -> impl IntoResponse {
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    (code, Json(body))
+    json_response(code, body)
 }
 
 async fn openapi_spec() -> impl IntoResponse {
@@ -865,7 +871,11 @@ async fn get_stations(
         .await
         .map_err(ApiError::internal)?;
 
-    let fingerprint = load.payload.ensure_fingerprint().to_string();
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
     let processed = state
         .ensure_processed(&fingerprint, &load.payload.stations)
         .await;

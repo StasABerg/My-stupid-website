@@ -3,6 +3,8 @@ autoscaling:
 
 replicaCount: 1
 
+trustProxy: true
+
 radioService:
   name: my-stupid-website-radio
 

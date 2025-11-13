@@ -107,7 +107,9 @@ impl StationStorage {
             stations.push(row_to_station(row)?);
         }
         payload.stations = stations;
-        payload.ensure_fingerprint();
+        payload
+            .ensure_fingerprint()
+            .map_err(|err| StorageError::InvalidData(format!("fingerprint error: {err}")))?;
 
         Ok(Some(payload))
     }
@@ -118,10 +120,11 @@ impl StationStorage {
     ) -> Result<PersistOutcome, StorageError> {
         let mut tx = self.pool.begin().await?;
 
-        let fingerprint = payload
-            .fingerprint
-            .clone()
-            .unwrap_or_else(|| build_stations_fingerprint(&payload.stations));
+        let fingerprint = match payload.fingerprint.clone() {
+            Some(fp) => fp,
+            None => build_stations_fingerprint(&payload.stations)
+                .map_err(|err| StorageError::InvalidData(format!("fingerprint error: {err}")))?,
+        };
 
         if let Some(existing) = sqlx::query(
             r#"

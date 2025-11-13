@@ -1,0 +1,52 @@
+{{- $gateway := .Values.gateway | default dict }}
+{{- if $gateway.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "my-stupid-website.fullname" . }}
+  labels:
+    {{- include "my-stupid-website.labels" . | nindent 4 }}
+spec:
+  {{- with $gateway.parentRefs }}
+  parentRefs:
+    {{- range . }}
+    - name: {{ .name }}
+      {{- if .namespace }}
+      namespace: {{ .namespace }}
+      {{- end }}
+      {{- if .sectionName }}
+      sectionName: {{ .sectionName }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- with $gateway.hostnames }}
+  hostnames:
+    {{- range . }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  rules:
+    - matches:
+        {{- $paths := $gateway.paths | default (list (dict "value" "/" "type" "PathPrefix")) }}
+        {{- range $paths }}
+        - path:
+            type: {{ .type | default "PathPrefix" }}
+            value: {{ .value | default "/" }}
+        {{- end }}
+      backendRefs:
+        - name: {{ include "my-stupid-website.fullname" . }}
+          port: {{ .Values.service.port }}
+      {{- with $gateway.middlewareRefs }}
+      filters:
+        {{- range . }}
+        - type: ExtensionRef
+          extensionRef:
+            group: {{ .group | default "traefik.io" }}
+            kind: {{ .kind | default "Middleware" }}
+            name: {{ .name }}
+            {{- if .namespace }}
+            namespace: {{ .namespace }}
+            {{- end }}
+        {{- end }}
+      {{- end }}
+{{- end }}

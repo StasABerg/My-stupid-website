@@ -1,18 +1,40 @@
-FROM node:25-alpine
-
+FROM rust:slim AS base
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-chef
 WORKDIR /app
 
-COPY --chown=node:node api-gateway-service/package.json ./package.json
+FROM base AS planner
+COPY api-gateway-service ./api-gateway-service
+WORKDIR /app/api-gateway-service
+RUN cargo chef prepare --recipe-path recipe.json
 
-RUN chown -R node:node /app
-USER node
+FROM base AS build
+WORKDIR /app/api-gateway-service
+COPY --from=planner /app/api-gateway-service/recipe.json ./recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo chef cook --release --recipe-path recipe.json
+COPY api-gateway-service/ .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release
 
-RUN npm install --package-lock-only --no-audit --no-fund
-RUN npm ci --omit=dev --no-audit --no-fund
+FROM debian:trixie-slim AS runner
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -r gateway -g 101 && \
+    useradd -r -g gateway -u 101 gateway
+WORKDIR /app
+COPY --from=build /app/api-gateway-service/target/release/api-gateway-service /usr/local/bin/api-gateway-service
 
-COPY --chown=node:node api-gateway-service/src ./src
-
-ENV NODE_ENV=production
+ENV RUST_LOG=info
 EXPOSE 8080
-
-CMD ["node", "src/server.js"]
+USER gateway
+ENTRYPOINT ["/usr/local/bin/api-gateway-service"]
