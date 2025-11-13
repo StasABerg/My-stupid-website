@@ -1,7 +1,8 @@
 1. Get the application URL by running these commands:
-{{- if and .Values.gateway.enabled .Values.gateway.hostnames }}
+{{- $gateway := .Values.gateway | default dict }}
+{{- if and $gateway.enabled $gateway.hostnames }}
   {{- $scheme := "https" }}
-  {{- range $host := .Values.gateway.hostnames }}
+  {{- range $host := $gateway.hostnames }}
   {{ $scheme }}://{{ $host }}
   {{- end }}
 {{- else if contains "NodePort" .Values.service.type }}
