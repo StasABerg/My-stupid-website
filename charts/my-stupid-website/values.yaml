@@ -43,17 +43,22 @@ service:
 
 containerPort: 8080
 
-ingress:
+gateway:
   enabled: true
-  className: traefik
-  annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: "my-stupid-website-waf@kubernetescrd"
-  hosts:
-    - host: gitgud.qzz.io
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
-  tls: []
+  parentRefs:
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: web
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: websecure
+  hostnames:
+    - gitgud.qzz.io
+  paths:
+    - value: /
+      type: PathPrefix
+  middlewareRefs:
+    - name: my-stupid-website-waf
 
 resources:
   limits:

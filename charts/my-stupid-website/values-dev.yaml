@@ -1,12 +1,19 @@
-ingress:
-  className: traefik
-  annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: "my-stupid-website-dev-waf@kubernetescrd"
-  hosts:
-    - host: dev.gitgud.qzz.io
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
+gateway:
+  enabled: true
+  parentRefs:
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: web
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: websecure
+  hostnames:
+    - dev.gitgud.qzz.io
+  paths:
+    - value: /
+      type: PathPrefix
+  middlewareRefs:
+    - name: my-stupid-website-dev-waf
 autoscaling:
   enabled: false
 replicaCount: 1

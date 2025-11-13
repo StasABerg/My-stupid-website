@@ -40,12 +40,20 @@ service:
 
 containerPort: 4010
 
-ingress:
+gateway:
   enabled: false
-  className: traefik
-  annotations: {}
-  hosts: []
-  tls: []
+  parentRefs:
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: web
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: websecure
+  hostnames: []
+  paths:
+    - value: /radio
+      type: PathPrefix
+  middlewareRefs: []
 
 env:
   - name: REDIS_URL
@@ -95,9 +103,9 @@ initContainers: []
 resources:
   requests:
     cpu: 200m
-    memory: 512m
+    memory: 512Mi
   limits:
-    cpu: 1000m
+    cpu: 1000Mi
     memory: 1Gi
 
 autoscaling:

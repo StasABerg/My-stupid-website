@@ -41,12 +41,20 @@ service:
   port: 80
   annotations: {}
 
-ingress:
+gateway:
   enabled: false
-  className: traefik
-  annotations: {}
-  hosts: []
-  tls: []
+  parentRefs:
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: web
+    - name: traefik-gateway
+      namespace: kube-system
+      sectionName: websecure
+  hostnames: []
+  paths:
+    - value: /terminal
+      type: PathPrefix
+  middlewareRefs: []
 
 env:
   SANDBOX_ROOT: /sandbox

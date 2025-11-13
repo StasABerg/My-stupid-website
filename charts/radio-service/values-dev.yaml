@@ -3,7 +3,7 @@ replicaCount: 1
 autoscaling:
   enabled: false
 
-ingress:
+gateway:
   enabled: false
 
 env:
