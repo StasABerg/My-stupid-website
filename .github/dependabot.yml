@@ -9,11 +9,9 @@ updates:
     directories:
       - "/app"
       - "/terminal-service"
-      - "/radio-service"
-      - "/api-gateway-service"
     schedule:
       interval: "weekly"
-      
+
   - package-ecosystem: "docker"
     directory: "/docker"
     schedule:
@@ -24,13 +22,19 @@ updates:
     schedule:
       interval: "weekly"
 
+  - package-ecosystem: "cargo"
+    directories:
+      - "/api-gateway-service"
+      - "/radio-service-rs"
+    schedule:
+      interval: "weekly"
+
   - package-ecosystem: "helm"
     directories: 
        - "/charts/my-stupid-website"
-       - "/charts/api-gateway-serivce"
+       - "/charts/api-gateway-service"
        - "/charts/radio-service"
        - "/charts/terminal-service"
     schedule:
       interval: "weekly"
-
 
