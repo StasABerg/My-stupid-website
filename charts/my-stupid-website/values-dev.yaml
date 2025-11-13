@@ -12,8 +12,7 @@ gateway:
   paths:
     - value: /
       type: PathPrefix
-  middlewareRefs:
-    - name: my-stupid-website-dev-waf
+  middlewareRefs: []
 autoscaling:
   enabled: false
 replicaCount: 1

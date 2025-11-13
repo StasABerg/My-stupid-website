@@ -57,8 +57,7 @@ gateway:
   paths:
     - value: /
       type: PathPrefix
-  middlewareRefs:
-    - name: my-stupid-website-waf
+  middlewareRefs: []
 
 resources:
   limits:
