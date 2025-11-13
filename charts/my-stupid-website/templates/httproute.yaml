@@ -1,4 +1,5 @@
-{{- if .Values.gateway.enabled }}
+{{- $gateway := .Values.gateway | default dict }}
+{{- if $gateway.enabled }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -6,7 +7,7 @@ metadata:
   labels:
     {{- include "my-stupid-website.labels" . | nindent 4 }}
 spec:
-  {{- with .Values.gateway.parentRefs }}
+  {{- with $gateway.parentRefs }}
   parentRefs:
     {{- range . }}
     - name: {{ .name }}
@@ -18,7 +19,7 @@ spec:
       {{- end }}
     {{- end }}
   {{- end }}
-  {{- with .Values.gateway.hostnames }}
+  {{- with $gateway.hostnames }}
   hostnames:
     {{- range . }}
     - {{ . | quote }}
@@ -26,7 +27,7 @@ spec:
   {{- end }}
   rules:
     - matches:
-        {{- $paths := .Values.gateway.paths | default (list (dict "value" "/" "type" "PathPrefix")) }}
+        {{- $paths := $gateway.paths | default (list (dict "value" "/" "type" "PathPrefix")) }}
         {{- range $paths }}
         - path:
             type: {{ .type | default "PathPrefix" }}
@@ -35,7 +36,7 @@ spec:
       backendRefs:
         - name: {{ include "my-stupid-website.fullname" . }}
           port: {{ .Values.service.port }}
-      {{- with .Values.gateway.middlewareRefs }}
+      {{- with $gateway.middlewareRefs }}
       filters:
         {{- range . }}
         - type: ExtensionRef
