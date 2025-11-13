@@ -1,3 +1,4 @@
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -52,11 +53,11 @@ pub struct StationsPayload {
 }
 
 impl StationsPayload {
-    pub fn ensure_fingerprint(&mut self) -> &str {
+    pub fn ensure_fingerprint(&mut self) -> Result<&str> {
         if self.fingerprint.is_none() {
-            let fp = crate::stations::build_stations_fingerprint(&self.stations);
+            let fp = crate::stations::build_stations_fingerprint(&self.stations)?;
             self.fingerprint = Some(fp);
         }
-        self.fingerprint.as_deref().unwrap_or("unknown")
+        Ok(self.fingerprint.as_deref().unwrap_or("unknown"))
     }
 }

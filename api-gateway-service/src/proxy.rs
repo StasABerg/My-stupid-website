@@ -14,7 +14,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 #[async_trait]
 pub trait GatewayProxy: Send + Sync {
@@ -30,7 +29,6 @@ pub struct Proxy {
     client: Client,
     cache: CacheHandle,
     logger: Logger,
-    timeout: Duration,
     trust_proxy: bool,
 }
 
@@ -46,18 +44,11 @@ pub struct ProxyOptions<'a> {
 }
 
 impl Proxy {
-    pub fn new(
-        client: Client,
-        cache: CacheHandle,
-        logger: Logger,
-        timeout: Duration,
-        trust_proxy: bool,
-    ) -> Self {
+    pub fn new(client: Client, cache: CacheHandle, logger: Logger, trust_proxy: bool) -> Self {
         Self {
             client,
             cache,
             logger,
-            timeout,
             trust_proxy,
         }
     }
@@ -122,10 +113,9 @@ impl GatewayProxy for Proxy {
             request_builder = request_builder.body(body);
         }
 
-        let response = tokio::time::timeout(self.timeout, request_builder.send()).await;
-        let response = match response {
-            Ok(Ok(resp)) => resp,
-            Ok(Err(error)) => {
+        let response = match request_builder.send().await {
+            Ok(resp) => resp,
+            Err(error) => {
                 self.logger.error(
                     "proxy.request_failed",
                     serde_json::json!({
@@ -137,20 +127,6 @@ impl GatewayProxy for Proxy {
                 return build_error_response(
                     StatusCode::BAD_GATEWAY,
                     "Upstream request failed",
-                    &options.cors_headers,
-                );
-            }
-            Err(_) => {
-                self.logger.warn(
-                    "proxy.request_timeout",
-                    serde_json::json!({
-                        "requestId": options.request_id,
-                        "target": target_url,
-                    }),
-                );
-                return build_error_response(
-                    StatusCode::GATEWAY_TIMEOUT,
-                    "Upstream request timed out",
                     &options.cors_headers,
                 );
             }

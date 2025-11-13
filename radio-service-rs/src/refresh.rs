@@ -24,7 +24,7 @@ pub async fn run_refresh(state: &AppState) -> anyhow::Result<RefreshResult> {
         );
     }
     payload.stations = validation.stations;
-    let fingerprint = payload.ensure_fingerprint().to_string();
+    let fingerprint = payload.ensure_fingerprint()?.to_string();
     let updated_at = payload.updated_at.to_rfc3339();
 
     state

@@ -9,8 +9,10 @@ use crate::request_context::RequestContextManager;
 use crate::routing::Routing;
 use crate::session::SessionManager;
 use anyhow::Result;
+use axum::Json;
 use axum::Router;
 use axum::body::Body;
+use axum::error_handling::HandleErrorLayer;
 use axum::extract::{ConnectInfo, OriginalUri, State};
 use axum::http::{HeaderMap, HeaderName, Method, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
@@ -22,6 +24,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use time::{OffsetDateTime, format_description::well_known::Rfc2822};
+use tower::timeout::TimeoutLayer;
+use tower::{BoxError, ServiceBuilder};
 
 const OVERLOAD_THRESHOLD_MS: u64 = 1_000;
 const PRE_FLIGHT_MAX_AGE: &str = "600";
@@ -36,7 +40,6 @@ pub async fn build_router(config: Arc<Config>, logger: Logger) -> Result<Router>
         client,
         cache,
         logger.clone(),
-        config.request_timeout,
         config.trust_proxy,
     )) as Arc<dyn GatewayProxy>;
     build_router_with_proxy(config, logger, proxy).await
@@ -65,6 +68,37 @@ pub async fn build_router_with_proxy(
         logger,
     });
 
+    let request_timeout = state.config.request_timeout;
+    let timeout_logger = state.logger.clone();
+    let timeout_layer = ServiceBuilder::new()
+        .layer(HandleErrorLayer::new(move |error: BoxError| {
+            let timeout_logger = timeout_logger.clone();
+            async move {
+                if error.is::<tower::timeout::error::Elapsed>() {
+                    timeout_logger.warn(
+                        "router.request_timeout",
+                        json!({ "error": error.to_string() }),
+                    );
+                    (
+                        StatusCode::GATEWAY_TIMEOUT,
+                        Json(json!({ "error": "Request timed out" })),
+                    )
+                        .into_response()
+                } else {
+                    timeout_logger.error(
+                        "router.unhandled_error",
+                        json!({ "error": error.to_string() }),
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": "Unhandled gateway error" })),
+                    )
+                        .into_response()
+                }
+            }
+        }))
+        .layer(TimeoutLayer::new(request_timeout));
+
     Ok(Router::new()
         .route("/session", post(handle_session_post))
         .route("/session", options(handle_session_options))
@@ -79,7 +113,8 @@ pub async fn build_router_with_proxy(
         .route("/docs/openapi.json", get(handle_docs_spec))
         .route("/docs/json", get(handle_docs_spec))
         .fallback(handle_proxy)
-        .with_state(state.clone()))
+        .with_state(state.clone())
+        .layer(timeout_layer))
 }
 
 struct AppState {

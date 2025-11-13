@@ -23,7 +23,7 @@ sha2 = "0.10"
 async-trait = "0.1"
 time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal", "process"] }
-tower = { version = "0.5", features = ["util"] }
+tower = { version = "0.5", features = ["util", "timeout"] }
 uuid = { version = "1.18", features = ["v4"] }
 url = "2.5"
 urlencoding = "2.1"
