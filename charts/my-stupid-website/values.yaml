@@ -46,12 +46,12 @@ containerPort: 8080
 gateway:
   enabled: true
   parentRefs:
-    - name: traefik-gateway
-      namespace: kube-system
-      sectionName: web
-    - name: traefik-gateway
-      namespace: kube-system
-      sectionName: websecure
+    - name: contour-gateway
+      namespace: contour
+      sectionName: http
+    - name: contour-gateway
+      namespace: contour
+      sectionName: https
   hostnames:
     - gitgud.qzz.io
   paths:
