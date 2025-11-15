@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS station_payloads (
   updated_at TIMESTAMPTZ NOT NULL,
   source TEXT,
   requests JSONB NOT NULL DEFAULT '[]'::jsonb,
-  total BIGINT NOT NULL,
+  total INTEGER NOT NULL,
   fingerprint TEXT NOT NULL UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
