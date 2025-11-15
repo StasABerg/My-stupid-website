@@ -43,12 +43,12 @@ containerPort: 4010
 gateway:
   enabled: false
   parentRefs:
-    - name: traefik-gateway
-      namespace: kube-system
-      sectionName: web
-    - name: traefik-gateway
-      namespace: kube-system
-      sectionName: websecure
+    - name: contour-gateway
+      namespace: contour
+      sectionName: http
+    - name: contour-gateway
+      namespace: contour
+      sectionName: https
   hostnames: []
   paths:
     - value: /radio

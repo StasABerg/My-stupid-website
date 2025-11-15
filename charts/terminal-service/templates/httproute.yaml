@@ -41,8 +41,8 @@ spec:
         {{- range . }}
         - type: ExtensionRef
           extensionRef:
-            group: {{ .group | default "traefik.io" }}
-            kind: {{ .kind | default "Middleware" }}
+            group: {{ .group | default "projectcontour.io" }}
+            kind: {{ .kind | default "Policy" }}
             name: {{ .name }}
             {{- if .namespace }}
             namespace: {{ .namespace }}
