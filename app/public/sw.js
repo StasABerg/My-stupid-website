@@ -1,5 +1,5 @@
-const CACHE_NAME = "gitgud-radio-shell-v1";
-const APP_SHELL = ["/", "/radio", "/favicon.ico", "/manifest.webmanifest"];
+const CACHE_NAME = "gitgud-radio-shell-v2";
+const APP_SHELL = ["/", "/radio", "/favicon.ico"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
