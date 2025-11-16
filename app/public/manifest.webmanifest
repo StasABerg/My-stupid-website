@@ -1,6 +1,6 @@
 {
   "name": "Gitgud Radio",
-  "short_name": "Radio",
+  "short_name": "Gitgud Radio",
   "description": "Listen to the Gitgud radio experience on mobile.",
   "start_url": "/radio",
   "scope": "/",
