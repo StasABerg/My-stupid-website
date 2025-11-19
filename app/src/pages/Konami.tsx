@@ -1,11 +1,25 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-
-const videoUrl = "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&controls=0&modestbranding=1";
 
 const Konami = () => {
   useEffect(() => {
     document.title = "Konami Override";
+  }, []);
+
+  const embedUrl = useMemo(() => {
+    const base = "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ";
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "https://gitgud.qzz.io";
+    const params = new URLSearchParams({
+      autoplay: "1",
+      loop: "1",
+      playlist: "dQw4w9WgXcQ",
+      controls: "0",
+      modestbranding: "1",
+      rel: "0",
+      origin,
+    });
+    return `${base}?${params.toString()}`;
   }, []);
 
   return (
@@ -15,17 +29,28 @@ const Konami = () => {
         <p className="font-mono text-sm text-terminal-cyan mb-4">
           Access granted. Loading clandestine transmission…
         </p>
-        <div className="relative w-full pt-[56.25%] border border-terminal-green/50">
+        <div className="relative w-full pt-[56.25%] border border-terminal-green/50 bg-black">
           <iframe
             title="Konami Transmission"
-            src={videoUrl}
+            src={embedUrl}
             className="absolute left-0 top-0 h-full w-full"
-            allow="autoplay; encrypted-media"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
             allowFullScreen
           />
         </div>
         <p className="mt-4 font-mono text-xs text-terminal-white/70">
-          Transmission locked in faux-terminal safe mode. Remember: trust no browser tabs.
+          Transmission locked in faux-terminal safe mode. Remember: trust no browser tabs. If the player refuses to
+          cooperate,{" "}
+          <a
+            href="https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL4fGSI1pDJn63Ntl9x_AcwIJ7bB8uW7VY&index=1"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-terminal-cyan underline"
+          >
+            watch it directly on YouTube
+          </a>
+          .
         </p>
         <div className="mt-6 text-right">
           <Link
@@ -41,4 +66,3 @@ const Konami = () => {
 };
 
 export default Konami;
-

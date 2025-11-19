@@ -95,9 +95,12 @@ const HowTo = () => {
     if (!topicInfo || openedRef.current) {
       return;
     }
-    openedRef.current = true;
     const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(topicInfo.query)}`;
-    window.open(googleUrl, "_blank", "noopener,noreferrer");
+    const newWindow = window.open("", "_blank", "noopener,noreferrer");
+    if (newWindow) {
+      newWindow.location.href = googleUrl;
+      openedRef.current = true;
+    }
   }, [topicInfo]);
 
   const heading = topicInfo ? topicInfo.title : "Unknown Ritual";
@@ -117,18 +120,23 @@ const HowTo = () => {
         <h1 className="text-2xl font-mono mb-3 text-terminal-cyan">{heading}</h1>
         <p className="font-mono text-sm text-terminal-white/70 mb-6">{message}</p>
         {topicInfo ? (
-          <p className="font-mono text-xs text-terminal-white/60">
-            If nothing opens automatically,{" "}
-            <a
-              href={`https://www.google.com/search?q=${encodeURIComponent(topicInfo.query)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-terminal-yellow underline"
-            >
-              click here
-            </a>
-            .
-          </p>
+          <div className="space-y-3">
+            <p className="font-mono text-xs text-terminal-white/60">
+              If nothing opens automatically,{" "}
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent(topicInfo.query)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-terminal-yellow underline"
+              >
+                click here
+              </a>
+              .
+            </p>
+            <p className="font-mono text-[0.7rem] text-terminal-cyan">
+              Tip: type <code className="text-terminal-yellow">how-to setup-nginx</code> in the terminal to spawn this page.
+            </p>
+          </div>
         ) : (
           <p className="font-mono text-xs text-terminal-white/60">
             Use <code className="text-terminal-yellow">/how-to/setup-nginx</code> style slugs.
@@ -145,4 +153,3 @@ const HowTo = () => {
 };
 
 export default HowTo;
-
