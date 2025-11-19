@@ -1,5 +1,6 @@
-const CACHE_NAME = "gitgud-radio-shell-v3";
+const CACHE_NAME = "gitgud-radio-shell-v4";
 const APP_SHELL = ["/", "/radio", "/favicon.ico"];
+const APP_SHELL_PATHS = new Set(APP_SHELL);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -36,17 +37,34 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const isNavigation = event.request.mode === "navigate";
+  const isShellAsset = APP_SHELL_PATHS.has(url.pathname);
+  if (!isNavigation && !isShellAsset) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) {
         return cached;
       }
 
-      return fetch(event.request).then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        return response;
-      });
+      return fetch(event.request)
+        .then((response) => {
+          if (response && (response.ok || response.type === "opaqueredirect" || response.type === "opaque")) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              void cache.put(event.request, clone);
+            });
+          }
+          return response;
+        })
+        .catch((error) => {
+          if (isNavigation) {
+            return caches.match("/radio");
+          }
+          throw error;
+        });
     }),
   );
 });
