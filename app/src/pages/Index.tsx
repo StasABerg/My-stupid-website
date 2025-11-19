@@ -118,6 +118,16 @@ const Index = () => {
                   how-to/
                 </Link>
               </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr----- 2 root root 1337 {todayLabel} </span>
+                <Link
+                  to="/konami"
+                  className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+                  aria-label="Open secret transmission"
+                >
+                  secrets/
+                </Link>
+              </p>
             </nav>
           </div>
 

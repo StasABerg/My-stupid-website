@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
 import { HOW_TO_TOPICS } from "./topics";
