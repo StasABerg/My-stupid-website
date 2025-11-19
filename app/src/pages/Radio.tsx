@@ -1075,43 +1075,30 @@ const Radio = () => {
           <div className="rounded border border-terminal-green/40 bg-black/70 p-3 font-mono text-xs text-terminal-green break-all">
             {shareLink ?? "No station selected."}
           </div>
-          <div className="space-y-3 text-[0.7rem] text-terminal-cyan">
-            <p>
-              Press{" "}
+          <div className="flex flex-wrap gap-3 text-[0.7rem] text-terminal-cyan">
+            <button
+              type="button"
+              onClick={handleShareDialogCopy}
+              disabled={!shareLink}
+              className={`inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-cyan/60 px-3 py-1.5 uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                shareLink ? "hover:bg-terminal-cyan/10" : "cursor-not-allowed opacity-50"
+              }`}
+            >
               <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
                 Ctrl + Shift + C
-              </span>{" "}
-              to copy again. Press{" "}
-              <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
+              </span>
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={handleShareDialogClose}
+              className="inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-red/60 px-3 py-1.5 uppercase tracking-[0.2em] text-terminal-white transition hover:bg-terminal-red/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
+            >
+              <span className="rounded border border-terminal-red/60 bg-terminal-red/10 px-1 py-0.5 font-mono text-[0.65rem]">
                 Ctrl + D
-              </span>{" "}
-              to close this window.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={handleShareDialogCopy}
-                disabled={!shareLink}
-                className={`inline-flex items-center gap-2 rounded border border-terminal-cyan/60 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
-                  shareLink ? "hover:bg-terminal-cyan/10" : "cursor-not-allowed opacity-50"
-                }`}
-              >
-                <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
-                  Ctrl + Shift + C
-                </span>
-                Copy Link
-              </button>
-              <button
-                type="button"
-                onClick={handleShareDialogClose}
-                className="inline-flex items-center gap-2 rounded border border-terminal-red/60 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.2em] text-terminal-white transition hover:bg-terminal-red/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
-              >
-                <span className="rounded border border-terminal-red/60 bg-terminal-red/10 px-1 py-0.5 font-mono text-[0.65rem]">
-                  Ctrl + D
-                </span>
-                Close
-              </button>
-            </div>
+              </span>
+              Close
+            </button>
           </div>
         </AlertDialogContent>
       </AlertDialog>
