@@ -4,7 +4,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import RouteLoader from "@/components/route-loader";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { useKonamiCode } from "@/hooks/useKonamiCode";
 
 const IndexPage = lazy(() => import("./pages/Index"));
 const DocumentsPage = lazy(() => import("./pages/Documents"));
@@ -17,8 +18,18 @@ const TerminalDocsPage = lazy(() => import("./pages/TerminalDocs"));
 const RadioDocsPage = lazy(() => import("./pages/RadioDocs"));
 const SwaggerDirectoryPage = lazy(() => import("./pages/Swagger"));
 const GatewayDocsPage = lazy(() => import("./pages/GatewayDocs"));
+const KonamiPage = lazy(() => import("./pages/Konami"));
+const BegudPage = lazy(() => import("./pages/Begud"));
+const GitGudPage = lazy(() => import("./pages/GitGud"));
+const HowToPage = lazy(() => import("./pages/HowTo"));
 
 const queryClient = new QueryClient();
+
+const KonamiListener = () => {
+  const navigate = useNavigate();
+  useKonamiCode(() => navigate("/konami"));
+  return null;
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -26,6 +37,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <KonamiListener />
         <Suspense fallback={<RouteLoader />}>
           <Routes>
             <Route path="/" element={<IndexPage />} />
@@ -38,6 +50,10 @@ const App = () => (
             <Route path="/radio/docs" element={<RadioDocsPage />} />
             <Route path="/gateway/docs" element={<GatewayDocsPage />} />
             <Route path="/swagger" element={<SwaggerDirectoryPage />} />
+            <Route path="/konami" element={<KonamiPage />} />
+            <Route path="/begud" element={<BegudPage />} />
+            <Route path="/gitgud" element={<GitGudPage />} />
+            <Route path="/how-to/:topic" element={<HowToPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFoundPage />} />
           </Routes>

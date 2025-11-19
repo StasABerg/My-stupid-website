@@ -71,6 +71,62 @@ const fallbackStation: RadioStation = {
   clickCount: 0,
 };
 
+const MIDNIGHT_PRESETS: RadioStation[] = [
+  {
+    id: "midnight-rickroll",
+    name: "????",
+    streamUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ",
+    homepage: null,
+    favicon: null,
+    country: "Secret Broadcast",
+    countryCode: null,
+    state: null,
+    languages: ["English"],
+    tags: ["mystery", "midnight"],
+    bitrate: 128,
+    codec: "MP3",
+    hls: false,
+    isOnline: true,
+    clickCount: 0,
+  },
+  {
+    id: "midnight-lofi",
+    name: "????",
+    streamUrl: "https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1",
+    homepage: null,
+    favicon: null,
+    country: "Secret Broadcast",
+    countryCode: null,
+    state: null,
+    languages: ["Instrumental"],
+    tags: ["secret", "night"],
+    bitrate: 128,
+    codec: "MP3",
+    hls: false,
+    isOnline: true,
+    clickCount: 0,
+  },
+];
+
+const isMidnightHour = () => new Date().getHours() === 0;
+const randomMidnightStation = () =>
+  MIDNIGHT_PRESETS[Math.floor(Math.random() * MIDNIGHT_PRESETS.length)];
+const SECRET_BROADCAST_VIDEOS: Record<
+  string,
+  { embed: string; watch: string; label: string }
+> = {
+  "midnight-rickroll": {
+    embed: "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ",
+    watch: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL4fGSI1pDJn63Ntl9x_AcwIJ7bB8uW7VY&index=1",
+    label: "80s Eternal Rick Broadcast",
+  },
+  "midnight-lofi": {
+    embed: "https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1",
+    watch: "https://www.youtube.com/watch?v=jfKfPfyJRdk",
+    label: "Lofi Girl Control Tower",
+  },
+};
+
 type StationOverride = {
   station: RadioStation;
   allowUnknown?: boolean;
@@ -179,6 +235,8 @@ const Radio = () => {
   const [volume, setVolume] = useState(0.65);
   const [playbackKey, setPlaybackKey] = useState(0);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [midnightActive, setMidnightActive] = useState(() => isMidnightHour());
+  const [mysteryStation, setMysteryStation] = useState<RadioStation>(() => randomMidnightStation());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<HlsInstance | null>(null);
   const listRef = useRef<HTMLOListElement | null>(null);
@@ -197,6 +255,18 @@ const Radio = () => {
     const params = new URLSearchParams(location.search);
     return params.get(SHARE_QUERY_PARAM);
   }, [location.search]);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const active = isMidnightHour();
+      setMidnightActive((prev) => {
+        if (!prev && active) {
+          setMysteryStation(randomMidnightStation());
+        }
+        return active;
+      });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const filters = useMemo(
     () => ({
@@ -282,6 +352,12 @@ const Radio = () => {
   useEffect(() => {
     let cancelled = false;
     async function resolveStreamUrl() {
+      if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
+        if (!cancelled) {
+          setResolvedStreamUrl(null);
+        }
+        return;
+      }
       if (!activeStation.id || !activeStation.streamUrl) {
         if (!cancelled) {
           setResolvedStreamUrl(null);
@@ -530,6 +606,18 @@ const Radio = () => {
 
   const handleShareDialogClose = () => {
     setShareDialogOpen(false);
+  };
+
+  const handleMidnightPresetSelect = () => {
+    setPresetStationOverride({ station: mysteryStation, allowUnknown: true });
+    const secretVideo = SECRET_BROADCAST_VIDEOS[mysteryStation.id ?? ""];
+    if (secretVideo) {
+      window.open(secretVideo.watch, "_blank", "noopener,noreferrer");
+    }
+    toast({
+      title: "Secret broadcast tuned",
+      description: "Enjoy the midnight signal.",
+    });
   };
 
   const handleFavoriteToggle = async (station: RadioStation) => {
@@ -927,6 +1015,25 @@ const Radio = () => {
                 shareDisabled={!shareLink}
                 shareButtonRef={shareButtonRef}
               />
+              {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""] ? (
+                <div className="border border-terminal-green/40 rounded-md bg-black/80 p-3 space-y-2">
+                  <p className="text-terminal-cyan text-xs uppercase tracking-[0.3em]">
+                    Secret Broadcast
+                  </p>
+                  <div className="relative w-full pt-[56.25%]">
+                    <iframe
+                      title="Secret Broadcast Feed"
+                      src={SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].embed}
+                      allow="autoplay; encrypted-media"
+                      allowFullScreen
+                      className="absolute inset-0 h-full w-full border border-terminal-green/30"
+                    />
+                  </div>
+                  <p className="text-terminal-white/60 text-[0.65rem]">
+                    {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].label}
+                  </p>
+                </div>
+              ) : null}
 
               <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
               <ScannerControl
@@ -947,6 +1054,26 @@ const Radio = () => {
                 maxSlots={maxFavoriteSlots}
                 isLoading={favoritesLoading}
               />
+              {midnightActive ? (
+                <>
+                  <TerminalPrompt path="~/radio" command="radio midnight --tune" />
+                  <div className="border border-terminal-green/50 rounded-md bg-black/80 p-4 space-y-2">
+                    <p className="text-terminal-cyan text-xs uppercase tracking-[0.3em]">
+                      Secret Broadcast
+                    </p>
+                    <p className="text-terminal-white/80 text-sm">
+                      A mysterious preset labeled {mysteryStation.name} is available until the clock strikes 01:00.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleMidnightPresetSelect}
+                      className="w-full border border-terminal-yellow/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.2em] text-terminal-yellow hover:bg-terminal-yellow/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
+                    >
+                      Summon Broadcast
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </div>
 
             <div className="space-y-4">

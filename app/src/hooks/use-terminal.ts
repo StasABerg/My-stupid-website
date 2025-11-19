@@ -209,6 +209,28 @@ export function useTerminal() {
         return;
       }
 
+      if (trimmed.toLowerCase() === "be better") {
+        const motivational = [
+          "Discipline > feelings.",
+          "Pipelines don't break themselves.",
+          "75% done is still not shipped.",
+          "Redirecting you to remedial training...",
+          `Visit ${window.location.origin}/gitgud`,
+        ];
+        const entry: HistoryEntry = {
+          id: commandId.current++,
+          cwd: previousDisplayCwd,
+          command: raw,
+          output: motivational,
+          isError: false,
+          promptLabel: buildPromptLabel(previousDisplayCwd),
+        };
+        setHistory((prev) => [...prev, entry]);
+        setInput("");
+        setTimeout(() => navigate("/gitgud"), 1000);
+        return;
+      }
+
       // Handle local commands when backend is unavailable
       if (connectionError) {
         let output: string[] = [];
