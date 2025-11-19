@@ -1,4 +1,5 @@
 import { Share2 } from "lucide-react";
+import type { RefObject } from "react";
 import type { RadioStation } from "@/hooks/useRadioStations";
 
 interface StationInfoPanelProps {
@@ -6,9 +7,10 @@ interface StationInfoPanelProps {
   frequencyLabel: string;
   onShare?: () => void;
   shareDisabled?: boolean;
+  shareButtonRef?: RefObject<HTMLButtonElement>;
 }
 
-const StationInfoPanel = ({ station, frequencyLabel, onShare, shareDisabled }: StationInfoPanelProps) => (
+const StationInfoPanel = ({ station, frequencyLabel, onShare, shareDisabled, shareButtonRef }: StationInfoPanelProps) => (
   <section className="border border-terminal-green/40 rounded-md bg-black/70 p-4">
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -20,6 +22,7 @@ const StationInfoPanel = ({ station, frequencyLabel, onShare, shareDisabled }: S
       {onShare ? (
         <button
           type="button"
+          ref={shareButtonRef}
           onClick={onShare}
           disabled={shareDisabled}
           className={`inline-flex items-center gap-1 rounded-md border border-terminal-green/60 px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.2em] text-terminal-cyan transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${

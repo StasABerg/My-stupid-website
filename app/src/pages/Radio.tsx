@@ -188,6 +188,8 @@ const Radio = () => {
     timer: null,
   });
   const unmountedRef = useRef(false);
+  const shareButtonRef = useRef<HTMLButtonElement | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
   const lastShareParamRef = useRef<string | null>(null);
@@ -518,6 +520,7 @@ const Radio = () => {
       });
       return;
     }
+    shareButtonRef.current?.blur();
     setShareDialogOpen(true);
   };
 
@@ -922,6 +925,7 @@ const Radio = () => {
                 frequencyLabel={frequencyLabel}
                 onShare={handleShareButtonClick}
                 shareDisabled={!shareLink}
+                shareButtonRef={shareButtonRef}
               />
 
               <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
@@ -1063,7 +1067,17 @@ const Radio = () => {
       </TerminalWindow>
       <audio ref={audioRef} hidden autoPlay controls />
       <AlertDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-        <AlertDialogContent className="border border-terminal-green/50 bg-[#050505] text-terminal-white">
+        <AlertDialogContent
+          className="border border-terminal-green/50 bg-[#050505] text-terminal-white"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            copyButtonRef.current?.focus();
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            shareButtonRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle className="text-terminal-yellow text-base uppercase tracking-[0.2em]">
               Share Station
@@ -1078,6 +1092,7 @@ const Radio = () => {
           <div className="flex flex-wrap gap-3 text-[0.7rem] text-terminal-cyan">
             <button
               type="button"
+              ref={copyButtonRef}
               onClick={handleShareDialogCopy}
               disabled={!shareLink}
               className={`inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-cyan/60 px-3 py-1.5 uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
@@ -1091,6 +1106,7 @@ const Radio = () => {
             </button>
             <button
               type="button"
+              data-dialog-focus-scope="true"
               onClick={handleShareDialogClose}
               className="inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-red/60 px-3 py-1.5 uppercase tracking-[0.2em] text-terminal-white transition hover:bg-terminal-red/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
             >

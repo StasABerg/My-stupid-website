@@ -1,4 +1,4 @@
-const CACHE_NAME = "gitgud-radio-shell-v4";
+const CACHE_NAME = "gitgud-radio-shell-v6";
 const APP_SHELL = ["/", "/radio", "/favicon.ico"];
 const APP_SHELL_PATHS = new Set(APP_SHELL);
 
