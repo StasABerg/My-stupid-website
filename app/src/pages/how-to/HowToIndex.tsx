@@ -21,7 +21,7 @@ const HowToIndex = () => (
             </Link>
           ))}
         </div>
-        <TerminalPrompt command="cd .." />
+        <TerminalPrompt command={<Link to="/">cd ..</Link>} />
       </div>
     </TerminalWindow>
   </div>

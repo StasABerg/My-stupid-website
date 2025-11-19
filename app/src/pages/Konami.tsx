@@ -55,7 +55,7 @@ const Konami = () => {
             </a>
             .
           </p>
-          <TerminalPrompt command="cd ~" />
+          <TerminalPrompt command={<Link to="/">cd ~</Link>} />
         </div>
       </TerminalWindow>
     </div>

@@ -62,7 +62,7 @@ const HowToTopic = () => {
             </a>
             .
           </p>
-          <TerminalPrompt command="cd .." />
+          <TerminalPrompt command={<Link to="/how-to">cd ..</Link>} />
         </div>
       </TerminalWindow>
     </div>
