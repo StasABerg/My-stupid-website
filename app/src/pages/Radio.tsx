@@ -1,5 +1,13 @@
 import { Heart } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import { useLocation } from "react-router-dom";
 import {
   FilterPanel,
   PresetButtons,
@@ -8,6 +16,13 @@ import {
   StationInfoPanel,
   StatusFooter,
 } from "@/components/Radio";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
@@ -56,19 +71,114 @@ const fallbackStation: RadioStation = {
   clickCount: 0,
 };
 
+type StationOverride = {
+  station: RadioStation;
+  allowUnknown?: boolean;
+};
+
+type ShareableStation = Pick<
+  RadioStation,
+  | "id"
+  | "name"
+  | "streamUrl"
+  | "homepage"
+  | "favicon"
+  | "country"
+  | "countryCode"
+  | "state"
+  | "languages"
+  | "tags"
+  | "bitrate"
+  | "codec"
+  | "hls"
+  | "isOnline"
+  | "clickCount"
+>;
+
+type SharedStationPayload = {
+  version: number;
+  station: ShareableStation;
+};
+
+const SHARE_QUERY_PARAM = "share";
+const SHARE_PAYLOAD_VERSION = 1;
+
 const PAGE_SIZE = 40;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 15000;
 
+const serializeStationForShare = (station: RadioStation): string => {
+  const payload: SharedStationPayload = {
+    version: SHARE_PAYLOAD_VERSION,
+    station: {
+      id: station.id,
+      name: station.name,
+      streamUrl: station.streamUrl,
+      homepage: station.homepage,
+      favicon: station.favicon,
+      country: station.country,
+      countryCode: station.countryCode,
+      state: station.state,
+      languages: Array.isArray(station.languages) ? station.languages : [],
+      tags: Array.isArray(station.tags) ? station.tags : [],
+      bitrate: station.bitrate,
+      codec: station.codec,
+      hls: Boolean(station.hls),
+      isOnline: Boolean(station.isOnline),
+      clickCount: station.clickCount,
+    },
+  };
+
+  return btoa(JSON.stringify(payload));
+};
+
+const deserializeSharedStation = (encoded: string): RadioStation | null => {
+  if (!encoded) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(atob(encoded)) as SharedStationPayload;
+    if (!parsed || parsed.version !== SHARE_PAYLOAD_VERSION || !parsed.station?.id) {
+      return null;
+    }
+    const station = parsed.station;
+    if (!station.streamUrl) {
+      return null;
+    }
+
+    return {
+      ...fallbackStation,
+      ...station,
+      hls: Boolean(station.hls),
+      isOnline: Boolean(station.isOnline),
+      languages: Array.isArray(station.languages) ? station.languages : [],
+      tags: Array.isArray(station.tags) ? station.tags : [],
+      bitrate: typeof station.bitrate === "number" ? station.bitrate : null,
+      codec: station.codec ?? null,
+      homepage: station.homepage ?? null,
+      favicon: station.favicon ?? null,
+      country: station.country ?? null,
+      countryCode: station.countryCode ?? null,
+      state: station.state ?? null,
+      clickCount: typeof station.clickCount === "number" ? station.clickCount : fallbackStation.clickCount,
+    };
+  } catch (error) {
+    console.warn("Unable to parse shared station", error);
+    return null;
+  }
+};
+
 const Radio = () => {
+  const location = useLocation();
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("");
   const [genre, setGenre] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [presetStationOverride, setPresetStationOverride] = useState<RadioStation | null>(null);
+  const [presetStationOverride, setPresetStationOverride] = useState<StationOverride | null>(null);
   const [volume, setVolume] = useState(0.65);
   const [playbackKey, setPlaybackKey] = useState(0);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<HlsInstance | null>(null);
   const listRef = useRef<HTMLOListElement | null>(null);
@@ -80,6 +190,11 @@ const Radio = () => {
   const unmountedRef = useRef(false);
 
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
+  const lastShareParamRef = useRef<string | null>(null);
+  const shareParam = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get(SHARE_QUERY_PARAM);
+  }, [location.search]);
 
   const filters = useMemo(
     () => ({
@@ -128,9 +243,13 @@ const Radio = () => {
     if (!presetStationOverride) {
       return null;
     }
-    const existsInFavorites = favorites.some((station) => station.id === presetStationOverride.id);
-    const existsInDirectory = displayStations.some((station) => station.id === presetStationOverride.id);
-    return existsInFavorites || existsInDirectory ? presetStationOverride : null;
+    const { station, allowUnknown } = presetStationOverride;
+    if (allowUnknown) {
+      return station;
+    }
+    const existsInFavorites = favorites.some((favorite) => favorite.id === station.id);
+    const existsInDirectory = displayStations.some((candidate) => candidate.id === station.id);
+    return existsInFavorites || existsInDirectory ? station : null;
   }, [presetStationOverride, favorites, displayStations]);
 
   const activeDirectoryStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
@@ -142,6 +261,21 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const shareLink = useMemo(() => {
+    if (typeof window === "undefined" || typeof window.btoa !== "function") {
+      return null;
+    }
+    if (!activeStation.id || !activeStation.streamUrl) {
+      return null;
+    }
+    try {
+      const encodedStation = serializeStationForShare(activeStation);
+      return `${window.location.origin}/radio?${SHARE_QUERY_PARAM}=${encodeURIComponent(encodedStation)}`;
+    } catch (error) {
+      console.warn("Unable to build share link", error);
+      return null;
+    }
+  }, [activeStation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,6 +368,96 @@ const Radio = () => {
     );
   }, [displayStations, firstMeta?.genres]);
 
+  const copyShareLink = useCallback(
+    async (reason: "auto" | "manual") => {
+      if (!shareLink) {
+        return;
+      }
+      if (typeof navigator === "undefined" || !navigator.clipboard) {
+        toast({
+          title: "Copy unavailable",
+          description: "Clipboard access is blocked in this browser.",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(shareLink);
+        toast({
+          title: "Copied to clipboard",
+          description: reason === "auto" ? "Share link ready to paste." : "Share link copied again.",
+        });
+      } catch (error) {
+        toast({
+          title: "Copy failed",
+          description: error instanceof Error ? error.message : "Unable to copy the share link.",
+          variant: "destructive",
+        });
+      }
+    },
+    [shareLink],
+  );
+
+  useEffect(() => {
+    if (!shareParam) {
+      if (lastShareParamRef.current) {
+        lastShareParamRef.current = null;
+      }
+      return;
+    }
+    if (lastShareParamRef.current === shareParam) {
+      return;
+    }
+    lastShareParamRef.current = shareParam;
+    const sharedStation = deserializeSharedStation(shareParam);
+    if (!sharedStation) {
+      toast({
+        title: "Invalid share link",
+        description: "We couldn't load the station that was shared.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing share links requires overriding the current station.
+    setPresetStationOverride({ station: sharedStation, allowUnknown: true });
+    setSelectedIndex(0);
+  }, [shareParam]);
+
+  useEffect(() => {
+    if (!shareDialogOpen) {
+      return;
+    }
+    void copyShareLink("auto");
+  }, [shareDialogOpen, copyShareLink]);
+
+  useEffect(() => {
+    if (!shareDialogOpen) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "d" && !event.shiftKey) {
+        event.preventDefault();
+        setShareDialogOpen(false);
+        return;
+      }
+      if (key === "c" && event.shiftKey) {
+        event.preventDefault();
+        void copyShareLink("manual");
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleShortcut);
+    };
+  }, [shareDialogOpen, copyShareLink]);
+
   const handleStationChange = (index: number) => {
     if (index < 0 || index >= displayStations.length) {
       return;
@@ -282,7 +506,19 @@ const Radio = () => {
       return;
     }
 
-    setPresetStationOverride(presetStation);
+    setPresetStationOverride({ station: presetStation });
+  };
+
+  const handleShareButtonClick = () => {
+    if (!shareLink) {
+      toast({
+        title: "Share unavailable",
+        description: "Pick a station with a playable stream before sharing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setShareDialogOpen(true);
   };
 
   const handleFavoriteToggle = async (station: RadioStation) => {
@@ -341,7 +577,7 @@ const Radio = () => {
     }
   };
 
-  const handleDirectoryKeyDown = (event: KeyboardEvent<HTMLDivElement>, index: number) => {
+  const handleDirectoryKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>, index: number) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       handleStationChange(index);
@@ -676,6 +912,8 @@ const Radio = () => {
               <StationInfoPanel
                 station={activeStation}
                 frequencyLabel={frequencyLabel}
+                onShare={handleShareButtonClick}
+                shareDisabled={!shareLink}
               />
 
               <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
@@ -816,6 +1054,32 @@ const Radio = () => {
         </div>
       </TerminalWindow>
       <audio ref={audioRef} hidden autoPlay controls />
+      <AlertDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <AlertDialogContent className="border border-terminal-green/50 bg-[#050505] text-terminal-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-terminal-yellow text-base uppercase tracking-[0.2em]">
+              Share Station
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-terminal-white/70">
+              The link below opens radio and starts playing this station immediately. It was copied to your clipboard.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded border border-terminal-green/40 bg-black/70 p-3 font-mono text-xs text-terminal-green break-all">
+            {shareLink ?? "No station selected."}
+          </div>
+          <p className="text-[0.7rem] text-terminal-cyan">
+            Press{" "}
+            <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
+              Ctrl + Shift + C
+            </span>{" "}
+            to copy again. Press{" "}
+            <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
+              Ctrl + D
+            </span>{" "}
+            to close this window.
+          </p>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

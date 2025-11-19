@@ -35,10 +35,18 @@ const buildManifest = async (): Promise<ManifestBuild> => {
     throw new Error("Failed to build manifest: missing JS chunk");
   }
 
-  const module = { exports: {} as any };
-  const fn = new Function("module", "exports", jsChunk.text);
-  fn(module, module.exports);
-  const manifestObject = module.exports.default ?? module.exports;
+  type ManifestDefinition = typeof import("./src/pwa/manifest").default;
+  type ManifestModule = { exports: ManifestDefinition | { default: ManifestDefinition } };
+
+  const manifestModule: ManifestModule = { exports: { default: {} as ManifestDefinition } };
+  const fn = new Function("module", "exports", jsChunk.text) as (
+    module: ManifestModule,
+    exports: ManifestModule["exports"],
+  ) => void;
+  fn(manifestModule, manifestModule.exports);
+  const manifestCandidate = manifestModule.exports;
+  const manifestObject =
+    ((manifestCandidate as { default?: ManifestDefinition }).default ?? manifestCandidate) as ManifestDefinition;
 
   const manifestJson = JSON.stringify(manifestObject, null, 2);
 
