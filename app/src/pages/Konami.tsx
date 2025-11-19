@@ -18,6 +18,8 @@ const Konami = () => {
       modestbranding: "1",
       rel: "0",
       origin,
+      playsinline: "1",
+      mute: "0",
     });
     return `${base}?${params.toString()}`;
   }, []);
@@ -40,7 +42,7 @@ const Konami = () => {
           />
         </div>
         <p className="mt-4 font-mono text-xs text-terminal-white/70">
-          Transmission locked in faux-terminal safe mode. Remember: trust no browser tabs. If the player refuses to
+          Transmission locked in faux-terminal safe mode. Stream starts muted on mobile—tap the player to unmute. If the player refuses to
           cooperate,{" "}
           <a
             href="https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL4fGSI1pDJn63Ntl9x_AcwIJ7bB8uW7VY&index=1"

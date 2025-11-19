@@ -21,7 +21,8 @@ const GatewayDocsPage = lazy(() => import("./pages/GatewayDocs"));
 const KonamiPage = lazy(() => import("./pages/Konami"));
 const BegudPage = lazy(() => import("./pages/Begud"));
 const GitGudPage = lazy(() => import("./pages/GitGud"));
-const HowToPage = lazy(() => import("./pages/HowTo"));
+const HowToIndexPage = lazy(() => import("./pages/how-to/HowToIndex"));
+const HowToTopicPage = lazy(() => import("./pages/how-to/HowToTopic"));
 
 const queryClient = new QueryClient();
 
@@ -53,8 +54,8 @@ const App = () => (
             <Route path="/konami" element={<KonamiPage />} />
             <Route path="/begud" element={<BegudPage />} />
             <Route path="/gitgud" element={<GitGudPage />} />
-            <Route path="/how-to" element={<HowToPage />} />
-            <Route path="/how-to/:topic" element={<HowToPage />} />
+            <Route path="/how-to" element={<HowToIndexPage />} />
+            <Route path="/how-to/:topic" element={<HowToTopicPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
