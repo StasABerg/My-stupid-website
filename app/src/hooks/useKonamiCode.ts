@@ -25,6 +25,9 @@ export function useKonamiCode(callback: KonamiCallback) {
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (event.repeat) {
+        return;
+      }
       const key = event.key.toLowerCase();
       const expected = KONAMI_SEQUENCE[indexRef.current];
       if (key === expected) {

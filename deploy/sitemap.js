@@ -14,6 +14,7 @@ function gen(r) {
       "/konami",
       "/begud",
       "/gitgud",
+      "/how-to",
       "/how-to/setup-nginx",
       "/how-to/deploy-k8s",
       "/how-to/roll-back",

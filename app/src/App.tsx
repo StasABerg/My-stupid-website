@@ -53,6 +53,7 @@ const App = () => (
             <Route path="/konami" element={<KonamiPage />} />
             <Route path="/begud" element={<BegudPage />} />
             <Route path="/gitgud" element={<GitGudPage />} />
+            <Route path="/how-to" element={<HowToPage />} />
             <Route path="/how-to/:topic" element={<HowToPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFoundPage />} />
