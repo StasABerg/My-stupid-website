@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 
 type TopicConfig = {
   title: string;
@@ -86,6 +86,7 @@ const TOPICS: Record<string, TopicConfig> = {
 };
 
 const HowTo = () => {
+  const navigate = useNavigate();
   const { topic = "" } = useParams();
   const normalized = topic.toLowerCase();
   const topicInfo = TOPICS[normalized];
@@ -115,7 +116,7 @@ const HowTo = () => {
     <div className="min-h-screen bg-black text-terminal-green flex flex-col items-center justify-center p-6 text-center">
       <div className="max-w-xl border border-terminal-green/40 bg-black/80 p-8 shadow-[0_0_30px_rgba(0,255,132,0.25)]">
         <p className="font-mono text-terminal-yellow text-xs uppercase tracking-[0.35em] mb-3">
-          Fetching wisdom from the tubes…
+          {topicInfo ? "Fetching wisdom from the tubes…" : "Choose your playbook."}
         </p>
         <h1 className="text-2xl font-mono mb-3 text-terminal-cyan">{heading}</h1>
         <p className="font-mono text-sm text-terminal-white/70 mb-6">{message}</p>
@@ -133,14 +134,26 @@ const HowTo = () => {
               </a>
               .
             </p>
-            <p className="font-mono text-[0.7rem] text-terminal-cyan">
-              Tip: type <code className="text-terminal-yellow">how-to setup-nginx</code> in the terminal to spawn this page.
-            </p>
           </div>
         ) : (
-          <p className="font-mono text-xs text-terminal-white/60">
-            Use <code className="text-terminal-yellow">/how-to/setup-nginx</code> style slugs.
-          </p>
+          <div className="space-y-3">
+            <p className="font-mono text-xs text-terminal-white/60">
+              Available briefs:
+            </p>
+            <ul className="text-left font-mono text-terminal-cyan text-sm space-y-1 max-h-60 overflow-y-auto">
+              {Object.keys(TOPICS).map((slug) => (
+                <li key={slug}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/how-to/${slug}`)}
+                    className="hover:text-terminal-yellow underline"
+                  >
+                    {TOPICS[slug].title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         <div className="mt-6">
           <Link to="/" className="font-mono text-xs text-terminal-cyan hover:text-terminal-yellow">
