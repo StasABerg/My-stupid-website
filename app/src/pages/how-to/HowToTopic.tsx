@@ -63,9 +63,6 @@ const HowToTopic = () => {
             .
           </p>
           <TerminalPrompt command="cd .." />
-          <Link to="/how-to" className="text-terminal-cyan hover:text-terminal-yellow underline">
-            return /how-to
-          </Link>
         </div>
       </TerminalWindow>
     </div>

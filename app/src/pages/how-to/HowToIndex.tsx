@@ -22,9 +22,6 @@ const HowToIndex = () => (
           ))}
         </div>
         <TerminalPrompt command="cd .." />
-        <Link to="/" className="text-terminal-cyan hover:text-terminal-yellow underline">
-          return /
-        </Link>
       </div>
     </TerminalWindow>
   </div>

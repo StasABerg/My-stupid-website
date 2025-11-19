@@ -56,11 +56,6 @@ const Konami = () => {
             .
           </p>
           <TerminalPrompt command="cd ~" />
-          <div className="text-right">
-            <Link to="/" className="text-terminal-cyan hover:text-terminal-yellow underline">
-              abort mission
-            </Link>
-          </div>
         </div>
       </TerminalWindow>
     </div>
