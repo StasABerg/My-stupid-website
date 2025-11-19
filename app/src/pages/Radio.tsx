@@ -130,7 +130,7 @@ const serializeStationForShare = (station: RadioStation): string => {
     },
   };
 
-  return btoa(JSON.stringify(payload));
+  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
 };
 
 const deserializeSharedStation = (encoded: string): RadioStation | null => {
@@ -138,7 +138,7 @@ const deserializeSharedStation = (encoded: string): RadioStation | null => {
     return null;
   }
   try {
-    const parsed = JSON.parse(atob(encoded)) as SharedStationPayload;
+    const parsed = JSON.parse(decodeURIComponent(escape(atob(encoded)))) as SharedStationPayload;
     if (!parsed || parsed.version !== SHARE_PAYLOAD_VERSION || !parsed.station?.id) {
       return null;
     }
