@@ -116,12 +116,14 @@ const SECRET_BROADCAST_VIDEOS: Record<
   { embed: string; watch: string; label: string }
 > = {
   "midnight-rickroll": {
-    embed: "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ",
-    watch: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL4fGSI1pDJn63Ntl9x_AcwIJ7bB8uW7VY&index=1",
+    embed:
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ&controls=0&modestbranding=1&rel=0",
+    watch: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     label: "80s Eternal Rick Broadcast",
   },
   "midnight-lofi": {
-    embed: "https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1",
+    embed:
+      "https://www.youtube-nocookie.com/embed/jfKfPfyJRdk?autoplay=1&controls=0&modestbranding=1&rel=0&enablejsapi=1",
     watch: "https://www.youtube.com/watch?v=jfKfPfyJRdk",
     label: "Lofi Girl Control Tower",
   },
@@ -611,9 +613,6 @@ const Radio = () => {
   const handleMidnightPresetSelect = () => {
     setPresetStationOverride({ station: mysteryStation, allowUnknown: true });
     const secretVideo = SECRET_BROADCAST_VIDEOS[mysteryStation.id ?? ""];
-    if (secretVideo) {
-      window.open(secretVideo.watch, "_blank", "noopener,noreferrer");
-    }
     toast({
       title: "Secret broadcast tuned",
       description: "Enjoy the midnight signal.",
