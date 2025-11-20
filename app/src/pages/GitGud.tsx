@@ -24,7 +24,12 @@ const GitGud = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const widthClass = useMemo(() => `w-pct-${clampPercent(progress)}`, [progress]);
+  const textBar = useMemo(() => {
+    const total = 50;
+    const pct = clampPercent(progress);
+    const filled = Math.max(0, Math.min(total, Math.round((pct / 100) * total)));
+    return `[${"#".repeat(filled)}${".".repeat(total - filled)}]`;
+  }, [progress]);
 
   return (
     <TerminalWindow aria-label="GitGud training terminal" className="bg-black">
@@ -41,8 +46,8 @@ const GitGud = () => {
                 {progress.toFixed(1)}%
               </span>
             </div>
-            <div className="mt-3 h-4 w-full border border-terminal-green/40 bg-terminal-green/10 relative overflow-hidden">
-              <div className={`h-full bg-terminal-green/80 transition-all duration-700 ${widthClass}`} />
+            <div className="mt-3 font-mono text-[0.75rem] sm:text-xs text-terminal-green bg-black/80 border border-terminal-green/40 px-2 py-1">
+              {textBar}
             </div>
             <p className="mt-3 text-[0.7rem] sm:text-xs text-terminal-white/65">
               Compilation of life choices in progress… reaching 100% is intentionally impossible.
