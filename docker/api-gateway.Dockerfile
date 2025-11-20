@@ -17,10 +17,12 @@ WORKDIR /app/api-gateway-service
 COPY --from=planner /app/api-gateway-service/recipe.json ./recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
     cargo chef cook --release --recipe-path recipe.json
 COPY api-gateway-service/ .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
     cargo build --release
 
 FROM debian:trixie-slim AS runner
