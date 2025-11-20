@@ -91,6 +91,16 @@ const Index = () => {
               <p className="text-terminal-cyan whitespace-nowrap">
                 <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
                 <Link
+                  to="/motivation"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Open motivation utilities"
+                >
+                  motivation?/
+                </Link>
+              </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
+                <Link
                   to="/terminal"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
                   aria-label="Open restricted SSH sandbox"
@@ -125,7 +135,7 @@ const Index = () => {
                   className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
                   aria-label="Open secret transmission"
                 >
-                  secrets/
+                  .secrets/
                 </Link>
               </p>
             </nav>

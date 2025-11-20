@@ -12,6 +12,7 @@ function gen(r) {
       "/gateway/docs",
       "/swagger",
       "/konami",
+      "/motivation",
       "/begud",
       "/gitgud",
       "/how-to",

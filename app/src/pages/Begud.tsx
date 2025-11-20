@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
 
 const insults = [
   "Push harder. Git Gud.",
@@ -26,25 +27,52 @@ const Begud = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-[#030b0a] to-black text-terminal-green flex items-center justify-center p-6">
-      <div className="w-full max-w-3xl border border-terminal-green/50 bg-black/80 p-8 shadow-[0_0_50px_rgba(0,255,132,0.35)]">
-        <header className="font-mono text-2xl text-terminal-yellow mb-6">/training/simulator</header>
-        <div className="font-mono text-lg text-terminal-cyan min-h-[4rem] animate-pulse">{displayMessage}</div>
-        <p className="mt-6 font-mono text-xs text-terminal-white/70">
-          Status: recalibrating human firmware. Keep staring until self-improvement occurs.
-        </p>
-        <div className="mt-8 flex justify-end">
+    <TerminalWindow aria-label="BeGud training terminal" className="bg-black">
+      <TerminalHeader displayCwd="/begud" label="gitgud@ops:/begud — behavioral tuning" />
+      <div className="flex-1 overflow-auto bg-gradient-to-b from-black via-[#050910] to-black p-4 sm:p-6 text-terminal-white font-mono">
+        <TerminalPrompt command="watch -n2 /var/log/begud.log" />
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 text-[0.7rem] sm:text-xs text-terminal-white/80">
+          <div className="rounded-md border border-terminal-green/30 bg-black/70 p-4 shadow-[0_0_40px_rgba(0,255,132,0.15)]">
+            <p className="text-terminal-cyan pb-2">live feed</p>
+            <div className="min-h-[3.5rem] text-terminal-yellow animate-pulse">{displayMessage}</div>
+            <p className="mt-3 text-terminal-white/60">Tip: repetition is a feature, not a bug.</p>
+          </div>
+
+          <div className="rounded-md border border-terminal-green/30 bg-black/70 p-4 shadow-[0_0_40px_rgba(0,255,132,0.15)]">
+            <p className="text-terminal-cyan pb-2">training checklist</p>
+            <ul className="space-y-1 text-terminal-white/75 list-none pl-0">
+              <li>[ ] acknowledge paging noises</li>
+              <li>[ ] drink water between deploys</li>
+              <li>[ ] pretend to enjoy postmortems</li>
+              <li>[ ] rerun tests you forgot</li>
+              <li>[ ] blame cache last</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-2 text-[0.7rem] sm:text-xs text-terminal-white/70">
+          <TerminalPrompt command={'echo "discipline > motivation"'} />
+          <p>neurons recalibrating<TerminalCursor className="ml-1" /></p>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-4 text-[0.7rem] sm:text-xs">
+          <Link
+            to="/gitgud"
+            className="rounded border border-terminal-green/50 px-3 py-2 text-terminal-cyan hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+          >
+            back to gitgud
+          </Link>
           <Link
             to="/"
-            className="font-mono text-xs uppercase tracking-[0.25em] text-terminal-cyan border border-terminal-green/50 px-4 py-2 hover:bg-terminal-green/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
+            className="rounded border border-terminal-green/50 px-3 py-2 text-terminal-yellow hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
           >
-            Return to Work
+            return to /home
           </Link>
         </div>
       </div>
-    </div>
+    </TerminalWindow>
   );
 };
 
 export default Begud;
-
