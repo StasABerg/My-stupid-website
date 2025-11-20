@@ -2,6 +2,9 @@
 import { Link } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
 import { HOW_TO_TOPICS } from "./topics";
+import { formatLsDate } from "@/lib/terminalFs";
+
+const todayLabel = formatLsDate(new Date());
 
 const HowToIndex = () => (
   <div className="h-screen bg-black">
@@ -9,16 +12,18 @@ const HowToIndex = () => (
       <TerminalHeader displayCwd="~/briefings" />
       <div className="p-4 sm:p-6 font-mono text-xs sm:text-sm text-terminal-white flex-1 overflow-y-auto space-y-4">
         <TerminalPrompt command="ls -la ./missions" />
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="pl-2 sm:pl-4 space-y-2">
           {HOW_TO_TOPICS.map((topic) => (
-            <Link
-              key={topic.slug}
-              to={`/how-to/${topic.slug}`}
-              className="border border-terminal-green/40 bg-black/60 px-3 py-2 text-terminal-cyan hover:border-terminal-yellow/60 hover:text-terminal-yellow focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
-            >
-              <span className="block text-terminal-yellow text-xs uppercase tracking-[0.2em]">{topic.title}</span>
-              <span className="text-terminal-white/70 text-[0.65rem]">{topic.description}</span>
-            </Link>
+            <p key={topic.slug} className="text-terminal-white whitespace-nowrap">
+              <span className="hidden sm:inline">-rw-r--r-- 1 user user 4096 {todayLabel} </span>
+              <Link
+                to={`/how-to/${topic.slug}`}
+                className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
+              >
+                {topic.title.toLowerCase().replace(/\s+/g, "-")}
+              </Link>
+              <span className="text-terminal-green pl-2"># {topic.description}</span>
+            </p>
           ))}
         </div>
         <TerminalPrompt
