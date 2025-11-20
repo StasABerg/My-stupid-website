@@ -76,13 +76,13 @@ const GitGud = () => {
               to="/begud"
               className="rounded border border-terminal-green/50 px-3 py-2 text-terminal-cyan hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
             >
-              continue to /begud
+              cd /begud
             </Link>
             <Link
               to="/"
               className="rounded border border-terminal-green/50 px-3 py-2 text-terminal-yellow hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
             >
-              return to /home
+              cd ..
             </Link>
           </div>
 

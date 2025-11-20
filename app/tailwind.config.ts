@@ -173,4 +173,8 @@ export default {
       addUtilities(translateUtilities);
     }),
   ],
+  safelist: [
+    ...Array.from({ length: 101 }, (_, i) => `w-pct-${i}`),
+    ...Array.from({ length: 101 }, (_, i) => `translate-pct-${i}`),
+  ],
 } satisfies Config;
