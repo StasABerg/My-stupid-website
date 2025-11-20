@@ -14,14 +14,20 @@ const HowToIndex = () => (
             <Link
               key={topic.slug}
               to={`/how-to/${topic.slug}`}
-              className="border border-terminal-green/30 px-3 py-2 text-terminal-cyan hover:border-terminal-yellow/60 hover:text-terminal-yellow"
+              className="border border-terminal-green/40 bg-black/60 px-3 py-2 text-terminal-cyan hover:border-terminal-yellow/60 hover:text-terminal-yellow focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
             >
               <span className="block text-terminal-yellow text-xs uppercase tracking-[0.2em]">{topic.title}</span>
               <span className="text-terminal-white/70 text-[0.65rem]">{topic.description}</span>
             </Link>
           ))}
         </div>
-        <TerminalPrompt command={<Link to="/">cd ..</Link>} />
+        <TerminalPrompt
+          command={
+            <Link to="/" className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow">
+              cd ..
+            </Link>
+          }
+        />
       </div>
     </TerminalWindow>
   </div>
