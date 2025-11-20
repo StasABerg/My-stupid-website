@@ -14,7 +14,7 @@ terminalService:
 session:
   secretRef: "radio-service-env-dev"
   secretRefKey: SESSION_SECRET
-  secretOptional: true
+  secretOptional: false
 
 cache:
   ttlSeconds: 30

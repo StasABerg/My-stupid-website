@@ -54,7 +54,7 @@ session:
   secretValue: ""
   secretRef: "radio-service-env"
   secretRefKey: SESSION_SECRET
-  secretOptional: true
+  secretOptional: false
 
 cache:
   ttlSeconds: 60

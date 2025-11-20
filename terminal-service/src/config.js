@@ -39,6 +39,5 @@ export const config = {
   lsAllowedFlags: ["-a", "-l", "-la", "-al", "-lh", "-hl", "-lah", "-hal"],
   unameAllowedFlags: ["-a", "-s", "-r", "-m"],
   allowedOrigins,
-  allowAllOrigins: allowedOrigins.length === 0 || allowedOrigins.includes("*"),
+  allowAllOrigins: allowedOrigins.includes("*"),
 };
-

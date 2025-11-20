@@ -1,4 +1,4 @@
-const CACHE_NAME = "gitgud-radio-shell-v6";
+const CACHE_NAME = "gitgud-radio-shell-v7";
 const APP_SHELL = ["/", "/radio", "/favicon.ico"];
 const APP_SHELL_PATHS = new Set(APP_SHELL);
 
@@ -44,27 +44,27 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-
-      return fetch(event.request)
-        .then((response) => {
-          if (response && (response.ok || response.type === "opaqueredirect" || response.type === "opaque")) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              void cache.put(event.request, clone);
-            });
-          }
-          return response;
-        })
-        .catch((error) => {
-          if (isNavigation) {
-            return caches.match("/radio");
-          }
-          throw error;
-        });
-    }),
+    fetch(event.request)
+      .then((response) => {
+        if (response && (response.ok || response.type === "opaqueredirect" || response.type === "opaque")) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            void cache.put(event.request, clone);
+          });
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) {
+          return cached;
+        }
+        if (isNavigation) {
+          // fall back to shell for navigations when offline
+          const shell = await caches.match("/radio");
+          if (shell) return shell;
+        }
+        throw new Error("Network error and no cached response available");
+      }),
   );
 });

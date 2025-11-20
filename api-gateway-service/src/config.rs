@@ -1,6 +1,5 @@
 use crate::logger::Logger;
-use anyhow::Result;
-use sha2::{Digest, Sha256};
+use anyhow::{Result, anyhow};
 use std::{collections::HashSet, env, time::Duration};
 
 const DEFAULT_PORT: u16 = 8080;
@@ -9,7 +8,6 @@ const DEFAULT_RADIO_BASE_URL: &str =
 const DEFAULT_TERMINAL_BASE_URL: &str =
     "http://my-stupid-website-terminal.my-stupid-website.svc.cluster.local:80";
 const DEFAULT_CACHE_TTL_SECONDS: u64 = 60;
-const DEFAULT_SECRET_SEED: &str = "my-stupid-website-secret-seed";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -102,14 +100,15 @@ impl Config {
             10_000,
         ) as u64);
 
-        let (session_secret, session_secret_generated) =
-            derive_secret(env::var("SESSION_SECRET").ok(), "session.secret", logger);
+        let session_secret = read_required_secret("SESSION_SECRET", logger)?;
+        let session_secret_generated = false;
         let csrf_secret = env::var("CSRF_PROOF_SECRET").ok();
-        let (csrf_proof_secret, csrf_proof_secret_generated) = if let Some(secret) = csrf_secret {
-            derive_secret(Some(secret), "csrf.secret", logger)
-        } else {
-            (session_secret.clone(), session_secret_generated)
-        };
+        let (csrf_proof_secret, csrf_proof_secret_generated) =
+            if let Some(secret) = read_optional_secret(csrf_secret, "CSRF_PROOF_SECRET", logger)? {
+                (secret, false)
+            } else {
+                (session_secret.clone(), true)
+            };
 
         let session_cookie_name = env::var("SESSION_COOKIE_NAME")
             .ok()
@@ -302,34 +301,48 @@ fn merge_unique(left: Vec<String>, right: impl Iterator<Item = String>) -> Vec<S
     result
 }
 
-fn derive_secret(value: Option<String>, label: &str, logger: &Logger) -> (String, bool) {
-    if let Some(secret) = value.and_then(|raw| {
-        let trimmed = raw.trim().to_string();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
+fn read_required_secret(env_var: &str, logger: &Logger) -> Result<String> {
+    let value = env::var(env_var)
+        .ok()
+        .map(|raw| raw.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("{env_var} must be set and non-empty"))?;
+
+    if value.len() < 32 {
+        logger.warn(
+            "secret.short",
+            serde_json::json!({ "label": env_var, "message": "Secret shorter than 32 chars" }),
+        );
+    }
+
+    Ok(value)
+}
+
+fn read_optional_secret(
+    value: Option<String>,
+    env_var: &str,
+    logger: &Logger,
+) -> Result<Option<String>> {
+    let secret = match value {
+        Some(raw) => {
+            let trimmed = raw.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }
-    }) {
+        None => None,
+    };
+
+    if let Some(secret) = secret.as_ref() {
         if secret.len() < 32 {
             logger.warn(
                 "secret.short",
-                serde_json::json!({ "label": label, "message": "Secret shorter than 32 chars" }),
+                serde_json::json!({ "label": env_var, "message": "Secret shorter than 32 chars" }),
             );
         }
-        return (secret, false);
     }
 
-    let seed = env::var("INSTANCE_SECRET_SEED")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_SECRET_SEED.to_string());
-    let deterministic = format!("{}|{}", seed, label);
-    let hash = Sha256::digest(deterministic.as_bytes());
-    let generated = hex::encode(hash);
-    logger.warn(
-        "secret.derived",
-        serde_json::json!({ "label": label, "message": "Secret not provided; derived from seed" }),
-    );
-    (generated, true)
+    Ok(secret)
 }
