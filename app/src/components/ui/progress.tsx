@@ -2,7 +2,6 @@ import * as React from "react";
 import * as ProgressPrimitive from "@radix-ui/react-progress";
 
 import { cn } from "@/lib/utils";
-import "@/styles/progress-safe.css";
 
 function clampPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -16,7 +15,7 @@ const Progress = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>
 >(({ className, value, ...props }, ref) => {
   const pct = clampPercent(value);
-  const translateClass = `progress-translate-${pct}`;
+  const translateClass = `translate-pct-${pct}`;
 
   return (
     <ProgressPrimitive.Root

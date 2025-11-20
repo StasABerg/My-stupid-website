@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import "@/styles/progress-safe.css";
 
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
@@ -24,7 +23,7 @@ const GitGud = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const widthClass = useMemo(() => `progress-width-${clampPercent(progress)}`, [progress]);
+  const widthClass = useMemo(() => `w-pct-${clampPercent(progress)}`, [progress]);
 
   return (
     <div className="min-h-screen bg-black text-terminal-green flex flex-col items-center justify-center p-6">
