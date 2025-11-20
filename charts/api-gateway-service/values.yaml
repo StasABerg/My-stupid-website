@@ -45,7 +45,8 @@ terminalService:
   name: my-stupid-website-terminal
   port: 80
 
-allowOrigins: []
+allowOrigins:
+  - https://gitgud.qzz.io
 trustProxy: true
 
 session:
