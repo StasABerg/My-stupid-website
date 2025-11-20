@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import "@/styles/progress-safe.css";
+
+const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
 const GitGud = () => {
   const [progress, setProgress] = useState(0);
@@ -21,6 +24,8 @@ const GitGud = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const widthClass = useMemo(() => `progress-width-${clampPercent(progress)}`, [progress]);
+
   return (
     <div className="min-h-screen bg-black text-terminal-green flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-2xl border border-terminal-green/50 bg-[#050505] p-8 space-y-6 shadow-[0_0_45px_rgba(0,255,132,0.3)]">
@@ -29,10 +34,7 @@ const GitGud = () => {
           Initiating 8-bit montage. Please stand by while we dramatically fail to hit 100%.
         </p>
         <div className="w-full bg-terminal-green/10 h-6 border border-terminal-green/50 relative overflow-hidden">
-          <div
-            className="h-full bg-terminal-green transition-all duration-700"
-            style={{ width: `${progress}%` }}
-          />
+          <div className={`h-full bg-terminal-green transition-all duration-700 ${widthClass}`} />
           <span className="absolute inset-0 flex items-center justify-center font-mono text-xs text-black/80">
             {progress.toFixed(1)}%
           </span>
@@ -54,4 +56,3 @@ const GitGud = () => {
 };
 
 export default GitGud;
-
