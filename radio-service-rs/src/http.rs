@@ -810,10 +810,15 @@ fn rewrite_playlist(base_url: &str, playlist: &str, csrf: &CsrfParams) -> String
                 line.to_string()
             } else if let Ok(base_url) = &base {
                 if let Ok(resolved) = base_url.join(trimmed) {
-                    let mut proxied = format!(
-                        "stream/segment?source={}",
-                        urlencoding::encode(resolved.as_str())
-                    );
+                    let mut upgrade = resolved.clone();
+                    if upgrade.scheme() == "http" {
+                        let _ = upgrade.set_scheme("https");
+                    }
+                    if upgrade.scheme() != "https" {
+                        return "# dropped http stream".to_string();
+                    }
+                    let mut proxied = "stream/segment?source=".to_string();
+                    proxied.push_str(&urlencoding::encode(upgrade.as_str()));
                     if let Some(token) = &csrf.token {
                         proxied.push_str("&csrfToken=");
                         proxied.push_str(&urlencoding::encode(token));

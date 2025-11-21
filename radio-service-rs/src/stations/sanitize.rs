@@ -113,6 +113,9 @@ fn sanitize_url(raw_url: &str, options: SanitizeOptions) -> Option<String> {
         return None;
     }
 
+    rewrite_onair_to_apex(&mut parsed);
+    rewrite_shoutcast_index_to_stream(&mut parsed);
+
     match parsed.scheme() {
         "https" => Some(parsed.to_string()),
         "http" => {
@@ -122,12 +125,16 @@ fn sanitize_url(raw_url: &str, options: SanitizeOptions) -> Option<String> {
                 {
                     return None;
                 }
+                rewrite_onair_to_apex(&mut parsed);
+                rewrite_shoutcast_index_to_stream(&mut parsed);
                 Some(parsed.to_string())
             } else if options.block_private_hosts
                 && parsed.host_str().is_none_or(is_blocked_hostname)
             {
                 None
             } else {
+                rewrite_onair_to_apex(&mut parsed);
+                rewrite_shoutcast_index_to_stream(&mut parsed);
                 Some(parsed.to_string())
             }
         }
@@ -140,6 +147,28 @@ fn sanitize_url(raw_url: &str, options: SanitizeOptions) -> Option<String> {
             }
             Some(parsed.to_string())
         }
+    }
+}
+
+fn rewrite_onair_to_apex(url: &mut Url) {
+    if let Some(host) = url.host_str() {
+        let lowered = host.to_ascii_lowercase();
+        if let Some(stripped) = lowered.strip_prefix("onair.") {
+            // Replace onair.* subdomains (common for Icecast/SHOUTcast control panels) with apex host.
+            let target_host = stripped.trim().trim_end_matches('/');
+            if !target_host.is_empty() {
+                let _ = url.set_host(Some(target_host));
+                url.set_port(None).ok(); // rely on scheme default
+            }
+        }
+    }
+}
+
+fn rewrite_shoutcast_index_to_stream(url: &mut Url) {
+    let path = url.path().to_ascii_lowercase();
+    if path.ends_with("index.html") {
+        url.set_path("/;");
+        url.set_query(None);
     }
 }
 
