@@ -793,7 +793,12 @@ fn should_treat_as_playlist(url: &str, content_type: &str) -> bool {
     false
 }
 
-fn rewrite_playlist(base_url: &str, playlist: &str, csrf: &CsrfParams) -> String {
+fn rewrite_playlist(
+    base_url: &str,
+    playlist: &str,
+    csrf: &CsrfParams,
+    segment_path: &str,
+) -> String {
     let base = Url::parse(base_url);
     playlist
         .lines()
@@ -810,7 +815,11 @@ fn rewrite_playlist(base_url: &str, playlist: &str, csrf: &CsrfParams) -> String
                     if upgrade.scheme() != "https" {
                         return "# dropped http stream".to_string();
                     }
-                    let mut proxied = "stream/segment?source=".to_string();
+                    let mut proxied = segment_path.to_string();
+                    if !proxied.ends_with("?") && !proxied.ends_with("&") {
+                        proxied.push_str(if proxied.contains('?') { "&" } else { "?" });
+                    }
+                    proxied.push_str("source=");
                     proxied.push_str(&urlencoding::encode(upgrade.as_str()));
                     if let Some(token) = &csrf.token {
                         proxied.push_str("&csrfToken=");
@@ -1154,7 +1163,12 @@ async fn stream_station(
         .text()
         .await
         .map_err(|_| ApiError::ServiceUnavailable("Failed to read playlist from upstream."))?;
-    let rewritten = rewrite_playlist(&station.stream_url, &playlist, &csrf_params);
+    let rewritten = rewrite_playlist(
+        &station.stream_url,
+        &playlist,
+        &csrf_params,
+        "stream/segment",
+    );
 
     let builder = Response::builder()
         .status(StatusCode::OK)
@@ -1249,7 +1263,9 @@ async fn stream_segment(
         .text()
         .await
         .map_err(|_| ApiError::ServiceUnavailable("Failed to read playlist from upstream."))?;
-    let rewritten = rewrite_playlist(target.as_str(), &playlist, &csrf_params);
+    // When rewriting nested playlists, keep the path relative to the segment handler
+    // so we don't accumulate extra "/stream" segments as the player walks deeper.
+    let rewritten = rewrite_playlist(target.as_str(), &playlist, &csrf_params, "segment");
 
     Ok(with_rate_limit(
         Response::builder()
