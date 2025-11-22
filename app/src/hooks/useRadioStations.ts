@@ -69,7 +69,23 @@ export type StationFilters = {
   offset?: number;
 };
 
-async function fetchStations(filters: StationFilters): Promise<StationsResponse> {
+function buildFiltersKey(filters: StationFilters): string {
+  const params = new URLSearchParams();
+  const limit = filters.limit ?? DEFAULT_LIMIT;
+  params.set("limit", String(limit > 0 ? limit : DEFAULT_LIMIT));
+  if (filters.country) params.set("country", filters.country);
+  if (filters.language) params.set("language", filters.language);
+  if (filters.tag) params.set("tag", filters.tag);
+  if (filters.genre) params.set("genre", filters.genre);
+  if (filters.search) params.set("search", filters.search);
+  if (filters.offset && filters.offset > 0) params.set("offset", String(filters.offset));
+  return params.toString();
+}
+
+async function fetchStations(
+  filters: StationFilters,
+  signal?: AbortSignal,
+): Promise<StationsResponse> {
   const params = new URLSearchParams();
   const limit = filters.limit ?? DEFAULT_LIMIT;
   if (limit > 0) params.set("limit", String(limit));
@@ -80,7 +96,9 @@ async function fetchStations(filters: StationFilters): Promise<StationsResponse>
   if (filters.search) params.set("search", filters.search);
   if (filters.offset && filters.offset > 0) params.set("offset", String(filters.offset));
 
-  const response = await authorizedFetch(`${RADIO_API_BASE}/stations?${params.toString()}`);
+  const response = await authorizedFetch(`${RADIO_API_BASE}/stations?${params.toString()}`, {
+    signal,
+  });
   if (!response.ok) {
     throw new Error(`Failed to load stations: ${response.status}`);
   }
@@ -88,10 +106,14 @@ async function fetchStations(filters: StationFilters): Promise<StationsResponse>
 }
 
 export function useRadioStations(filters: StationFilters) {
+  const filtersKey = useMemo(() => buildFiltersKey(filters), [filters]);
   return useInfiniteQuery({
-    queryKey: ["radio-stations", filters],
-    queryFn: ({ pageParam = 0 }) =>
-      fetchStations({ ...filters, offset: typeof pageParam === "number" ? pageParam : 0 }),
+    queryKey: ["radio-stations", filtersKey],
+    queryFn: ({ pageParam = 0, signal }) =>
+      fetchStations(
+        { ...filters, offset: typeof pageParam === "number" ? pageParam : 0 },
+        signal,
+      ),
     staleTime: 1000 * 60 * 5,
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {

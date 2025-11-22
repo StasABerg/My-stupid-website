@@ -12,6 +12,7 @@ pub struct ProcessedStations {
     pub countries: Vec<String>,
     pub genres: Vec<String>,
     pub search_texts: Vec<String>,
+    station_index_by_id: HashMap<String, usize>,
     index_by_country: HashMap<String, Vec<usize>>,
     index_by_language: HashMap<String, Vec<usize>>,
     index_by_tag: HashMap<String, Vec<usize>>,
@@ -24,9 +25,11 @@ impl ProcessedStations {
         let mut index_by_country: HashMap<String, Vec<usize>> = HashMap::new();
         let mut index_by_language: HashMap<String, Vec<usize>> = HashMap::new();
         let mut index_by_tag: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut station_index_by_id: HashMap<String, usize> = HashMap::new();
         let mut search_texts = Vec::with_capacity(stations.len());
 
         for (idx, station) in stations.iter().enumerate() {
+            station_index_by_id.insert(station.id.clone(), idx);
             if let Some(country_name) = station.country.as_ref().and_then(|value| {
                 let trimmed = value.trim();
                 if trimmed.is_empty() {
@@ -94,6 +97,7 @@ impl ProcessedStations {
             countries: countries_set.into_iter().collect(),
             genres,
             search_texts,
+            station_index_by_id,
             index_by_country,
             index_by_language,
             index_by_tag,
@@ -116,6 +120,10 @@ impl ProcessedStations {
         self.index_by_tag
             .get(&tag.to_lowercase())
             .map(|list| list.as_slice())
+    }
+
+    pub fn station_index(&self, station_id: &str) -> Option<usize> {
+        self.station_index_by_id.get(station_id).copied()
     }
 
     pub fn search_matches(&self, search: &str, indexes: &mut Vec<usize>) {

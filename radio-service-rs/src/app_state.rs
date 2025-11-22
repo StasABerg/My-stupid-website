@@ -82,6 +82,25 @@ impl RateLimiter {
     async fn check(&self, key: &str) -> RateLimitDecision {
         let mut guard = self.buckets.lock().await;
         let now = Instant::now();
+
+        // Drop stale timestamps and empty buckets so the map does not grow without bound.
+        let mut empty_keys = Vec::new();
+        for (bucket_key, entries) in guard.iter_mut() {
+            while let Some(front) = entries.front() {
+                if now.duration_since(*front) > self.window {
+                    entries.pop_front();
+                } else {
+                    break;
+                }
+            }
+            if entries.is_empty() {
+                empty_keys.push(bucket_key.clone());
+            }
+        }
+        for bucket_key in empty_keys {
+            guard.remove(&bucket_key);
+        }
+
         let entries = guard.entry(key.to_string()).or_insert_with(VecDeque::new);
         while let Some(front) = entries.front() {
             if now.duration_since(*front) > self.window {

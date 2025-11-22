@@ -8,12 +8,16 @@ use crate::routing::Target;
 use crate::session::SessionSnapshot;
 use async_trait::async_trait;
 use axum::body::Body;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, Response, StatusCode, header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::str;
+
+const MAX_CACHE_BODY_BYTES: usize = 512 * 1024;
 
 #[async_trait]
 pub trait GatewayProxy: Send + Sync {
@@ -199,12 +203,14 @@ impl GatewayProxy for Proxy {
                 .and_then(|value| value.to_str().ok())
             && content_type.contains("application/json")
             && status.is_success()
+            && bytes.len() <= MAX_CACHE_BODY_BYTES
         {
             let cache_headers = sanitize_headers_for_cache(&headers);
             let entry = CacheEntry {
                 status: status.as_u16(),
                 headers: header_map_to_string(cache_headers),
-                body: String::from_utf8_lossy(&bytes).to_string(),
+                body_b64: STANDARD.encode(&bytes),
+                body_len: bytes.len(),
             };
             if let Ok(serialized) = serde_json::to_string(&entry) {
                 self.cache.set(cache_key, &serialized, None).await;
@@ -289,7 +295,10 @@ fn build_error_response(status: StatusCode, message: &str, cors: &HeaderMap) -> 
 struct CacheEntry {
     status: u16,
     headers: HashMap<String, String>,
-    body: String,
+    #[serde(alias = "body")]
+    body_b64: String,
+    #[serde(default)]
+    body_len: usize,
 }
 
 fn build_cached_response(entry: CacheEntry, cors_headers: &HeaderMap) -> Response<Body> {
@@ -308,10 +317,13 @@ fn build_cached_response(entry: CacheEntry, cors_headers: &HeaderMap) -> Respons
         HeaderName::from_static("x-cache"),
         HeaderValue::from_static("HIT"),
     );
+    let body_bytes = STANDARD
+        .decode(entry.body_b64.as_bytes())
+        .unwrap_or_default();
     let mut builder =
         Response::builder().status(StatusCode::from_u16(entry.status).unwrap_or(StatusCode::OK));
     *builder.headers_mut().unwrap() = headers;
-    builder.body(Body::from(entry.body)).unwrap_or_else(|_| {
+    builder.body(Body::from(body_bytes)).unwrap_or_else(|_| {
         Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(Body::from("{}"))

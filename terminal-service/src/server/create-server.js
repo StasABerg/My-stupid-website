@@ -3,9 +3,11 @@ import fastifyHelmet from "@fastify/helmet";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import underPressure from "@fastify/under-pressure";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { config } from "../config.js";
 
 function createRequestContext(request, logger) {
@@ -50,6 +52,17 @@ export function createServer({ logger, commandHandlers }) {
 
   const fastify = Fastify({
     bodyLimit: config.maxPayloadBytes,
+  });
+
+  fastify.register(rateLimit, {
+    max: 30,
+    timeWindow: "1 minute",
+    hook: "onRequest",
+    keyGenerator: (request) =>
+      request.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      request.ip ||
+      "unknown",
+    skipOnError: true,
   });
 
   fastify.register(swagger, {
@@ -209,6 +222,19 @@ export function createServer({ logger, commandHandlers }) {
     },
   };
 
+  let cachedMotd = null;
+  async function getMotdLines() {
+    if (cachedMotd) return cachedMotd;
+    try {
+      const data = await readFile(config.motdVirtualPath, { encoding: "utf-8" });
+      cachedMotd = data.split(/\r?\n/);
+      return cachedMotd;
+    } catch {
+      cachedMotd = ["motd: Failed to read message of the day."];
+      return cachedMotd;
+    }
+  }
+
   const executionResponseSchema = {
     type: "object",
     additionalProperties: true,
@@ -282,7 +308,8 @@ export function createServer({ logger, commandHandlers }) {
   });
 
   fastify.get("/info", { schema: infoRouteSchema }, async (request, reply) => {
-    const response = await handleInfo();
+    const motd = await getMotdLines();
+    const response = await handleInfo(motd);
     reply
       .code(response.status)
       .headers({
@@ -294,7 +321,7 @@ export function createServer({ logger, commandHandlers }) {
 
   fastify.post("/execute", { schema: executeRouteSchema }, async (request, reply) => {
     const body = (request.body && typeof request.body === "object") ? request.body : {};
-    const response = await handleExecute(body);
+    const response = await handleExecute(body, { motdProvider: getMotdLines });
     reply
       .code(response.status)
       .headers({

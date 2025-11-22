@@ -244,13 +244,11 @@ async function handleCd(currentVirtualCwd, args) {
   };
 }
 
-async function handleMotd(currentVirtualCwd) {
-  const motdPath = config.motdVirtualPath;
-  const realPath = toRealPath(motdPath);
+async function handleMotd(currentVirtualCwd, motdProvider) {
   try {
-    const data = await readFile(realPath, { encoding: "utf-8" });
+    const motd = await motdProvider();
     return {
-      output: splitLines(data),
+      output: motd,
       error: false,
       cwd: currentVirtualCwd,
     };
@@ -291,7 +289,7 @@ async function handleUname(currentVirtualCwd, args) {
   };
 }
 
-async function handleExecute(body) {
+async function handleExecute(body, { motdProvider }) {
   if (!body || typeof body !== "object") {
     return {
       status: 400,
@@ -413,7 +411,7 @@ async function handleExecute(body) {
       case "motd":
         return {
           status: 200,
-          payload: withDisplay(input, await handleMotd(currentVirtualCwd)),
+          payload: withDisplay(input, await handleMotd(currentVirtualCwd, motdProvider)),
         };
       case "uname":
         return {
@@ -448,7 +446,7 @@ async function handleExecute(body) {
   }
 }
 
-async function handleInfo() {
+async function handleInfo(motd) {
   return {
     status: 200,
     payload: {
@@ -467,7 +465,7 @@ async function handleInfo() {
         "motd",
         "uname",
       ],
-      motd: await handleMotd(DEFAULT_CWD).then((result) => result.output),
+      motd,
     },
   };
 }

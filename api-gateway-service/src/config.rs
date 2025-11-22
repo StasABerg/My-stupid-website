@@ -335,13 +335,13 @@ fn read_optional_secret(
         None => None,
     };
 
-    if let Some(secret) = secret.as_ref() {
-        if secret.len() < 32 {
-            logger.warn(
-                "secret.short",
-                serde_json::json!({ "label": env_var, "message": "Secret shorter than 32 chars" }),
-            );
-        }
+    if let Some(secret) = secret.as_ref()
+        && secret.len() < 32
+    {
+        logger.warn(
+            "secret.short",
+            serde_json::json!({ "label": env_var, "message": "Secret shorter than 32 chars" }),
+        );
     }
 
     Ok(secret)

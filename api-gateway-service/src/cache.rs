@@ -42,6 +42,9 @@ impl CacheHandle {
     }
 
     pub async fn get(&self, key: &str) -> Option<String> {
+        if let Some(memory) = &self.memory {
+            return memory.get(key).await;
+        }
         if let Some(redis) = &self.redis {
             match redis.get(key).await {
                 Ok(value) => {
@@ -56,9 +59,6 @@ impl CacheHandle {
                     );
                 }
             }
-        }
-        if let Some(memory) = &self.memory {
-            return memory.get(key).await;
         }
         None
     }

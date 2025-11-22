@@ -68,6 +68,8 @@ impl Cors {
             return true;
         }
         let wildcard = self.allowed.iter().any(|value| value == "*");
-        origin.map(|value| wildcard || self.allowed.iter().any(|allowed| allowed == value)).unwrap_or(false)
+        origin
+            .map(|value| wildcard || self.allowed.iter().any(|allowed| allowed == value))
+            .unwrap_or(false)
     }
 }

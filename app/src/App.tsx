@@ -25,7 +25,15 @@ const MotivationPage = lazy(() => import("./pages/Motivation"));
 const HowToIndexPage = lazy(() => import("./pages/how-to/HowToIndex"));
 const HowToTopicPage = lazy(() => import("./pages/how-to/HowToTopic"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 30,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const KonamiListener = () => {
   const navigate = useNavigate();

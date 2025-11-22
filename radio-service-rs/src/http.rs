@@ -514,37 +514,22 @@ fn station_matches_filters(station: &Station, filters: &NormalizedStationsQuery)
             return false;
         }
     }
-    if let Some(search) = &filters.search {
-        let search_lower = search.to_lowercase();
-        let mut haystack = station.name.to_lowercase();
-        if let Some(country) = &station.country {
-            haystack.push_str(&country.to_lowercase());
-        }
-        for tag in &station.tags {
-            haystack.push_str(&tag.to_lowercase());
-        }
-        for language in &station.languages {
-            haystack.push_str(&language.to_lowercase());
-        }
-        if !haystack.contains(&search_lower) {
-            return false;
-        }
-    }
+    // Search is already handled by ProcessedStations::search_matches; skip redundant work.
     true
 }
 
 fn build_favorites_response(
     payload: &StationsPayload,
+    processed: &ProcessedStations,
     entries: Vec<FavoriteEntry>,
 ) -> (FavoritesResponse, bool, Vec<FavoriteEntry>) {
-    let station_map = build_station_map(payload);
     let mut items = Vec::new();
     let mut persist = false;
     let mut next_entries = Vec::new();
 
     for entry in entries.into_iter().take(MAX_FAVORITES) {
-        if let Some(station) = station_map.get(&entry.id) {
-            let projected = project_station(station);
+        if let Some(station) = get_station_by_id(payload, processed, &entry.id) {
+            let projected = project_station(&station);
             let changed = entry.station.as_ref() != Some(&projected);
             if changed {
                 persist = true;
@@ -570,14 +555,6 @@ fn build_favorites_response(
         persist,
         next_entries,
     )
-}
-
-fn build_station_map(payload: &StationsPayload) -> HashMap<String, Station> {
-    let mut map = HashMap::new();
-    for station in &payload.stations {
-        map.insert(station.id.clone(), station.clone());
-    }
-    map
 }
 
 fn project_station_for_client(station: &Station) -> StationListItem {
@@ -618,6 +595,17 @@ fn project_station(station: &Station) -> FavoriteStation {
         is_online: station.is_online,
         click_count: station.click_count,
     }
+}
+
+fn get_station_by_id(
+    payload: &StationsPayload,
+    processed: &ProcessedStations,
+    station_id: &str,
+) -> Option<Station> {
+    processed
+        .station_index(station_id)
+        .and_then(|idx| payload.stations.get(idx))
+        .cloned()
 }
 
 fn apply_rate_limit_headers(headers: &mut HeaderMap, info: &RateLimitMetadata) {
@@ -743,14 +731,19 @@ fn resolve_csrf_params(headers: &HeaderMap, query: &HashMap<String, String>) -> 
 }
 
 async fn load_station(state: &AppState, station_id: &str) -> Result<Station, ApiError> {
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
-    load.payload
-        .stations
-        .into_iter()
-        .find(|station| station.id == station_id)
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
+    get_station_by_id(&load.payload, &processed, station_id)
         .ok_or(ApiError::NotFound("Station not found"))
 }
 
@@ -906,10 +899,18 @@ async fn get_favorites(State(state): State<AppState>, headers: HeaderMap) -> Api
     let favorites_session = extract_favorites_session(&headers);
     let key = build_favorites_key(&session, favorites_session.as_deref());
 
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
     let payload = load.payload;
 
     let favorites = state
@@ -917,7 +918,8 @@ async fn get_favorites(State(state): State<AppState>, headers: HeaderMap) -> Api
         .read(&key)
         .await
         .map_err(ApiError::internal)?;
-    let (response, persist, updated_entries) = build_favorites_response(&payload, favorites);
+    let (response, persist, updated_entries) =
+        build_favorites_response(&payload, &processed, favorites);
 
     if persist {
         state
@@ -973,15 +975,21 @@ async fn upsert_favorite(
         }
     }
 
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
     let payload = load.payload;
 
-    let station_map = build_station_map(&payload);
-    let station = station_map
-        .get(&sanitized_station_id)
+    let station = get_station_by_id(&payload, &processed, &sanitized_station_id)
         .ok_or(ApiError::NotFound("Station not found"))?;
 
     let mut favorites = state
@@ -997,7 +1005,7 @@ async fn upsert_favorite(
         favorites.remove(index);
     }
 
-    let projected = project_station(station);
+    let projected = project_station(&station);
     let new_entry = FavoriteEntry {
         id: sanitized_station_id.clone(),
         saved_at: current_timestamp(),
@@ -1021,7 +1029,7 @@ async fn upsert_favorite(
     }
 
     let favorites = dedupe_entries(favorites);
-    let (response, _, updated_entries) = build_favorites_response(&payload, favorites);
+    let (response, _, updated_entries) = build_favorites_response(&payload, &processed, favorites);
 
     state
         .favorites
@@ -1047,10 +1055,18 @@ async fn delete_favorite(
     let sanitized_station_id = sanitize_station_id(&station_id)
         .ok_or(ApiError::BadRequest("Invalid station identifier"))?;
 
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
     let payload = load.payload;
 
     let favorites = state
@@ -1066,7 +1082,7 @@ async fn delete_favorite(
         .filter(|entry| entry.id != sanitized_station_id)
         .collect();
 
-    let (response, persist, updated_entries) = build_favorites_response(&payload, next);
+    let (response, persist, updated_entries) = build_favorites_response(&payload, &processed, next);
 
     if persist || removed {
         state
