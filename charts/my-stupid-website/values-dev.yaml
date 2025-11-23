@@ -13,6 +13,13 @@ gateway:
     - value: /
       type: PathPrefix
   middlewareRefs: []
+  wwwRedirect:
+    enabled: false
+    sourceHostname: www.dev.gitgud.qzz.io
+    targetHostname: dev.gitgud.qzz.io
+    scheme: https
+    statusCode: 301
+    parentRefs: []
 autoscaling:
   enabled: false
 replicaCount: 1

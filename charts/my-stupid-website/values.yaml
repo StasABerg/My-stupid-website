@@ -58,6 +58,13 @@ gateway:
     - value: /
       type: PathPrefix
   middlewareRefs: []
+  wwwRedirect:
+    enabled: true
+    sourceHostname: www.gitgud.qzz.io
+    targetHostname: gitgud.qzz.io
+    scheme: https
+    statusCode: 301
+    parentRefs: []
 
 resources:
   limits:

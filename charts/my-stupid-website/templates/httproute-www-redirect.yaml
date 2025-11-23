@@ -1,0 +1,37 @@
+{{- $gateway := .Values.gateway | default dict }}
+{{- $redirect := $gateway.wwwRedirect | default dict }}
+{{- if and $gateway.enabled $redirect.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "my-stupid-website.fullname" . }}-www-redirect
+  labels:
+    {{- include "my-stupid-website.labels" . | nindent 4 }}
+spec:
+  {{- $parents := $redirect.parentRefs | default $gateway.parentRefs }}
+  {{- with $parents }}
+  parentRefs:
+    {{- range . }}
+    - name: {{ .name }}
+      {{- if .namespace }}
+      namespace: {{ .namespace }}
+      {{- end }}
+      {{- if .sectionName }}
+      sectionName: {{ .sectionName }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  hostnames:
+    - {{ $redirect.sourceHostname | default (printf "www.%s" (first $gateway.hostnames)) | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ $redirect.targetHostname | default (first $gateway.hostnames) | quote }}
+            scheme: {{ $redirect.scheme | default "https" | quote }}
+            statusCode: {{ $redirect.statusCode | default 301 }}
+{{- end }}
