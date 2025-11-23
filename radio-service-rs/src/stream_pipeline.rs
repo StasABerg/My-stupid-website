@@ -1,24 +1,13 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-#[cfg_attr(not(feature = "gstreamer"), allow(unused_imports))]
-use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 
 #[cfg(feature = "gstreamer")]
-use bytes::Bytes;
-#[cfg(feature = "gstreamer")]
-use gstreamer as gst;
-#[cfg(feature = "gstreamer")]
-use gstreamer_app as gst_app;
-#[cfg(feature = "gstreamer")]
-use std::io;
-#[cfg(feature = "gstreamer")]
-use tokio::sync::mpsc;
-#[cfg(feature = "gstreamer")]
-use tokio_stream::wrappers::ReceiverStream;
-#[cfg(feature = "gstreamer")]
-use tokio_stream::StreamExt;
+use {
+    bytes::Bytes, gstreamer as gst, gstreamer::prelude::*, gstreamer_app as gst_app,
+    tokio::sync::mpsc, tokio_stream::wrappers::ReceiverStream, tokio_stream::StreamExt,
+};
 
 use crate::config::StreamPipelineConfig;
 use crate::logging::logger;
@@ -30,8 +19,6 @@ pub enum PipelineError {
     Disabled,
     #[error("pipeline engine unavailable")]
     Unavailable,
-    #[error("pipeline not implemented for the selected engine")]
-    NotImplemented,
     #[error("pipeline error: {0}")]
     Generic(String),
 }
@@ -62,7 +49,6 @@ pub struct StreamPipeline {
 
 #[derive(Clone)]
 enum PipelineEngine {
-    #[cfg_attr(feature = "gstreamer", derive(Clone))]
     #[cfg(feature = "gstreamer")]
     GStreamer(GStreamerEngine),
     Disabled,
@@ -84,7 +70,7 @@ impl StreamPipeline {
 
         #[cfg(feature = "gstreamer")]
         {
-            if let Err(error) = gstreamer::init() {
+            if let Err(error) = gst::init() {
                 logger().warn(
                     "stream.pipeline.init_failed",
                     serde_json::json!({
@@ -98,11 +84,11 @@ impl StreamPipeline {
                     engine: PipelineEngine::Disabled,
                 };
             }
-            return Self {
+            Self {
                 semaphore: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
                 config,
                 engine: PipelineEngine::GStreamer(GStreamerEngine),
-            };
+            }
         }
 
         #[cfg(not(feature = "gstreamer"))]
@@ -140,8 +126,11 @@ impl StreamPipeline {
 
         #[cfg(feature = "gstreamer")]
         {
-            if let PipelineEngine::GStreamer(engine) = &self.engine {
-                return engine.start(_url, self.config.clone(), permit);
+            match &self.engine {
+                PipelineEngine::GStreamer(engine) => {
+                    engine.start(_url, self.config.clone(), permit)
+                }
+                PipelineEngine::Disabled => Err(PipelineError::Unavailable),
             }
         }
 
@@ -160,138 +149,95 @@ impl GStreamerEngine {
         url: &str,
         config: &StreamPipelineConfig,
     ) -> Result<(gst::Pipeline, gst_app::AppSink), PipelineError> {
-        let pipeline = gst::Pipeline::new(None);
-        let src = gst::ElementFactory::make("souphttpsrc")
-            .build()
-            .map_err(|err| PipelineError::Generic(format!("souphttpsrc: {:?}", err)))?;
-        src.set_property("location", url)
-            .map_err(|err| PipelineError::Generic(format!("set location: {:?}", err)))?;
-        src.set_property_from_value(
-            "user-agent",
-            &gst::glib::Value::from(config.user_agent.as_str()),
-        );
-        src.set_property_from_value(
-            "timeout",
-            &gst::glib::Value::from(&(config.timeout_ms / 1000)),
-        );
+        let pipeline = gst::parse::launch(&format!(
+            "urisrcbin uri={url} ! queue max-size-time={} ! appsink name=outsink emit-signals=true sync=false",
+            gst::ClockTime::SECOND.saturating_mul(config.buffer_seconds)
+        ))
+        .map_err(|err| PipelineError::Generic(format!("parse pipeline: {:?}", err)))?;
 
-        let queue = gst::ElementFactory::make("queue")
-            .build()
-            .map_err(|err| PipelineError::Generic(format!("queue: {:?}", err)))?;
-        queue.set_property("max-size-buffers", 0u32);
-        queue.set_property("max-size-bytes", 0u32);
-        queue.set_property(
-            "max-size-time",
-            gst::ClockTime::from_seconds(config.buffer_seconds)
-                .nseconds()
-                .unwrap_or(0),
-        );
+        let pipeline = pipeline
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| PipelineError::Generic("failed to downcast pipeline".into()))?;
 
-        let sink = gst::ElementFactory::make("appsink")
-            .build()
-            .map_err(|err| PipelineError::Generic(format!("appsink: {:?}", err)))?;
-        let sink = sink
-            .dynamic_cast::<gst_app::AppSink>()
+        let appsink = pipeline
+            .by_name("outsink")
+            .ok_or_else(|| PipelineError::Generic("appsink not found".into()))?
+            .downcast::<gst_app::AppSink>()
             .map_err(|_| PipelineError::Generic("failed to cast appsink".into()))?;
-        sink.set_property("emit-signals", true);
-        sink.set_property("sync", false);
-        sink.set_caps(Some(
-            &gst::Caps::builder_any().field("format", &"time").build(),
-        ));
 
-        pipeline
-            .add_many(&[&src, &queue, sink.upcast_ref()])
-            .map_err(|err| PipelineError::Generic(format!("pipeline add: {:?}", err)))?;
-        gst::Element::link_many(&[&src, &queue, sink.upcast_ref()])
-            .map_err(|err| PipelineError::Generic(format!("pipeline link: {:?}", err)))?;
+        // Configure source settings if present.
+        if let Some(src) = pipeline.by_name("source") {
+            src.set_property("timeout", config.timeout_ms / 1000);
+            src.set_property("user-agent", &config.user_agent);
+        }
 
-        Ok((pipeline, sink))
+        Ok((pipeline, appsink))
     }
 
     fn start(
         &self,
         url: &str,
         config: StreamPipelineConfig,
-        permit: OwnedSemaphorePermit,
+        permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Result<PipelineDecision, PipelineError> {
-        let (tx, rx) = mpsc::channel::<Result<Bytes, io::Error>>(64);
+        let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(64);
         let url = url.to_string();
         std::thread::spawn(move || {
-            let (pipeline, appsink) = match Self.build_pipeline(&Self, &url, &config) {
+            let (pipeline, appsink) = match Self.build_pipeline(&url, &config) {
                 Ok(result) => result,
                 Err(err) => {
-                    let _ = tx.blocking_send(Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("{err:?}"),
-                    )));
+                    let _ = tx.blocking_send(Err(std::io::Error::other(format!("{err:?}"))));
                     drop(permit);
                     return;
                 }
             };
-
-            let bus = match pipeline.bus() {
-                Some(bus) => bus,
-                None => {
-                    let _ = tx.blocking_send(Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "pipeline bus unavailable",
-                    )));
-                    drop(permit);
-                    return;
-                }
-            };
-
-            let tx_clone = tx.clone();
-            let mut tx_for_cb = tx;
-            let _ = appsink.set_callbacks(
-                gst_app::AppSinkCallbacks::builder()
-                    .new_sample(move |sink| {
-                        let sample = match sink.pull_sample() {
-                            Some(sample) => sample,
-                            None => return Err(gst::FlowError::Eos),
-                        };
-                        let buffer = match sample.buffer() {
-                            Some(buffer) => buffer,
-                            None => return Err(gst::FlowError::Eos),
-                        };
-                        let map = match buffer.map_readable() {
-                            Ok(map) => map,
-                            Err(_) => return Err(gst::FlowError::Error),
-                        };
-                        match tx_for_cb.try_send(Ok(Bytes::copy_from_slice(map.as_ref()))) {
-                            Ok(_) => Ok(gst::FlowSuccess::Ok),
-                            Err(_) => Err(gst::FlowError::Eos),
-                        }
-                    })
-                    .build(),
-            );
 
             if let Err(err) = pipeline.set_state(gst::State::Playing) {
-                let _ = tx_clone.blocking_send(Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("failed to start pipeline: {:?}", err),
-                )));
+                let _ = tx.blocking_send(Err(std::io::Error::other(format!(
+                    "failed to start pipeline: {:?}",
+                    err
+                ))));
+                let _ = pipeline.set_state(gst::State::Null);
                 drop(permit);
                 return;
             }
 
+            let bus = pipeline.bus();
             loop {
-                if tx_clone.is_closed() {
+                if tx.is_closed() {
                     break;
                 }
-                match bus.timed_pop(gst::ClockTime::from_mseconds(100)) {
-                    Some(msg) => match msg.view() {
-                        gst::MessageView::Eos(..) => break,
-                        gst::MessageView::Error(err) => {
-                            let _ = tx_clone.blocking_send(Err(io::Error::new(
-                                io::ErrorKind::Other,
-                                format!("pipeline error: {:?}", err.error()),
-                            )));
-                            break;
+
+                match appsink.pull_sample() {
+                    Ok(sample) => {
+                        if let Some(buffer) = sample.buffer() {
+                            if let Ok(map) = buffer.map_readable() {
+                                if tx
+                                    .blocking_send(Ok(Bytes::copy_from_slice(map.as_ref())))
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
                         }
-                        _ => {}
-                    },
-                    None => continue,
+                    }
+                    Err(_) => break,
+                }
+
+                if let Some(ref bus) = bus {
+                    if let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(0)) {
+                        match msg.view() {
+                            gst::MessageView::Eos(..) => break,
+                            gst::MessageView::Error(err) => {
+                                let _ = tx.blocking_send(Err(std::io::Error::other(format!(
+                                    "pipeline error: {:?}",
+                                    err.error()
+                                ))));
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
 
@@ -299,7 +245,7 @@ impl GStreamerEngine {
             drop(permit);
         });
 
-        let stream = ReceiverStream::new(rx).map(|result| result.map_err(io::Error::other));
+        let stream = ReceiverStream::new(rx).map(|result| result.map_err(std::io::Error::other));
         let body = axum::body::Body::from_stream(stream);
         Ok(PipelineDecision::Stream {
             body,
