@@ -3,18 +3,18 @@ import App from "./App.tsx";
 import "./index.css";
 import { logger } from "./lib/logger.ts";
 
-const requiredEnv = [
-  "VITE_RADIO_API_BASE_URL",
-  "VITE_TERMINAL_API_BASE_URL",
-  "VITE_RADIO_DEFAULT_LIMIT",
-];
+type EnvKey = "VITE_RADIO_API_BASE_URL" | "VITE_TERMINAL_API_BASE_URL" | "VITE_RADIO_DEFAULT_LIMIT";
+const defaults: Record<EnvKey, string> = {
+  VITE_RADIO_API_BASE_URL: "/api/radio",
+  VITE_TERMINAL_API_BASE_URL: "/api/terminal",
+  VITE_RADIO_DEFAULT_LIMIT: "200",
+};
 
-for (const key of requiredEnv) {
+for (const key of Object.keys(defaults) as EnvKey[]) {
   const value = (import.meta.env as Record<string, string | undefined>)[key];
   if (typeof value !== "string" || value.trim().length === 0) {
-    const message = `Missing required env: ${key}`;
-    logger.error("config.env_missing", { key });
-    throw new Error(message);
+    logger.warn("config.env_missing", { key, appliedDefault: defaults[key] });
+    (import.meta.env as Record<string, string | undefined>)[key] = defaults[key];
   }
 }
 
