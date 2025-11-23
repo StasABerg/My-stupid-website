@@ -2,7 +2,16 @@ FROM rust:slim AS base
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
     apt-get update && \
-    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
+    apt-get install -y --no-install-recommends \
+        pkg-config \
+        libssl-dev \
+        ca-certificates \
+        gstreamer1.0-tools \
+        gstreamer1.0-plugins-base \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad \
+        libgstreamer1.0-dev \
+        libgstreamer-plugins-base1.0-dev && \
     rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef
 WORKDIR /app
@@ -23,13 +32,18 @@ COPY radio-service-rs/ .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release
+    cargo build --release --features gstreamer
 
 FROM debian:trixie-slim AS runner
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
     apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        gstreamer1.0-tools \
+        gstreamer1.0-plugins-base \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad && \
     rm -rf /var/lib/apt/lists/* && \
     useradd -r -u 1000 radio
 WORKDIR /app

@@ -56,5 +56,21 @@ env:
         optional: false
   - name: ALLOW_INSECURE_TRANSPORT
     value: "true"
+  - name: STREAM_PIPELINE_ENABLED
+    value: "true"
+  - name: STREAM_PIPELINE_ENGINE
+    value: "gstreamer"
+  - name: STREAM_PIPELINE_MAX_CONCURRENCY
+    value: "2"
+  - name: STREAM_PIPELINE_BUFFER_SECONDS
+    value: "5"
+  - name: STREAM_PIPELINE_TIMEOUT_MS
+    value: "10000"
+  - name: STREAM_PIPELINE_USER_AGENT
+    value: "dev.gitgud.qzz.io/radio-pipeline-dev"
+  - name: STREAM_PIPELINE_RECONNECT_MAX
+    value: "3"
+  - name: STREAM_PIPELINE_FAILURE_CACHE_TTL
+    value: "300"
   - name: TRUST_PROXY
     value: loopback,linklocal,uniquelocal

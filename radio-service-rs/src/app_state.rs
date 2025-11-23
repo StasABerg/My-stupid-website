@@ -24,6 +24,7 @@ use crate::{
     radio_browser::RadioBrowserClient,
     refresh,
     stations::{sanitize_persisted_payload, ProcessedStations, StationStorage, StationsPayload},
+    stream_pipeline::StreamPipeline,
     stream_validation::StreamValidator,
 };
 
@@ -39,6 +40,7 @@ pub struct AppState {
     pub http_client: Client,
     processed_cache: Arc<RwLock<Option<ProcessedCache>>>,
     pub stream_validator: StreamValidator,
+    pub stream_pipeline: StreamPipeline,
     memory_cache: Arc<RwLock<Option<MemoryEntry>>>,
     refresh_mutex: Arc<Mutex<()>>,
     rate_limiter: Arc<RateLimiter>,
@@ -253,6 +255,7 @@ impl AppState {
         )?;
         let stream_validator =
             StreamValidator::new(config.stream_validation.clone(), http_client.clone());
+        let stream_pipeline = StreamPipeline::new(config.stream_pipeline.clone());
         let processed_cache = Arc::new(RwLock::new(None));
         let memory_cache = Arc::new(RwLock::new(None));
         let refresh_mutex = Arc::new(Mutex::new(()));
@@ -272,6 +275,7 @@ impl AppState {
             http_client,
             processed_cache,
             stream_validator,
+            stream_pipeline,
             memory_cache,
             refresh_mutex,
             rate_limiter,

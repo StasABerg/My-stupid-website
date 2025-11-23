@@ -34,6 +34,7 @@ use crate::{
         sanitize_station_id, FavoriteEntry, FavoriteStation, MAX_FAVORITES,
     },
     stations::{intersect_lists, ProcessedStations, Station, StationsPayload},
+    stream_pipeline::PipelineDecision,
 };
 
 const OPENAPI_SPEC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/openapi.json"));
@@ -1230,6 +1231,32 @@ async fn stream_station(
     let rate = enforce_rate_limit(&state, &headers).await?;
 
     let station = load_station(&state, station_id).await?;
+    if state.stream_pipeline.is_enabled() {
+        match state.stream_pipeline.attempt(&station.stream_url).await {
+            Ok(PipelineDecision::Skip) => {}
+            Ok(PipelineDecision::Stream { body, content_type }) => {
+                let mut builder = Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Cache-Control", "no-store");
+                if let Some(ct) = content_type {
+                    builder = builder.header("Content-Type", ct);
+                }
+                let response = builder
+                    .body(body)
+                    .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
+                return Ok(with_rate_limit(response, &rate));
+            }
+            Err(error) => {
+                logger().info(
+                    "stream.pipeline.fallback",
+                    json!({
+                        "stationId": station_id,
+                        "error": format!("{:?}", error),
+                    }),
+                );
+            }
+        }
+    }
     let request = state
         .http_client
         .get(&station.stream_url)

@@ -20,6 +20,7 @@ pub struct Config {
     pub allow_insecure_transports: bool,
     pub radio_browser: RadioBrowserConfig,
     pub stream_proxy: StreamProxyConfig,
+    pub stream_pipeline: StreamPipelineConfig,
     pub stream_validation: StreamValidationConfig,
     pub cache_key: String,
     pub cache_ttl_seconds: u64,
@@ -68,6 +69,23 @@ pub struct StreamProxyConfig {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct StreamPipelineConfig {
+    pub enabled: bool,
+    pub engine: StreamPipelineEngine,
+    pub max_concurrency: usize,
+    pub buffer_seconds: u64,
+    pub timeout_ms: u64,
+    pub user_agent: String,
+    pub reconnect_max: u32,
+    pub failure_cache_ttl_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum StreamPipelineEngine {
+    GStreamer,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct StreamValidationConfig {
     pub enabled: bool,
     pub timeout_ms: u64,
@@ -89,6 +107,7 @@ impl Config {
             .unwrap_or(false);
         let radio_browser = RadioBrowserConfig::from_env(allow_insecure_transports)?;
         let stream_proxy = StreamProxyConfig::from_env()?;
+        let stream_pipeline = StreamPipelineConfig::from_env()?;
         let stream_validation = StreamValidationConfig::from_env()?;
         let cache_key =
             env::var("STATIONS_CACHE_KEY").unwrap_or_else(|_| "radio:stations:all".into());
@@ -104,6 +123,7 @@ impl Config {
             allow_insecure_transports,
             radio_browser,
             stream_proxy,
+            stream_pipeline,
             stream_validation,
             cache_key,
             cache_ttl_seconds,
@@ -375,6 +395,41 @@ impl StreamProxyConfig {
     }
 }
 
+impl StreamPipelineConfig {
+    fn from_env() -> Result<Self, ConfigError> {
+        let enabled = env_bool("STREAM_PIPELINE_ENABLED").unwrap_or(false);
+        let engine = match env::var("STREAM_PIPELINE_ENGINE")
+            .unwrap_or_else(|_| "gstreamer".into())
+            .to_lowercase()
+            .as_str()
+        {
+            "gstreamer" => StreamPipelineEngine::GStreamer,
+            other => {
+                return Err(ConfigError::Message(format!(
+                    "Unsupported STREAM_PIPELINE_ENGINE: {other}"
+                )))
+            }
+        };
+        let max_concurrency = env_usize("STREAM_PIPELINE_MAX_CONCURRENCY", 4)?;
+        let buffer_seconds = env_u64("STREAM_PIPELINE_BUFFER_SECONDS", 5)?;
+        let timeout_ms = env_u64("STREAM_PIPELINE_TIMEOUT_MS", 10_000)?;
+        let user_agent = env::var("STREAM_PIPELINE_USER_AGENT")
+            .unwrap_or_else(|_| "radio-service/stream-pipeline".into());
+        let reconnect_max = env_u32("STREAM_PIPELINE_RECONNECT_MAX", 3)?;
+        let failure_cache_ttl_seconds = env_u64("STREAM_PIPELINE_FAILURE_CACHE_TTL", 300)?;
+        Ok(Self {
+            enabled,
+            engine,
+            max_concurrency,
+            buffer_seconds,
+            timeout_ms,
+            user_agent,
+            reconnect_max,
+            failure_cache_ttl_seconds,
+        })
+    }
+}
+
 impl StreamValidationConfig {
     fn from_env() -> Result<Self, ConfigError> {
         let enabled = env_bool("STREAM_VALIDATION_ENABLED").unwrap_or(true);
@@ -432,7 +487,30 @@ impl Config {
                 "STREAM_PROXY_TIMEOUT_MS must be greater than zero".into(),
             ));
         }
-        self.radio_browser.validate(self.allow_insecure_transports)?;
+        if self.stream_pipeline.enabled {
+            if self.stream_pipeline.max_concurrency == 0 {
+                return Err(ConfigError::Message(
+                    "STREAM_PIPELINE_MAX_CONCURRENCY must be greater than zero".into(),
+                ));
+            }
+            if self.stream_pipeline.buffer_seconds == 0 {
+                return Err(ConfigError::Message(
+                    "STREAM_PIPELINE_BUFFER_SECONDS must be greater than zero".into(),
+                ));
+            }
+            if self.stream_pipeline.timeout_ms == 0 {
+                return Err(ConfigError::Message(
+                    "STREAM_PIPELINE_TIMEOUT_MS must be greater than zero".into(),
+                ));
+            }
+            if self.stream_pipeline.user_agent.trim().is_empty() {
+                return Err(ConfigError::Message(
+                    "STREAM_PIPELINE_USER_AGENT must be provided when enabled".into(),
+                ));
+            }
+        }
+        self.radio_browser
+            .validate(self.allow_insecure_transports)?;
         Ok(())
     }
 }
