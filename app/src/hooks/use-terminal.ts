@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { authorizedFetch } from "@/lib/gateway-session";
+import { logger } from "@/lib/logger";
 
 type ExecuteResponse = {
   command: string;
@@ -31,7 +32,10 @@ const RAW_TERMINAL_BASE =
 const DEFAULT_VIRTUAL_CWD = "/home/demo";
 
 if (import.meta.env.DEV) {
-  console.debug("terminal-service.base", { raw: RAW_TERMINAL_BASE, fallback: FALLBACK_TERMINAL_BASE });
+  logger.debug("terminal-service.base", {
+    raw: RAW_TERMINAL_BASE,
+    fallback: FALLBACK_TERMINAL_BASE,
+  });
 }
 
 function buildTerminalUrl(path: string): string {
@@ -54,7 +58,7 @@ function buildTerminalUrl(path: string): string {
 
   const href = url.toString();
   if (import.meta.env.DEV) {
-    console.debug("terminal-service.resolved-url", { path, href });
+    logger.debug("terminal-service.resolved-url", { path, href });
   }
   return href;
 }
@@ -135,7 +139,7 @@ export function useTerminal() {
         const infoDebug = encodeDebugHeader({ stage: "info" });
         const infoUrl = buildTerminalUrl("info");
         if (import.meta.env.DEV) {
-          console.debug("terminal-service.request", { url: infoUrl, method: "GET" });
+          logger.debug("terminal-service.request", { url: infoUrl, method: "GET" });
         }
 
         const response = await authorizedFetch(infoUrl, {
@@ -153,7 +157,11 @@ export function useTerminal() {
             .catch(() => "<unable to parse>");
           const error = new Error(`status ${response.status}`);
           if (import.meta.env.DEV) {
-            console.error("terminal-service.info_error", { url: infoUrl, status: response.status, body: errorPayload });
+            logger.error("terminal-service.info_error", {
+              url: infoUrl,
+              status: response.status,
+              body: errorPayload,
+            });
           }
           throw error;
         }
@@ -293,7 +301,7 @@ export function useTerminal() {
         const debugPayload = encodeDebugHeader({ stage: "execute", input: raw, cwd: previousVirtualCwd });
         const executeUrl = buildTerminalUrl("execute");
         if (import.meta.env.DEV) {
-          console.debug("terminal-service.request", {
+          logger.debug("terminal-service.request", {
             url: executeUrl,
             method: "POST",
             body: { input: raw, cwd: previousVirtualCwd },
@@ -315,7 +323,7 @@ export function useTerminal() {
         } catch (error) {
           // ignore JSON parse issues and fall back to generic message
           if (import.meta.env.DEV) {
-            console.warn("terminal-service.execute_json_parse_failed", { error });
+            logger.warn("terminal-service.execute_json_parse_failed", { error });
           }
         }
 
@@ -333,7 +341,7 @@ export function useTerminal() {
             rawBody = null;
           }
           if (import.meta.env.DEV) {
-            console.error("terminal-service.execute_error", {
+            logger.error("terminal-service.execute_error", {
               status: response.status,
               payload,
               rawBody,
@@ -361,7 +369,7 @@ export function useTerminal() {
         setDisplayCwd(nextDisplay);
       } catch (error) {
         if (import.meta.env.DEV) {
-          console.error("terminal-service.execute_request_failed", { error });
+          logger.error("terminal-service.execute_request_failed", { error });
         }
         const entry: HistoryEntry = {
           id: commandId.current++,

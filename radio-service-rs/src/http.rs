@@ -2,13 +2,14 @@ use std::{
     collections::HashMap,
     io,
     net::SocketAddr,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    extract::{ConnectInfo, Path, Query, State},
+    http::{header, HeaderMap, HeaderValue, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
@@ -23,7 +24,9 @@ use tokio::{
     time::{timeout, Duration},
 };
 use url::Url;
+use uuid::Uuid;
 
+use crate::logging::logger;
 use crate::{
     app_state::{AppState, RateLimitMetadata},
     favorites::{
@@ -68,6 +71,91 @@ const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
 "#;
 
 type ApiResponse = Result<Response, ApiError>;
+
+fn extract_request_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string())
+}
+
+fn extract_client_ip(headers: &HeaderMap, remote: Option<&SocketAddr>) -> Option<String> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|raw| raw.split(',').next())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.to_string())
+        })
+        .or_else(|| remote.map(|addr| addr.ip().to_string()))
+}
+
+async fn log_requests(request: Request<Body>, next: Next) -> Response {
+    let request_id = extract_request_id(request.headers());
+    let method = request.method().clone();
+    let raw_url = request.uri().to_string();
+    let origin = request
+        .headers()
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let remote = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| &info.0);
+    let client_ip = extract_client_ip(request.headers(), remote);
+    let user_agent = request
+        .headers()
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let started_at = Instant::now();
+
+    logger().info(
+        "request.received",
+        json!({
+            "requestId": request_id,
+            "method": method.as_str(),
+            "rawUrl": raw_url,
+            "origin": origin,
+            "clientIp": client_ip,
+            "userAgent": user_agent,
+        }),
+    );
+
+    let mut response = next.run(request).await;
+    let status = response.status().as_u16();
+    let duration_ms = started_at.elapsed().as_secs_f64() * 1000.0;
+
+    logger().info(
+        "request.completed",
+        json!({
+            "requestId": request_id,
+            "method": method.as_str(),
+            "rawUrl": raw_url,
+            "statusCode": status,
+            "durationMs": duration_ms,
+            "origin": origin,
+            "clientIp": client_ip,
+            "userAgent": user_agent,
+        }),
+    );
+
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response
+            .headers_mut()
+            .insert(header::HeaderName::from_static("x-request-id"), value);
+    }
+
+    response
+}
 
 fn json_response<T>(status: StatusCode, payload: T) -> Response
 where
@@ -171,7 +259,15 @@ impl IntoResponse for ApiError {
                 response
             }
             ApiError::Internal(error) => {
-                tracing::error!(error = ?error, "internal error");
+                logger().error(
+                    "internal.error",
+                    json!({
+                        "error": {
+                            "message": error.to_string(),
+                            "debug": format!("{:?}", error),
+                        }
+                    }),
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -207,14 +303,23 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
             "/favorites/{station_id}",
             put(upsert_favorite).delete(delete_favorite),
         )
-        .with_state(state.clone());
+        .with_state(state.clone())
+        .layer(middleware::from_fn(log_requests));
 
     let listener = TcpListener::bind(addr).await?;
-    tracing::info!(address = %addr, "radio-service-rs listening");
+    logger().info(
+        "server.listening",
+        json!({
+            "address": addr.to_string()
+        }),
+    );
 
-    axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     Ok(())
 }

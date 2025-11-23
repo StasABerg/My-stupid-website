@@ -1,5 +1,6 @@
 import { useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { logger } from "../lib/logger";
 
 const accessDeniedGifs = [
   "/easter-eggs/access-denied-1.gif",
@@ -12,7 +13,7 @@ const NotFound = () => {
   const [gifSrc] = useState(() => accessDeniedGifs[Math.floor(Math.random() * accessDeniedGifs.length)]);
 
   useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
+    logger.error("route.not_found_visit", { path: location.pathname });
   }, [location.pathname]);
 
   return (

@@ -28,3 +28,5 @@ cache:
     secretName: radio-service-env-dev
     secretKey: REDIS_URL
     optional: true
+
+logLevel: debug

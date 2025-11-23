@@ -85,6 +85,10 @@ spec:
               value: "{{ .Values.cache.memory.maxEntries | default 200 }}"
             - name: CACHE_MEMORY_ENABLED
               value: {{ ternary "true" "false" (default true .Values.cache.memory.enabled) | quote }}
+            {{- if .Values.logLevel }}
+            - name: LOG_LEVEL
+              value: "{{ .Values.logLevel }}"
+            {{- end }}
             {{- if .Values.cache.redis.secretName }}
             - name: REDIS_URL
               valueFrom:

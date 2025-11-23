@@ -12,6 +12,7 @@
 **/.env
 **/.env.*
 app/.npmrc
+.vscode
 logs
 *.log
 npm-debug.log*

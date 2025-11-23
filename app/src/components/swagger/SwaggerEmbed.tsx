@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import { useEffect, useRef } from "react";
+import { logger } from "@/lib/logger";
 
 type SwaggerBundle = {
   (config: Record<string, unknown>): { destroy?: () => void };
@@ -93,7 +94,7 @@ const SwaggerEmbed = ({ specUrl, className }: SwaggerEmbedProps) => {
     }
 
     bootstrap().catch((error) => {
-      console.error("swagger-ui.embed_failed", error);
+      logger.error("swagger-ui.embed_failed", { error });
     });
 
     return () => {

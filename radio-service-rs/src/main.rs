@@ -4,6 +4,7 @@ mod config;
 mod database;
 mod favorites;
 mod http;
+mod logging;
 mod migrations;
 mod radio_browser;
 mod refresh;
@@ -14,27 +15,14 @@ use anyhow::Context;
 use app_state::AppState;
 use config::Config;
 use migrations::run_migrations;
-use once_cell::sync::OnceCell;
+use serde_json::json;
 use std::env;
-use tracing::info;
 
-fn init_tracing() {
-    static INIT: OnceCell<()> = OnceCell::new();
-    INIT.get_or_init(|| {
-        let env_filter =
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .with_target(false)
-            .with_level(true)
-            .json()
-            .init();
-    });
-}
+use crate::logging::init_logger;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    let logger = init_logger("radio-service-rs");
 
     let config = Config::load().context("failed to load configuration")?;
     let state = AppState::initialize(config.clone())
@@ -47,19 +35,23 @@ async fn main() -> anyhow::Result<()> {
 
     if matches!(env::args().nth(1).as_deref(), Some("refresh")) {
         let payload = state.update_stations().await?;
-        info!(
-            total = payload.total,
-            updated_at = payload.updated_at.to_rfc3339(),
-            "refresh.completed"
+        logger.info(
+            "refresh.completed",
+            json!({
+                "total": payload.total,
+                "updatedAt": payload.updated_at.to_rfc3339(),
+            }),
         );
         return Ok(());
     }
 
-    info!(
-        port = config.port,
-        redis_configured = true,
-        postgres_configured = true,
-        "radio-service-rs initialized"
+    logger.info(
+        "server.initialized",
+        json!({
+            "port": config.port,
+            "redisConfigured": true,
+            "postgresConfigured": true,
+        }),
     );
 
     http::serve(state).await.context("http server failed")

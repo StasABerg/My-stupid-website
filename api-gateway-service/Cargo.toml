@@ -28,3 +28,4 @@ uuid = { version = "1.18", features = ["v4"] }
 url = "2.5"
 urlencoding = "2.1"
 base64 = "0.22"
+hostname = "0.4"

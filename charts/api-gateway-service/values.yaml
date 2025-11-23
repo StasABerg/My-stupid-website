@@ -67,6 +67,8 @@ cache:
     secretKey: REDIS_URL
     optional: true
 
+logLevel: info
+
 resources:
   requests:
     cpu: 10m

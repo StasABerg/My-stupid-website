@@ -80,6 +80,8 @@ readinessProbe:
   initialDelaySeconds: 3
   periodSeconds: 5
 
+logLevel: info
+
 autoscaling:
   enabled: true
   minReplicas: 1

@@ -133,6 +133,8 @@ autoscaling:
           value: 40
           periodSeconds: 60
 
+logLevel: info
+
 livenessProbe:
   httpGet:
     path: /healthz

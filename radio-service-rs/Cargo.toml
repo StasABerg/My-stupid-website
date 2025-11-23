@@ -6,8 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_with = { version = "3.16", features = ["macros"] }
@@ -32,3 +30,5 @@ chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
 futures-util = "0.3"
 sysinfo = "0.37.2"
+hostname = "0.4"
+uuid = { version = "1.18", features = ["v4"] }

@@ -1,9 +1,10 @@
+use chrono::{SecondsFormat, Utc};
 use hostname::get;
+use once_cell::sync::OnceCell;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::env;
 use std::sync::Arc;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum LogLevel {
@@ -41,8 +42,18 @@ pub struct Logger {
     min_level: LogLevel,
 }
 
+static LOGGER: OnceCell<Logger> = OnceCell::new();
+
+pub fn init_logger(service: &'static str) -> &'static Logger {
+    LOGGER.get_or_init(|| Logger::new(service))
+}
+
+pub fn logger() -> &'static Logger {
+    LOGGER.get().expect("logger not initialized")
+}
+
 impl Logger {
-    pub fn new(service: &'static str) -> Self {
+    fn new(service: &'static str) -> Self {
         let environment = env::var("APP_ENV")
             .or_else(|_| env::var("RUST_ENV"))
             .unwrap_or_else(|_| "development".to_string());
@@ -73,17 +84,10 @@ impl Logger {
             return;
         }
 
-        let timestamp = OffsetDateTime::now_utc();
+        let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         let serialized = serde_json::to_value(context).unwrap_or(Value::Null);
-        let mut payload = serde_json::Map::new();
-        payload.insert(
-            "timestamp".into(),
-            Value::String(
-                timestamp
-                    .format(&Rfc3339)
-                    .unwrap_or_else(|_| timestamp.to_string()),
-            ),
-        );
+        let mut payload = Map::new();
+        payload.insert("timestamp".into(), Value::String(timestamp));
         payload.insert("service".into(), Value::String(self.service.to_string()));
         payload.insert("env".into(), Value::String(self.environment.to_string()));
         payload.insert("host".into(), Value::String(self.host.to_string()));
@@ -109,6 +113,7 @@ impl Logger {
         }
     }
 
+    #[allow(dead_code)]
     pub fn debug<T: Serialize>(&self, event: &str, context: T) {
         self.emit(LogLevel::Debug, event, context);
     }

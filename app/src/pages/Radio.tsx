@@ -29,6 +29,7 @@ import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/use
 import { useRadioFavorites } from "@/hooks/useRadioFavorites";
 import { authorizedFetch, ensureGatewaySession } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { logger } from "@/lib/logger";
 
 type HlsModule = typeof import("hls.js/dist/hls.light.min.js");
 type HlsConstructor = HlsModule["default"];
@@ -222,7 +223,7 @@ const deserializeSharedStation = (encoded: string): RadioStation | null => {
       clickCount: typeof station.clickCount === "number" ? station.clickCount : fallbackStation.clickCount,
     };
   } catch (error) {
-    console.warn("Unable to parse shared station", error);
+    logger.warn("share.parse_failed", { error });
     return null;
   }
 };
@@ -346,7 +347,10 @@ const Radio = () => {
       const encodedStation = serializeStationForShare(activeStation);
       return `${window.location.origin}/radio?${SHARE_QUERY_PARAM}=${encodeURIComponent(encodedStation)}`;
     } catch (error) {
-      console.warn("Unable to build share link", error);
+      logger.warn("share.link_build_failed", {
+        stationId: activeStation.id,
+        error,
+      });
       return null;
     }
   }, [activeStation]);
@@ -741,7 +745,11 @@ const Radio = () => {
 
       const state = reconnectStateRef.current;
       if (state.attempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.warn(`Playback reconnect limit reached (${reason}).`);
+        logger.warn("playback.reconnect_limit_reached", {
+          reason,
+          attempts: state.attempts,
+          maxAttempts: MAX_RECONNECT_ATTEMPTS,
+        });
         return;
       }
 
@@ -902,12 +910,14 @@ const Radio = () => {
           }
 
           destroyHls();
-          console.warn("HLS playback is not supported in this browser.");
+          logger.warn("playback.hls_unsupported", {
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          });
           element.pause();
           element.removeAttribute("src");
           element.load();
         } catch (error) {
-          console.error("Failed to load HLS module", error);
+          logger.error("playback.hls_module_failed", { error });
         }
       };
 
