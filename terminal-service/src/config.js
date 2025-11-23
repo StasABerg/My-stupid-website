@@ -5,6 +5,13 @@ function parseNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function requirePositive(name, value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be greater than zero`);
+  }
+  return value;
+}
+
 function parseList(value) {
   return (value ?? "")
     .split(",")
@@ -14,11 +21,15 @@ function parseList(value) {
 
 const sandboxRoot = path.resolve(process.env.SANDBOX_ROOT ?? "/app/sandbox");
 const allowedOrigins = parseList(process.env.CORS_ALLOW_ORIGIN);
+const allowAllOriginsFlag = process.env.ALLOW_ALL_ORIGINS === "true";
 
 export const config = {
-  port: parseNumber(process.env.PORT, 8080),
+  port: requirePositive("PORT", parseNumber(process.env.PORT, 8080)),
   sandboxRoot,
-  maxPayloadBytes: parseNumber(process.env.MAX_PAYLOAD_BYTES, 2048),
+  maxPayloadBytes: requirePositive(
+    "MAX_PAYLOAD_BYTES",
+    parseNumber(process.env.MAX_PAYLOAD_BYTES, 2048),
+  ),
   defaultVirtualHome: "/home/demo",
   helpText: [
     "Available commands:",
@@ -39,5 +50,15 @@ export const config = {
   lsAllowedFlags: ["-a", "-l", "-la", "-al", "-lh", "-hl", "-lah", "-hal"],
   unameAllowedFlags: ["-a", "-s", "-r", "-m"],
   allowedOrigins,
-  allowAllOrigins: allowedOrigins.includes("*"),
+  allowAllOrigins: allowAllOriginsFlag && allowedOrigins.includes("*"),
 };
+
+if (!config.allowAllOrigins && config.allowedOrigins.length === 0) {
+  throw new Error(
+    "CORS_ALLOW_ORIGIN must include at least one allowed origin (or set ALLOW_ALL_ORIGINS=true with \"*\")",
+  );
+}
+
+if (!path.isAbsolute(config.sandboxRoot) || config.sandboxRoot === "/") {
+  throw new Error(`SANDBOX_ROOT must be an absolute, non-root path; got ${config.sandboxRoot}`);
+}

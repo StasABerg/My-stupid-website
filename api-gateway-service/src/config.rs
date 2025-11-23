@@ -173,7 +173,7 @@ impl Config {
             store: session_store,
         };
 
-        Ok(Self {
+        let config = Self {
             port,
             radio_service_url,
             terminal_service_url,
@@ -185,7 +185,10 @@ impl Config {
             csrf_proof_secret,
             csrf_proof_secret_generated,
             trust_proxy: parse_bool(env::var("TRUST_PROXY").ok(), false),
-        })
+        };
+
+        config.validate()?;
+        Ok(config)
     }
 }
 
@@ -345,4 +348,82 @@ fn read_optional_secret(
     }
 
     Ok(secret)
+}
+
+impl Config {
+    fn validate(&self) -> Result<()> {
+        if self.request_timeout.as_millis() == 0 {
+            return Err(anyhow!("UPSTREAM_TIMEOUT_MS must be greater than zero"));
+        }
+        if self.cache.ttl.as_secs() == 0 {
+            return Err(anyhow!("CACHE_TTL_SECONDS must be greater than zero"));
+        }
+        if self.cache.memory.enabled && self.cache.memory.max_entries == 0 {
+            return Err(anyhow!(
+                "CACHE_MEMORY_MAX_ENTRIES must be greater than zero when memory cache is enabled"
+            ));
+        }
+
+        validate_url(&self.radio_service_url, "RADIO_SERVICE_URL")?;
+        validate_url(&self.terminal_service_url, "TERMINAL_SERVICE_URL")?;
+
+        if self.allowed_service_hostnames.is_empty() {
+            return Err(anyhow!(
+                "ALLOWED_SERVICE_HOSTNAMES must resolve to at least one host"
+            ));
+        }
+
+        if matches!(self.session.store, SessionStoreConfig::Memory)
+            && env::var("APP_ENV")
+                .unwrap_or_else(|_| "development".into())
+                .eq_ignore_ascii_case("production")
+        {
+            return Err(anyhow!(
+                "session store cannot fall back to memory when APP_ENV=production"
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_url(value: &str, label: &str) -> Result<()> {
+    let url = url::Url::parse(value).map_err(|err| anyhow!("{label} invalid URL: {err}"))?;
+    match url.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(anyhow!("{label} must use http or https (got {other})"));
+        }
+    }
+    if url.host_str().unwrap_or_default().is_empty() {
+        return Err(anyhow!("{label} must include a host"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logger::Logger;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn config_loads_with_dummy_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        unsafe {
+            env::set_var("SESSION_SECRET", "a_secure_dummy_secret_value_that_is_long");
+            env::remove_var("CACHE_REDIS_URL");
+            env::remove_var("SESSION_REDIS_URL");
+            env::remove_var("CORS_ALLOW_ORIGINS");
+            env::remove_var("ALLOWED_SERVICE_HOSTNAMES");
+            env::remove_var("APP_ENV");
+        }
+
+        let config = Config::load(&Logger::new("test")).expect("config should load");
+        assert!(config.port > 0);
+        assert_eq!(config.allowed_service_hostnames.len(), 2);
+        assert!(config.cache.ttl.as_secs() > 0);
+    }
 }

@@ -23,6 +23,8 @@ const VALIDATION_HEADERS: &[(&str, &str)] = &[
     ("connection", "keep-alive"),
 ];
 
+const MAX_STATIONS_TO_VALIDATE: usize = 10_000;
+
 #[derive(Debug, Clone)]
 pub struct StreamValidator {
     config: StreamValidationConfig,
@@ -56,6 +58,14 @@ impl StreamValidator {
 
         let cache = Arc::new(self.load_cache(redis).await?);
         let now = current_timestamp();
+
+        if stations.len() > MAX_STATIONS_TO_VALIDATE {
+            return Err(anyhow::anyhow!(format!(
+                "stream validation refused: {} stations exceeds max {}",
+                stations.len(),
+                MAX_STATIONS_TO_VALIDATE
+            )));
+        }
 
         let outcomes = stream::iter(stations.into_iter().enumerate())
             .map(|(idx, station)| {

@@ -92,10 +92,10 @@ impl Config {
         let stream_validation = StreamValidationConfig::from_env()?;
         let cache_key =
             env::var("STATIONS_CACHE_KEY").unwrap_or_else(|_| "radio:stations:all".into());
-        let cache_ttl_seconds = env_u64("STATIONS_CACHE_TTL", 0)?;
+        let cache_ttl_seconds = env_u64("STATIONS_CACHE_TTL", 3600)?;
         let memory_cache_ttl_seconds = env_u64("STATIONS_MEMORY_CACHE_TTL", 5)?;
 
-        Ok(Self {
+        let config = Self {
             port,
             redis_url,
             postgres,
@@ -108,7 +108,10 @@ impl Config {
             cache_key,
             cache_ttl_seconds,
             memory_cache_ttl_seconds,
-        })
+        };
+
+        config.validate()?;
+        Ok(config)
     }
 }
 
@@ -130,6 +133,17 @@ impl PostgresConfig {
             .map(|v| v != "false")
             .unwrap_or(true);
         let application_name = env::var("PG_APP_NAME").unwrap_or_else(|_| "radio-service".into());
+
+        if max_connections == 0 {
+            return Err(ConfigError::Message(
+                "PG_MAX_CONNECTIONS must be greater than zero.".into(),
+            ));
+        }
+        if statement_timeout_ms == 0 {
+            return Err(ConfigError::Message(
+                "PG_STATEMENT_TIMEOUT_MS must be greater than zero.".into(),
+            ));
+        }
 
         Ok(Self {
             connection_string,
@@ -295,9 +309,9 @@ impl RadioBrowserConfig {
                 .unwrap_or_else(|_| DEFAULT_STATIONS_PATH.to_string()),
             station_click_path: env::var("RADIO_BROWSER_STATION_CLICK_PATH")
                 .unwrap_or_else(|_| DEFAULT_STATION_CLICK_PATH.to_string()),
-            limit: env_i64("RADIO_BROWSER_LIMIT", 0)?,
-            page_size: env_i64("RADIO_BROWSER_PAGE_SIZE", 0)?,
-            max_pages: env_i64("RADIO_BROWSER_MAX_PAGES", 0)?,
+            limit: env_i64("RADIO_BROWSER_LIMIT", 500)?,
+            page_size: env_i64("RADIO_BROWSER_PAGE_SIZE", 100)?,
+            max_pages: env_i64("RADIO_BROWSER_MAX_PAGES", 20)?,
             user_agent: env::var("RADIO_BROWSER_USER_AGENT")
                 .unwrap_or_else(|_| "My-stupid-website/1.0 (stasaberg)".to_string()),
             country_concurrency,
@@ -309,19 +323,19 @@ impl RadioBrowserConfig {
     }
 
     fn validate(&self, allow_insecure_transports: bool) -> Result<(), ConfigError> {
-        if self.page_size < 0 {
+        if self.page_size <= 0 {
             return Err(ConfigError::Message(
-                "RADIO_BROWSER_PAGE_SIZE cannot be negative.".into(),
+                "RADIO_BROWSER_PAGE_SIZE must be greater than zero.".into(),
             ));
         }
-        if self.max_pages < 0 {
+        if self.max_pages <= 0 {
             return Err(ConfigError::Message(
-                "RADIO_BROWSER_MAX_PAGES cannot be negative.".into(),
+                "RADIO_BROWSER_MAX_PAGES must be greater than zero.".into(),
             ));
         }
-        if self.limit < 0 {
+        if self.limit <= 0 {
             return Err(ConfigError::Message(
-                "RADIO_BROWSER_LIMIT cannot be negative.".into(),
+                "RADIO_BROWSER_LIMIT must be greater than zero.".into(),
             ));
         }
         if self.country_concurrency == 0 {
@@ -383,5 +397,65 @@ impl StreamValidationConfig {
             cache_ttl_seconds,
             failure_cache_ttl_seconds,
         })
+    }
+}
+
+impl Config {
+    fn validate(&self) -> Result<(), ConfigError> {
+        if self.cache_ttl_seconds == 0 {
+            return Err(ConfigError::Message(
+                "STATIONS_CACHE_TTL must be greater than zero".into(),
+            ));
+        }
+        if self.memory_cache_ttl_seconds == 0 {
+            return Err(ConfigError::Message(
+                "STATIONS_MEMORY_CACHE_TTL must be greater than zero".into(),
+            ));
+        }
+        if self.cache_key.trim().is_empty() {
+            return Err(ConfigError::Message(
+                "STATIONS_CACHE_KEY must be provided".into(),
+            ));
+        }
+        if self.stream_validation.concurrency == 0 {
+            return Err(ConfigError::Message(
+                "STREAM_VALIDATION_CONCURRENCY must be greater than zero".into(),
+            ));
+        }
+        if self.stream_validation.timeout_ms == 0 {
+            return Err(ConfigError::Message(
+                "STREAM_VALIDATION_TIMEOUT_MS must be greater than zero".into(),
+            ));
+        }
+        if self.stream_proxy.timeout_ms == 0 {
+            return Err(ConfigError::Message(
+                "STREAM_PROXY_TIMEOUT_MS must be greater than zero".into(),
+            ));
+        }
+        self.radio_browser.validate(self.allow_insecure_transports)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn config_loads_with_minimum_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::set_var("REDIS_URL", "redis://localhost:6379");
+        env::set_var("PG_URL", "postgres://user@localhost/db");
+        env::set_var("STATIONS_REFRESH_TOKEN", "dummy");
+        env::set_var("STATIONS_CACHE_TTL", "60");
+        env::remove_var("ALLOW_INSECURE_TRANSPORT");
+
+        let config = Config::load().expect("config should load with dummy env");
+        assert!(config.cache_ttl_seconds > 0);
+        assert!(config.memory_cache_ttl_seconds > 0);
+        assert!(config.stream_validation.concurrency > 0);
     }
 }

@@ -214,6 +214,9 @@ fn normalize_station(
     if raw.lastcheckok.unwrap_or_default() != 1 {
         return None;
     }
+    if raw.stationuuid.trim().is_empty() {
+        return None;
+    }
     if raw.ssl_error.unwrap_or_default() != 0 {
         return None;
     }

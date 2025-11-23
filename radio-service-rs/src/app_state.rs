@@ -227,6 +227,20 @@ impl AppState {
             .await
             .context("failed to connect to postgres")?;
         let redis = create_redis_pool(&config.redis_url).context("failed to create redis pool")?;
+        sqlx::query("SELECT 1")
+            .execute(&postgres)
+            .await
+            .context("failed to validate postgres connectivity")?;
+        {
+            let mut conn = redis
+                .get()
+                .await
+                .context("failed to get redis connection")?;
+            let _: () = conn
+                .ping()
+                .await
+                .context("failed to ping redis during startup")?;
+        }
 
         let stations = StationStorage::new(postgres.clone());
         let favorites = FavoritesStore::new(redis.clone());

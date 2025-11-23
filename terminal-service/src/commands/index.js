@@ -16,6 +16,8 @@ import {
 
 const LS_ALLOWED_FLAGS = new Set(config.lsAllowedFlags);
 const UNAME_ALLOWED_FLAGS = new Set(config.unameAllowedFlags);
+const MAX_COMMAND_LENGTH = 256;
+const MAX_ARGS = 32;
 
 function formatPermissions(stats) {
   const modes = [
@@ -324,6 +326,13 @@ async function handleExecute(body, { motdProvider }) {
     };
   }
 
+  if (trimmed.length > MAX_COMMAND_LENGTH) {
+    return {
+      status: 422,
+      payload: { message: `Command length exceeds limit of ${MAX_COMMAND_LENGTH}` },
+    };
+  }
+
   let currentVirtualCwd;
   try {
     currentVirtualCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
@@ -335,6 +344,13 @@ async function handleExecute(body, { motdProvider }) {
   }
   const [rawCommand, ...args] = trimmed.split(/\s+/);
   const command = rawCommand.toLowerCase();
+
+  if (args.length > MAX_ARGS) {
+    return {
+      status: 422,
+      payload: { message: `Too many arguments; maximum is ${MAX_ARGS}` },
+    };
+  }
 
   try {
     switch (command) {

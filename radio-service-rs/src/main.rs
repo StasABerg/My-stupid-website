@@ -25,6 +25,15 @@ async fn main() -> anyhow::Result<()> {
     let logger = init_logger("radio-service-rs");
 
     let config = Config::load().context("failed to load configuration")?;
+
+    if matches!(env::args().nth(1).as_deref(), Some("check-config")) {
+        logger.info(
+            "config.check_passed",
+            serde_json::to_value(&config).unwrap_or_else(|_| json!({ "status": "ok" })),
+        );
+        return Ok(());
+    }
+
     let state = AppState::initialize(config.clone())
         .await
         .context("failed to initialize application state")?;
