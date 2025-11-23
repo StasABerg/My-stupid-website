@@ -28,6 +28,13 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        - name: fontconfig-cache
+          image: busybox
+          command: ["sh", "-c", "mkdir -p /tmp/fontconfig-cache && chown 101:101 /tmp/fontconfig-cache"]
+          volumeMounts:
+            - name: fontconfig-cache
+              mountPath: /tmp/fontconfig-cache
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}

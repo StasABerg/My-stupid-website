@@ -74,5 +74,7 @@ env:
     value: "300"
   - name: FC_CACHEDIR
     value: "/tmp/fontconfig-cache"
+  - name: XDG_CACHE_HOME
+    value: "/tmp/fontconfig-cache"
   - name: TRUST_PROXY
     value: loopback,linklocal,uniquelocal
