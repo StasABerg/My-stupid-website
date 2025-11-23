@@ -945,6 +945,9 @@ const Radio = () => {
     if (!activeStation.id || !activeStation.streamUrl) {
       return;
     }
+    if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
+      return;
+    }
 
     const controller = new AbortController();
     const url = `${RADIO_API_BASE}/stations/${encodeURIComponent(activeStation.id)}/click`;
