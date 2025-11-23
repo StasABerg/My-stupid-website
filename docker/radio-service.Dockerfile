@@ -1,7 +1,7 @@
 FROM rust:slim AS base
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
-    set -eux; \
+ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eux; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         pkg-config \
@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         gstreamer1.0-libav \
         libgstreamer1.0-dev \
         libgstreamer-plugins-base1.0-dev; \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*
 RUN cargo install cargo-chef
 WORKDIR /app
 
@@ -38,9 +38,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --features gstreamer
 
 FROM debian:trixie-slim AS runner
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
-    set -eux; \
+ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eux; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -50,7 +50,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         gstreamer1.0-plugins-bad \
         gstreamer1.0-plugins-ugly \
         gstreamer1.0-libav; \
-    rm -rf /var/lib/apt/lists/*; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*; \
     useradd -r -u 1000 radio
 WORKDIR /app
 COPY --from=build /app/radio-service-rs/target/release/radio-service-rs /usr/local/bin/radio-service
