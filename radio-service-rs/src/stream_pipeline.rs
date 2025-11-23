@@ -6,7 +6,8 @@ use tokio::sync::Semaphore;
 #[cfg(feature = "gstreamer")]
 use {
     bytes::Bytes, gstreamer as gst, gstreamer::prelude::*, gstreamer_app as gst_app,
-    tokio::sync::mpsc, tokio_stream::wrappers::ReceiverStream, tokio_stream::StreamExt,
+    serde_json::json, tokio::sync::mpsc, tokio_stream::wrappers::ReceiverStream,
+    tokio_stream::StreamExt,
 };
 
 use crate::config::StreamPipelineConfig;
@@ -187,6 +188,13 @@ impl GStreamerEngine {
                 Ok(result) => result,
                 Err(err) => {
                     let _ = tx.blocking_send(Err(std::io::Error::other(format!("{err:?}"))));
+                    logger().warn(
+                        "stream.pipeline.build_failed",
+                        json!({
+                            "url": url,
+                            "error": format!("{err:?}"),
+                        }),
+                    );
                     drop(permit);
                     return;
                 }
@@ -197,16 +205,31 @@ impl GStreamerEngine {
                     "failed to start pipeline: {:?}",
                     err
                 ))));
+                logger().warn(
+                    "stream.pipeline.state_failed",
+                    json!({
+                        "url": url,
+                        "error": format!("{err:?}"),
+                    }),
+                );
                 let _ = pipeline.set_state(gst::State::Null);
                 drop(permit);
                 return;
             }
+
+            logger().info(
+                "stream.pipeline.started",
+                json!({
+                    "url": url,
+                }),
+            );
 
             let bus = match pipeline.bus() {
                 Some(bus) => bus,
                 None => {
                     let _ =
                         tx.blocking_send(Err(std::io::Error::other("pipeline bus unavailable")));
+                    logger().warn("stream.pipeline.bus_unavailable", json!({ "url": url }));
                     let _ = pipeline.set_state(gst::State::Null);
                     drop(permit);
                     return;
@@ -225,6 +248,10 @@ impl GStreamerEngine {
                                     .blocking_send(Ok(Bytes::copy_from_slice(map.as_ref())))
                                     .is_err()
                                 {
+                                    logger().info(
+                                        "stream.pipeline.downstream_closed",
+                                        json!({ "url": url }),
+                                    );
                                     break;
                                 }
                             }
@@ -234,6 +261,13 @@ impl GStreamerEngine {
                         let _ = tx.blocking_send(Err(std::io::Error::other(format!(
                             "sample pull error: {err:?}"
                         ))));
+                        logger().warn(
+                            "stream.pipeline.sample_error",
+                            json!({
+                                "url": url,
+                                "error": format!("{err:?}"),
+                            }),
+                        );
                         break;
                     }
                 }
@@ -246,6 +280,13 @@ impl GStreamerEngine {
                                 "pipeline error: {:?}",
                                 err.error()
                             ))));
+                            logger().warn(
+                                "stream.pipeline.bus_error",
+                                json!({
+                                    "url": url,
+                                    "error": format!("{:?}", err.error()),
+                                }),
+                            );
                             break;
                         }
                         _ => {}

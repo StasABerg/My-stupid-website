@@ -199,6 +199,11 @@ fn upstream_error_response(status: StatusCode, message: String) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
+fn is_playlist_candidate(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    lower.ends_with(".m3u8") || lower.ends_with(".m3u") || lower.ends_with(".pls")
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         match self {
@@ -1231,7 +1236,7 @@ async fn stream_station(
     let rate = enforce_rate_limit(&state, &headers).await?;
 
     let station = load_station(&state, station_id).await?;
-    if state.stream_pipeline.is_enabled() {
+    if state.stream_pipeline.is_enabled() && !is_playlist_candidate(&station.stream_url) {
         match state.stream_pipeline.attempt(&station.stream_url).await {
             Ok(PipelineDecision::Skip) => {}
             Ok(PipelineDecision::Stream { body, content_type }) => {
