@@ -115,6 +115,8 @@ env:
     value: "3"
   - name: STREAM_PIPELINE_FAILURE_CACHE_TTL
     value: "300"
+  - name: FC_CACHEDIR
+    value: "/tmp/fontconfig-cache"
   - name: TRUST_PROXY
     value: loopback,linklocal,uniquelocal
 

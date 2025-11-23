@@ -202,7 +202,16 @@ impl GStreamerEngine {
                 return;
             }
 
-            let bus = pipeline.bus();
+            let bus = match pipeline.bus() {
+                Some(bus) => bus,
+                None => {
+                    let _ =
+                        tx.blocking_send(Err(std::io::Error::other("pipeline bus unavailable")));
+                    let _ = pipeline.set_state(gst::State::Null);
+                    drop(permit);
+                    return;
+                }
+            };
             loop {
                 if tx.is_closed() {
                     break;
@@ -221,22 +230,25 @@ impl GStreamerEngine {
                             }
                         }
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        let _ = tx.blocking_send(Err(std::io::Error::other(format!(
+                            "sample pull error: {err:?}"
+                        ))));
+                        break;
+                    }
                 }
 
-                if let Some(ref bus) = bus {
-                    if let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(0)) {
-                        match msg.view() {
-                            gst::MessageView::Eos(..) => break,
-                            gst::MessageView::Error(err) => {
-                                let _ = tx.blocking_send(Err(std::io::Error::other(format!(
-                                    "pipeline error: {:?}",
-                                    err.error()
-                                ))));
-                                break;
-                            }
-                            _ => {}
+                if let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(0)) {
+                    match msg.view() {
+                        gst::MessageView::Eos(..) => break,
+                        gst::MessageView::Error(err) => {
+                            let _ = tx.blocking_send(Err(std::io::Error::other(format!(
+                                "pipeline error: {:?}",
+                                err.error()
+                            ))));
+                            break;
                         }
+                        _ => {}
                     }
                 }
             }
