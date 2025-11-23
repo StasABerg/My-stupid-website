@@ -13,7 +13,6 @@ const defaults: Record<EnvKey, string> = {
 for (const key of Object.keys(defaults) as EnvKey[]) {
   const value = (import.meta.env as Record<string, string | undefined>)[key];
   if (typeof value !== "string" || value.trim().length === 0) {
-    logger.warn("config.env_missing", { key, appliedDefault: defaults[key] });
     (import.meta.env as Record<string, string | undefined>)[key] = defaults[key];
   }
 }
