@@ -168,7 +168,7 @@ impl GStreamerEngine {
     ) -> Result<(gst::Pipeline, gst_app::AppSink), PipelineError> {
         let timeout_seconds = std::cmp::max(1, (config.timeout_ms / 1000).max(1));
         let pipeline = gst::parse::launch(&format!(
-            "souphttpsrc name=source location=\"{url}\" user-agent=\"{ua}\" timeout={timeout} is-live=true do-timestamp=true ! queue name=buffer ! appsink name=outsink emit-signals=true sync=false",
+            "souphttpsrc name=source location=\"{url}\" user-agent=\"{ua}\" timeout={timeout} iradio-mode=true is-live=true do-timestamp=true ! queue name=buffer ! appsink name=outsink emit-signals=true sync=false",
             ua = config.user_agent,
             timeout = timeout_seconds,
         ))
@@ -210,30 +210,44 @@ impl GStreamerEngine {
     ) -> Result<PipelineDecision, PipelineError> {
         let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(64);
         let url = url.to_string();
-        std::thread::spawn(move || {
-            let (pipeline, appsink) = match Self.build_pipeline(&url, &config) {
-                Ok(result) => result,
-                Err(err) => {
-                    let _ = tx.blocking_send(Err(std::io::Error::other(format!("{err:?}"))));
-                    logger().warn(
-                        "stream.pipeline.build_failed",
-                        json!({
-                            "url": url,
-                            "error": format!("{err:?}"),
-                        }),
-                    );
-                    drop(permit);
-                    return;
-                }
-            };
+        let (pipeline, appsink) = Self
+            .build_pipeline(&url, &config)
+            .map_err(|err| PipelineError::Generic(format!("pipeline build failed: {:?}", err)))?;
 
-            if let Err(err) = pipeline.set_state(gst::State::Playing) {
-                let _ = tx.blocking_send(Err(std::io::Error::other(format!(
-                    "failed to start pipeline: {:?}",
-                    err
-                ))));
+        pipeline.set_state(gst::State::Playing).map_err(|err| {
+            PipelineError::Generic(format!("failed to start pipeline: {:?}", err))
+        })?;
+
+        logger().info(
+            "stream.pipeline.started",
+            json!({
+                "url": url,
+            }),
+        );
+
+        // Pull first sample synchronously; if it fails, fall back so we don't leave the client hanging.
+        match appsink.pull_sample() {
+            Ok(sample) => {
+                if let Some(buffer) = sample.buffer() {
+                    if let Ok(map) = buffer.map_readable() {
+                        if tx
+                            .blocking_send(Ok(Bytes::copy_from_slice(map.as_ref())))
+                            .is_err()
+                        {
+                            logger()
+                                .info("stream.pipeline.downstream_closed", json!({ "url": url }));
+                            let _ = pipeline.set_state(gst::State::Null);
+                            drop(permit);
+                            return Err(PipelineError::Generic(
+                                "downstream closed before first sample".into(),
+                            ));
+                        }
+                    }
+                }
+            }
+            Err(err) => {
                 logger().warn(
-                    "stream.pipeline.state_failed",
+                    "stream.pipeline.sample_error",
                     json!({
                         "url": url,
                         "error": format!("{err:?}"),
@@ -241,32 +255,16 @@ impl GStreamerEngine {
                 );
                 let _ = pipeline.set_state(gst::State::Null);
                 drop(permit);
-                return;
+                return Err(PipelineError::Generic(format!(
+                    "first sample failed: {err:?}"
+                )));
             }
+        }
 
-            logger().info(
-                "stream.pipeline.started",
-                json!({
-                    "url": url,
-                }),
-            );
-
-            let bus = match pipeline.bus() {
-                Some(bus) => bus,
-                None => {
-                    let _ =
-                        tx.blocking_send(Err(std::io::Error::other("pipeline bus unavailable")));
-                    logger().warn("stream.pipeline.bus_unavailable", json!({ "url": url }));
-                    let _ = pipeline.set_state(gst::State::Null);
-                    drop(permit);
-                    return;
-                }
-            };
-            loop {
-                if tx.is_closed() {
-                    break;
-                }
-
+        let bus = pipeline.bus();
+        let url_clone = url.clone();
+        std::thread::spawn(move || {
+            while !tx.is_closed() {
                 match appsink.pull_sample() {
                     Ok(sample) => {
                         if let Some(buffer) = sample.buffer() {
@@ -277,7 +275,7 @@ impl GStreamerEngine {
                                 {
                                     logger().info(
                                         "stream.pipeline.downstream_closed",
-                                        json!({ "url": url }),
+                                        json!({ "url": url_clone }),
                                     );
                                     break;
                                 }
@@ -291,7 +289,7 @@ impl GStreamerEngine {
                         logger().warn(
                             "stream.pipeline.sample_error",
                             json!({
-                                "url": url,
+                                "url": url_clone,
                                 "error": format!("{err:?}"),
                             }),
                         );
@@ -299,24 +297,26 @@ impl GStreamerEngine {
                     }
                 }
 
-                if let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(0)) {
-                    match msg.view() {
-                        gst::MessageView::Eos(..) => break,
-                        gst::MessageView::Error(err) => {
-                            let _ = tx.blocking_send(Err(std::io::Error::other(format!(
-                                "pipeline error: {:?}",
-                                err.error()
-                            ))));
-                            logger().warn(
-                                "stream.pipeline.bus_error",
-                                json!({
-                                    "url": url,
-                                    "error": format!("{:?}", err.error()),
-                                }),
-                            );
-                            break;
+                if let Some(ref bus) = bus {
+                    if let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(0)) {
+                        match msg.view() {
+                            gst::MessageView::Eos(..) => break,
+                            gst::MessageView::Error(err) => {
+                                let _ = tx.blocking_send(Err(std::io::Error::other(format!(
+                                    "pipeline error: {:?}",
+                                    err.error()
+                                ))));
+                                logger().warn(
+                                    "stream.pipeline.bus_error",
+                                    json!({
+                                        "url": url_clone,
+                                        "error": format!("{:?}", err.error()),
+                                    }),
+                                );
+                                break;
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
             }

@@ -19,6 +19,7 @@ use futures_util::TryStreamExt;
 use reqwest::header::{HeaderMap as ReqwestHeaderMap, HeaderName};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tokio::{
     net::TcpListener,
     time::{timeout, Duration},
@@ -36,6 +37,7 @@ use crate::{
     stations::{intersect_lists, ProcessedStations, Station, StationsPayload},
     stream_pipeline::PipelineDecision,
 };
+use deadpool_redis::redis::AsyncCommands;
 
 const OPENAPI_SPEC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/openapi.json"));
 const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
@@ -197,6 +199,13 @@ struct ErrorResponse<'a> {
 
 fn upstream_error_response(status: StatusCode, message: String) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
+}
+
+fn pipeline_failure_cache_key(url: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(url.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+    format!("radio:pipeline:failure:{hash}")
 }
 
 fn is_playlist_candidate(url: &str) -> bool {
@@ -1242,16 +1251,47 @@ async fn stream_station(
     let station = load_station(&state, station_id).await?;
     let is_playlist = is_playlist_candidate(&station.stream_url);
     let mut pipeline_attempted = false;
+    let mut pipeline_enabled = state.stream_pipeline.is_enabled();
+
+    if pipeline_enabled && state.config.stream_pipeline.failure_cache_ttl_seconds > 0 {
+        let key = pipeline_failure_cache_key(&station.stream_url);
+        if let Ok(mut conn) = state.redis.get().await {
+            match conn.exists(&key).await {
+                Ok(true) => {
+                    logger().info(
+                        "stream.pipeline.skip_recent_failure",
+                        json!({
+                            "stationId": station_id,
+                            "url": station.stream_url,
+                        }),
+                    );
+                    pipeline_enabled = false;
+                }
+                Ok(false) => {}
+                Err(err) => {
+                    logger().warn(
+                        "stream.pipeline.cache_check_failed",
+                        json!({
+                            "stationId": station_id,
+                            "url": station.stream_url,
+                            "error": format!("{:?}", err),
+                        }),
+                    );
+                }
+            }
+        }
+    }
+
     logger().info(
         "stream.pipeline.decision",
         json!({
             "stationId": station_id,
             "url": station.stream_url,
             "isPlaylist": is_playlist,
-            "pipelineEnabled": state.stream_pipeline.is_enabled(),
+            "pipelineEnabled": pipeline_enabled,
         }),
     );
-    if state.stream_pipeline.is_enabled() && !is_playlist {
+    if pipeline_enabled && !is_playlist {
         match state.stream_pipeline.attempt(&station.stream_url).await {
             Ok(PipelineDecision::Skip) => {}
             Ok(PipelineDecision::Stream { body, content_type }) => {
@@ -1275,6 +1315,28 @@ async fn stream_station(
                         "error": format!("{:?}", error),
                     }),
                 );
+                if state.config.stream_pipeline.failure_cache_ttl_seconds > 0 {
+                    let key = pipeline_failure_cache_key(&station.stream_url);
+                    if let Ok(mut conn) = state.redis.get().await {
+                        let set_result: Result<(), deadpool_redis::redis::RedisError> = conn
+                            .set_ex(
+                                &key,
+                                "failed",
+                                state.config.stream_pipeline.failure_cache_ttl_seconds,
+                            )
+                            .await;
+                        if let Err(err) = set_result {
+                            logger().warn(
+                                "stream.pipeline.cache_set_failed",
+                                json!({
+                                    "stationId": station_id,
+                                    "url": station.stream_url,
+                                    "error": format!("{:?}", err),
+                                }),
+                            );
+                        }
+                    }
+                }
             }
         }
     } else if is_playlist {
