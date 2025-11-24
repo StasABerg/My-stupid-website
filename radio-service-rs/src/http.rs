@@ -1241,6 +1241,7 @@ async fn stream_station(
 
     let station = load_station(&state, station_id).await?;
     let is_playlist = is_playlist_candidate(&station.stream_url);
+    let mut pipeline_attempted = false;
     logger().info(
         "stream.pipeline.decision",
         json!({
@@ -1266,6 +1267,7 @@ async fn stream_station(
                 return Ok(with_rate_limit(response, &rate));
             }
             Err(error) => {
+                pipeline_attempted = true;
                 logger().info(
                     "stream.pipeline.fallback",
                     json!({
@@ -1304,6 +1306,17 @@ async fn stream_station(
     .await
     .map_err(|_| ApiError::ServiceUnavailable("Stream request timed out"))?
     .map_err(|_| ApiError::ServiceUnavailable("Failed to reach stream URL."))?;
+
+    if pipeline_attempted {
+        logger().info(
+            "stream.pipeline.fallback_proxy",
+            json!({
+                "stationId": station_id,
+                "url": station.stream_url,
+                "status": response.status().as_u16(),
+            }),
+        );
+    }
 
     if !response.status().is_success() {
         let status = response.status();

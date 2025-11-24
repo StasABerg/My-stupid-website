@@ -168,10 +168,9 @@ impl GStreamerEngine {
     ) -> Result<(gst::Pipeline, gst_app::AppSink), PipelineError> {
         let timeout_seconds = std::cmp::max(1, (config.timeout_ms / 1000).max(1));
         let pipeline = gst::parse::launch(&format!(
-            "souphttpsrc location=\"{url}\" user-agent=\"{ua}\" timeout={timeout} is-live=true do-timestamp=true ! queue max-size-time={buffer} ! appsink name=outsink emit-signals=true sync=false",
+            "souphttpsrc name=source location=\"{url}\" user-agent=\"{ua}\" timeout={timeout} is-live=true do-timestamp=true ! queue name=buffer ! appsink name=outsink emit-signals=true sync=false",
             ua = config.user_agent,
             timeout = timeout_seconds,
-            buffer = gst::ClockTime::SECOND.saturating_mul(config.buffer_seconds)
         ))
         .map_err(|err| PipelineError::Generic(format!("parse pipeline: {:?}", err)))?;
 
@@ -189,6 +188,15 @@ impl GStreamerEngine {
         if let Some(src) = pipeline.by_name("source") {
             src.set_property("timeout", timeout_seconds as u32);
             src.set_property("user-agent", &config.user_agent);
+        }
+
+        if let Some(queue) = pipeline.by_name("buffer") {
+            let buffer_ns = gst::ClockTime::SECOND
+                .saturating_mul(config.buffer_seconds)
+                .nseconds();
+            queue.set_property("max-size-time", buffer_ns);
+            queue.set_property("max-size-bytes", 0u32);
+            queue.set_property("max-size-buffers", 0u32);
         }
 
         Ok((pipeline, appsink))
