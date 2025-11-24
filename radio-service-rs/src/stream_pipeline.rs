@@ -5,6 +5,7 @@ use tokio::sync::Semaphore;
 
 #[cfg(feature = "gstreamer")]
 use {
+    std::sync::atomic::{AtomicBool, Ordering},
     bytes::Bytes, gstreamer as gst, gstreamer::prelude::*, gstreamer_app as gst_app,
     serde_json::json, tokio::sync::mpsc, tokio_stream::wrappers::ReceiverStream,
     tokio_stream::StreamExt,
@@ -277,6 +278,8 @@ impl GStreamerEngine {
         // Use appsink callbacks to push samples without blocking the async runtime.
         let tx_samples = tx.clone();
         let url_for_samples = url.clone();
+        let downstream_logged = Arc::new(AtomicBool::new(false));
+        let downstream_logged_samples = downstream_logged.clone();
         appsink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |sink| match sink.pull_sample() {
@@ -285,10 +288,12 @@ impl GStreamerEngine {
                             if let Ok(map) = buffer.map_readable() {
                                 let chunk = Bytes::copy_from_slice(map.as_ref());
                                 if tx_samples.blocking_send(Ok(chunk)).is_err() {
-                                    logger().info(
-                                        "stream.pipeline.downstream_closed",
-                                        json!({ "url": url_for_samples }),
-                                    );
+                                    if !downstream_logged_samples.swap(true, Ordering::Relaxed) {
+                                        logger().info(
+                                            "stream.pipeline.downstream_closed",
+                                            json!({ "url": url_for_samples }),
+                                        );
+                                    }
                                     return Err(gst::FlowError::Eos);
                                 }
                             }
@@ -326,11 +331,13 @@ impl GStreamerEngine {
         if let Some(bus) = pipeline.bus() {
             let tx_bus = tx.clone();
             let url_bus = url.clone();
+            let downstream_logged_bus = downstream_logged.clone();
             std::thread::spawn(move || {
                 while let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(1)) {
                     match msg.view() {
                         gst::MessageView::Eos(..) => {
                             let _ = tx_bus.try_send(Err(std::io::Error::other("pipeline eos")));
+                            downstream_logged_bus.store(true, Ordering::Relaxed);
                             break;
                         }
                         gst::MessageView::Error(err) => {
@@ -345,6 +352,7 @@ impl GStreamerEngine {
                                     "error": format!("{:?}", err.error()),
                                 }),
                             );
+                            downstream_logged_bus.store(true, Ordering::Relaxed);
                             break;
                         }
                         _ => {}

@@ -48,6 +48,7 @@ pub struct ProxyOptions<'a> {
     pub cacheable: bool,
     pub remote_addr: Option<SocketAddr>,
     pub request_id: &'a str,
+    pub is_streaming: bool,
 }
 
 impl Proxy {
@@ -141,7 +142,7 @@ impl GatewayProxy for Proxy {
 
         let status = response.status();
         let headers = sanitize_response_headers(response.headers());
-        let is_stream_target = is_streaming_target(options.target);
+        let is_stream_target = options.is_streaming;
         let cacheable = options.cacheable && !is_stream_target;
 
         let mut response_headers = HeaderMap::new();
@@ -375,8 +376,4 @@ fn header_map_to_string(headers: HeaderMap) -> HashMap<String, String> {
                 .map(|raw| (key.as_str().to_string(), raw.to_string()))
         })
         .collect()
-}
-
-fn is_streaming_target(target: &Target) -> bool {
-    target.service == "radio" && target.path.contains("/stream")
 }

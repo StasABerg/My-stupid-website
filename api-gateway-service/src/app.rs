@@ -12,7 +12,6 @@ use anyhow::Result;
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
-use axum::error_handling::HandleErrorLayer;
 use axum::extract::{ConnectInfo, OriginalUri, State};
 use axum::http::{HeaderMap, HeaderName, Method, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
@@ -24,8 +23,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use time::{OffsetDateTime, format_description::well_known::Rfc2822};
-use tower::timeout::TimeoutLayer;
-use tower::{BoxError, ServiceBuilder};
+use tokio::time::timeout;
 
 const OVERLOAD_THRESHOLD_MS: u64 = 1_000;
 const PRE_FLIGHT_MAX_AGE: &str = "600";
@@ -68,37 +66,6 @@ pub async fn build_router_with_proxy(
         logger,
     });
 
-    let request_timeout = state.config.request_timeout;
-    let timeout_logger = state.logger.clone();
-    let timeout_layer = ServiceBuilder::new()
-        .layer(HandleErrorLayer::new(move |error: BoxError| {
-            let timeout_logger = timeout_logger.clone();
-            async move {
-                if error.is::<tower::timeout::error::Elapsed>() {
-                    timeout_logger.warn(
-                        "router.request_timeout",
-                        json!({ "error": error.to_string() }),
-                    );
-                    (
-                        StatusCode::GATEWAY_TIMEOUT,
-                        Json(json!({ "error": "Request timed out" })),
-                    )
-                        .into_response()
-                } else {
-                    timeout_logger.error(
-                        "router.unhandled_error",
-                        json!({ "error": error.to_string() }),
-                    );
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "error": "Unhandled gateway error" })),
-                    )
-                        .into_response()
-                }
-            }
-        }))
-        .layer(TimeoutLayer::new(request_timeout));
-
     Ok(Router::new()
         .route("/session", post(handle_session_post))
         .route("/session", options(handle_session_options))
@@ -113,8 +80,7 @@ pub async fn build_router_with_proxy(
         .route("/docs/openapi.json", get(handle_docs_spec))
         .route("/docs/json", get(handle_docs_spec))
         .fallback(handle_proxy)
-        .with_state(state.clone())
-        .layer(timeout_layer))
+        .with_state(state.clone()))
 }
 
 struct AppState {
@@ -255,7 +221,7 @@ async fn handle_session_method_not_allowed(
 }
 
 async fn handle_healthz() -> impl IntoResponse {
-    axum::Json(json!({"status": "ok"}))
+    Json(json!({"status": "ok"}))
 }
 
 async fn handle_internal_status(State(state): State<Arc<AppState>>) -> Response<Body> {
@@ -299,13 +265,11 @@ async fn handle_proxy(
     OriginalUri(uri): OriginalUri,
     request: Request<Body>,
 ) -> Response<Body> {
+    let method = request.method().clone();
     let headers_clone = request.headers().clone();
-    let context = state.request_context.start(
-        request.method().clone(),
-        &uri,
-        &headers_clone,
-        Some(&remote),
-    );
+    let context = state
+        .request_context
+        .start(method.clone(), &uri, &headers_clone, Some(&remote));
 
     let origin = request
         .headers()
@@ -334,6 +298,7 @@ async fn handle_proxy(
         }
     };
 
+    let path = parsed.path.clone();
     let target = match state.routing.determine_target(&parsed.path) {
         Some(target) => target,
         None => {
@@ -406,6 +371,7 @@ async fn handle_proxy(
     }
 
     let cacheable = state.routing.should_cache(request.method(), &target);
+    let is_streaming = state.routing.is_streaming_target(&target);
     let cache_key = if cacheable {
         Some(
             state
@@ -438,23 +404,47 @@ async fn handle_proxy(
     };
 
     let request_id = context.request_id.clone();
-    let response = state
-        .proxy
-        .forward(
-            parts,
-            body_bytes,
-            ProxyOptions {
-                target: &target,
-                query: parsed.query.as_deref(),
-                session: session.as_ref(),
-                cors_headers: cors_headers.clone(),
-                cache_key,
-                cacheable,
-                remote_addr: Some(remote),
-                request_id: &request_id,
-            },
-        )
-        .await;
+    let response_future = state.proxy.forward(
+        parts,
+        body_bytes,
+        ProxyOptions {
+            target: &target,
+            query: parsed.query.as_deref(),
+            session: session.as_ref(),
+            cors_headers: cors_headers.clone(),
+            cache_key,
+            cacheable,
+            remote_addr: Some(remote),
+            request_id: &request_id,
+            is_streaming,
+        },
+    );
+    let response = if is_streaming {
+        response_future.await
+    } else {
+        match timeout(state.config.request_timeout, response_future).await {
+            Ok(resp) => resp,
+            Err(_) => {
+                state.logger.warn(
+                    "router.request_timeout",
+                    json!({
+                        "requestId": request_id,
+                        "method": method.as_str(),
+                        "path": path,
+                    }),
+                );
+                context.complete(
+                    StatusCode::GATEWAY_TIMEOUT.as_u16(),
+                    json!({"route": target.service, "reason": "timeout"}),
+                );
+                return json_response(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    json!({"error": "Request timed out"}),
+                    cors_headers,
+                );
+            }
+        }
+    };
 
     let status = response.status().as_u16();
     let cache_status = response
