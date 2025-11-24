@@ -371,13 +371,6 @@ const Radio = () => {
         return;
       }
 
-      if (!activeStation.hls) {
-        if (!cancelled) {
-          setResolvedStreamUrl(activeStation.streamUrl);
-        }
-        return;
-      }
-
       const encodedId = encodeURIComponent(activeStation.id);
       let streamPath = `${RADIO_API_BASE}/stations/${encodedId}/stream`;
 
