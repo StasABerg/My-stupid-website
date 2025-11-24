@@ -166,40 +166,100 @@ impl GStreamerEngine {
         url: &str,
         config: &StreamPipelineConfig,
     ) -> Result<(gst::Pipeline, gst_app::AppSink), PipelineError> {
-        let timeout_seconds = std::cmp::max(1, (config.timeout_ms / 1000).max(1));
-        let pipeline = gst::parse::launch(&format!(
-            "souphttpsrc name=source location=\"{url}\" user-agent=\"{ua}\" timeout={timeout} iradio-mode=true is-live=true do-timestamp=true ! queue name=buffer ! appsink name=outsink emit-signals=true sync=false",
-            ua = config.user_agent,
-            timeout = timeout_seconds,
-        ))
-        .map_err(|err| PipelineError::Generic(format!("parse pipeline: {:?}", err)))?;
+        let timeout_seconds = std::cmp::max(1, (config.timeout_ms / 1000).max(1)) as u32;
+        let pipeline = gst::Pipeline::new();
 
-        let pipeline = pipeline
-            .downcast::<gst::Pipeline>()
-            .map_err(|_| PipelineError::Generic("failed to downcast pipeline".into()))?;
+        let src = gst::ElementFactory::make("souphttpsrc")
+            .name("source")
+            .property("location", url)
+            .property("user-agent", &config.user_agent)
+            .property("timeout", timeout_seconds)
+            .property("iradio-mode", true)
+            .property("is-live", true)
+            .build()
+            .map_err(|err| PipelineError::Generic(format!("build source: {:?}", err)))?;
 
-        let appsink = pipeline
-            .by_name("outsink")
-            .ok_or_else(|| PipelineError::Generic("appsink not found".into()))?
-            .downcast::<gst_app::AppSink>()
+        let decode = gst::ElementFactory::make("decodebin")
+            .name("decode")
+            .build()
+            .map_err(|err| PipelineError::Generic(format!("build decodebin: {:?}", err)))?;
+
+        let convert = gst::ElementFactory::make("audioconvert")
+            .name("aconvert")
+            .build()
+            .map_err(|err| PipelineError::Generic(format!("build audioconvert: {:?}", err)))?;
+
+        let resample = gst::ElementFactory::make("audioresample")
+            .name("aresample")
+            .build()
+            .map_err(|err| PipelineError::Generic(format!("build audioresample: {:?}", err)))?;
+
+        let encoder = gst::ElementFactory::make("lamemp3enc")
+            .name("encoder")
+            .property("bitrate", 128i32)
+            .build()
+            .map_err(|err| PipelineError::Generic(format!("build lamemp3enc: {:?}", err)))?;
+
+        let sink_caps = gst::Caps::builder("audio/mpeg")
+            .field("mpegversion", 1i32)
+            .field("layer", 3i32)
+            .build();
+
+        let sink = gst::ElementFactory::make("appsink")
+            .name("outsink")
+            .property("emit-signals", true)
+            .property("sync", false)
+            .property("caps", sink_caps)
+            .build()
+            .map_err(|err| PipelineError::Generic(format!("build appsink: {:?}", err)))?;
+
+        let sink: gst_app::AppSink = sink
+            .downcast()
             .map_err(|_| PipelineError::Generic("failed to cast appsink".into()))?;
 
-        // Configure source settings if present.
-        if let Some(src) = pipeline.by_name("source") {
-            src.set_property("timeout", timeout_seconds as u32);
-            src.set_property("user-agent", &config.user_agent);
-        }
+        pipeline
+            .add_many([
+                src.upcast_ref::<gst::Element>(),
+                decode.upcast_ref::<gst::Element>(),
+                convert.upcast_ref::<gst::Element>(),
+                resample.upcast_ref::<gst::Element>(),
+                encoder.upcast_ref::<gst::Element>(),
+                sink.upcast_ref::<gst::Element>(),
+            ])
+            .map_err(|err| PipelineError::Generic(format!("add elements: {:?}", err)))?;
 
-        if let Some(queue) = pipeline.by_name("buffer") {
-            let buffer_ns = gst::ClockTime::SECOND
-                .saturating_mul(config.buffer_seconds)
-                .nseconds();
-            queue.set_property("max-size-time", buffer_ns);
-            queue.set_property("max-size-bytes", 0u32);
-            queue.set_property("max-size-buffers", 0u32);
-        }
+        gst::Element::link_many([
+            convert.upcast_ref::<gst::Element>(),
+            resample.upcast_ref::<gst::Element>(),
+            encoder.upcast_ref::<gst::Element>(),
+        ])
+        .map_err(|err| PipelineError::Generic(format!("link convert chain: {:?}", err)))?;
+        encoder
+            .link(sink.upcast_ref::<gst::Element>())
+            .map_err(|err| PipelineError::Generic(format!("link encoder->sink: {:?}", err)))?;
 
-        Ok((pipeline, appsink))
+        // Link source -> decodebin (dynamic) in the pad-added handler.
+        src.link(&decode)
+            .map_err(|err| PipelineError::Generic(format!("link source->decode: {:?}", err)))?;
+
+        let convert_weak = convert.downgrade();
+        decode.connect_pad_added(move |_dbin, src_pad| {
+            if let Some(convert) = convert_weak.upgrade() {
+                if let Some(sink_pad) = convert.static_pad("sink") {
+                    if sink_pad.is_linked() {
+                        return;
+                    }
+                    if let Err(err) = src_pad.link(&sink_pad) {
+                        logger().warn(
+                            "stream.pipeline.decode_link_failed",
+                            json!({ "error": format!("{:?}", err) }),
+                        );
+                    }
+                }
+            }
+        });
+
+        Ok((pipeline, sink))
     }
 
     fn start(
@@ -214,6 +274,46 @@ impl GStreamerEngine {
             .build_pipeline(&url, &config)
             .map_err(|err| PipelineError::Generic(format!("pipeline build failed: {:?}", err)))?;
 
+        // Use appsink callbacks to push samples without blocking the async runtime.
+        let tx_samples = tx.clone();
+        let url_for_samples = url.clone();
+        appsink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |sink| match sink.pull_sample() {
+                    Ok(sample) => {
+                        if let Some(buffer) = sample.buffer() {
+                            if let Ok(map) = buffer.map_readable() {
+                                if tx_samples
+                                    .try_send(Ok(Bytes::copy_from_slice(map.as_ref())))
+                                    .is_err()
+                                {
+                                    logger().info(
+                                        "stream.pipeline.downstream_closed",
+                                        json!({ "url": url_for_samples }),
+                                    );
+                                    return Err(gst::FlowError::Eos);
+                                }
+                            }
+                        }
+                        Ok(gst::FlowSuccess::Ok)
+                    }
+                    Err(err) => {
+                        let _ = tx_samples.try_send(Err(std::io::Error::other(format!(
+                            "sample pull error: {err:?}"
+                        ))));
+                        logger().warn(
+                            "stream.pipeline.sample_error",
+                            json!({
+                                "url": url_for_samples,
+                                "error": format!("{err:?}"),
+                            }),
+                        );
+                        Err(gst::FlowError::Error)
+                    }
+                })
+                .build(),
+        );
+
         pipeline.set_state(gst::State::Playing).map_err(|err| {
             PipelineError::Generic(format!("failed to start pipeline: {:?}", err))
         })?;
@@ -225,102 +325,41 @@ impl GStreamerEngine {
             }),
         );
 
-        // Pull first sample synchronously; if it fails, fall back so we don't leave the client hanging.
-        match appsink.pull_sample() {
-            Ok(sample) => {
-                if let Some(buffer) = sample.buffer() {
-                    if let Ok(map) = buffer.map_readable() {
-                        if tx
-                            .blocking_send(Ok(Bytes::copy_from_slice(map.as_ref())))
-                            .is_err()
-                        {
-                            logger()
-                                .info("stream.pipeline.downstream_closed", json!({ "url": url }));
-                            let _ = pipeline.set_state(gst::State::Null);
-                            drop(permit);
-                            return Err(PipelineError::Generic(
-                                "downstream closed before first sample".into(),
-                            ));
+        if let Some(bus) = pipeline.bus() {
+            let tx_bus = tx.clone();
+            let url_bus = url.clone();
+            std::thread::spawn(move || {
+                while let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(1)) {
+                    match msg.view() {
+                        gst::MessageView::Eos(..) => {
+                            let _ = tx_bus.try_send(Err(std::io::Error::other("pipeline eos")));
+                            break;
                         }
+                        gst::MessageView::Error(err) => {
+                            let _ = tx_bus.try_send(Err(std::io::Error::other(format!(
+                                "pipeline error: {:?}",
+                                err.error()
+                            ))));
+                            logger().warn(
+                                "stream.pipeline.bus_error",
+                                json!({
+                                    "url": url_bus,
+                                    "error": format!("{:?}", err.error()),
+                                }),
+                            );
+                            break;
+                        }
+                        _ => {}
                     }
                 }
-            }
-            Err(err) => {
-                logger().warn(
-                    "stream.pipeline.sample_error",
-                    json!({
-                        "url": url,
-                        "error": format!("{err:?}"),
-                    }),
-                );
-                let _ = pipeline.set_state(gst::State::Null);
-                drop(permit);
-                return Err(PipelineError::Generic(format!(
-                    "first sample failed: {err:?}"
-                )));
-            }
+            });
         }
 
-        let bus = pipeline.bus();
-        let url_clone = url.clone();
+        let tx_end = tx.clone();
         std::thread::spawn(move || {
-            while !tx.is_closed() {
-                match appsink.pull_sample() {
-                    Ok(sample) => {
-                        if let Some(buffer) = sample.buffer() {
-                            if let Ok(map) = buffer.map_readable() {
-                                if tx
-                                    .blocking_send(Ok(Bytes::copy_from_slice(map.as_ref())))
-                                    .is_err()
-                                {
-                                    logger().info(
-                                        "stream.pipeline.downstream_closed",
-                                        json!({ "url": url_clone }),
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        let _ = tx.blocking_send(Err(std::io::Error::other(format!(
-                            "sample pull error: {err:?}"
-                        ))));
-                        logger().warn(
-                            "stream.pipeline.sample_error",
-                            json!({
-                                "url": url_clone,
-                                "error": format!("{err:?}"),
-                            }),
-                        );
-                        break;
-                    }
-                }
-
-                if let Some(ref bus) = bus {
-                    if let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(0)) {
-                        match msg.view() {
-                            gst::MessageView::Eos(..) => break,
-                            gst::MessageView::Error(err) => {
-                                let _ = tx.blocking_send(Err(std::io::Error::other(format!(
-                                    "pipeline error: {:?}",
-                                    err.error()
-                                ))));
-                                logger().warn(
-                                    "stream.pipeline.bus_error",
-                                    json!({
-                                        "url": url_clone,
-                                        "error": format!("{:?}", err.error()),
-                                    }),
-                                );
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+            while !tx_end.is_closed() {
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
-
             let _ = pipeline.set_state(gst::State::Null);
             drop(permit);
         });
