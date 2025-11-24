@@ -200,8 +200,12 @@ fn upstream_error_response(status: StatusCode, message: String) -> Response {
 }
 
 fn is_playlist_candidate(url: &str) -> bool {
+    if let Ok(parsed) = Url::parse(url) {
+        let path = parsed.path().to_lowercase();
+        return path.ends_with(".m3u8") || path.ends_with(".m3u") || path.ends_with(".pls");
+    }
     let lower = url.to_lowercase();
-    lower.contains(".m3u8") || lower.contains(".m3u") || lower.contains(".pls")
+    lower.ends_with(".m3u8") || lower.ends_with(".m3u") || lower.ends_with(".pls")
 }
 
 impl IntoResponse for ApiError {
@@ -1237,6 +1241,15 @@ async fn stream_station(
 
     let station = load_station(&state, station_id).await?;
     let is_playlist = is_playlist_candidate(&station.stream_url);
+    logger().info(
+        "stream.pipeline.decision",
+        json!({
+            "stationId": station_id,
+            "url": station.stream_url,
+            "isPlaylist": is_playlist,
+            "pipelineEnabled": state.stream_pipeline.is_enabled(),
+        }),
+    );
     if state.stream_pipeline.is_enabled() && !is_playlist {
         match state.stream_pipeline.attempt(&station.stream_url).await {
             Ok(PipelineDecision::Skip) => {}
