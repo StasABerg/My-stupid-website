@@ -1236,7 +1236,8 @@ async fn stream_station(
     let rate = enforce_rate_limit(&state, &headers).await?;
 
     let station = load_station(&state, station_id).await?;
-    if state.stream_pipeline.is_enabled() && !is_playlist_candidate(&station.stream_url) {
+    let is_playlist = is_playlist_candidate(&station.stream_url);
+    if state.stream_pipeline.is_enabled() && !is_playlist {
         match state.stream_pipeline.attempt(&station.stream_url).await {
             Ok(PipelineDecision::Skip) => {}
             Ok(PipelineDecision::Stream { body, content_type }) => {
@@ -1261,9 +1262,17 @@ async fn stream_station(
                 );
             }
         }
-    } else if is_playlist_candidate(&station.stream_url) {
+    } else if is_playlist {
         logger().info(
             "stream.pipeline.skipped_playlist",
+            json!({
+                "stationId": station_id,
+                "url": station.stream_url,
+            }),
+        );
+    } else {
+        logger().info(
+            "stream.pipeline.disabled",
             json!({
                 "stationId": station_id,
                 "url": station.stream_url,
