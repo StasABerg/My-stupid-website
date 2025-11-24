@@ -166,10 +166,11 @@ impl GStreamerEngine {
         url: &str,
         config: &StreamPipelineConfig,
     ) -> Result<(gst::Pipeline, gst_app::AppSink), PipelineError> {
+        let timeout_seconds = std::cmp::max(1, (config.timeout_ms / 1000).max(1));
         let pipeline = gst::parse::launch(&format!(
-            "souphttpsrc location=\"{url}\" user-agent=\"{ua}\" timeout={timeout}s is-live=true do-timestamp=true ! queue max-size-time={buffer} ! appsink name=outsink emit-signals=true sync=false",
+            "souphttpsrc location=\"{url}\" user-agent=\"{ua}\" timeout={timeout} is-live=true do-timestamp=true ! queue max-size-time={buffer} ! appsink name=outsink emit-signals=true sync=false",
             ua = config.user_agent,
-            timeout = config.timeout_ms / 1000,
+            timeout = timeout_seconds,
             buffer = gst::ClockTime::SECOND.saturating_mul(config.buffer_seconds)
         ))
         .map_err(|err| PipelineError::Generic(format!("parse pipeline: {:?}", err)))?;
@@ -186,7 +187,7 @@ impl GStreamerEngine {
 
         // Configure source settings if present.
         if let Some(src) = pipeline.by_name("source") {
-            src.set_property("timeout", config.timeout_ms / 1000);
+            src.set_property("timeout", timeout_seconds as u32);
             src.set_property("user-agent", &config.user_agent);
         }
 
