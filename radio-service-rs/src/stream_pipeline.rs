@@ -283,10 +283,8 @@ impl GStreamerEngine {
                     Ok(sample) => {
                         if let Some(buffer) = sample.buffer() {
                             if let Ok(map) = buffer.map_readable() {
-                                if tx_samples
-                                    .try_send(Ok(Bytes::copy_from_slice(map.as_ref())))
-                                    .is_err()
-                                {
+                                let chunk = Bytes::copy_from_slice(map.as_ref());
+                                if tx_samples.blocking_send(Ok(chunk)).is_err() {
                                     logger().info(
                                         "stream.pipeline.downstream_closed",
                                         json!({ "url": url_for_samples }),
@@ -298,7 +296,7 @@ impl GStreamerEngine {
                         Ok(gst::FlowSuccess::Ok)
                     }
                     Err(err) => {
-                        let _ = tx_samples.try_send(Err(std::io::Error::other(format!(
+                        let _ = tx_samples.blocking_send(Err(std::io::Error::other(format!(
                             "sample pull error: {err:?}"
                         ))));
                         logger().warn(
@@ -368,7 +366,7 @@ impl GStreamerEngine {
         let body = axum::body::Body::from_stream(stream);
         Ok(PipelineDecision::Stream {
             body,
-            content_type: None,
+            content_type: Some("audio/mpeg".to_string()),
         })
     }
 }

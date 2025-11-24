@@ -352,6 +352,11 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const secretVideo = SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""];
+  const secretEmbedUrl = useMemo(
+    () => buildSecretEmbedUrl(activeStation.id),
+    [activeStation.id],
+  );
   const shareLink = useMemo(() => {
     if (typeof window === "undefined" || typeof window.btoa !== "function") {
       return null;
@@ -374,7 +379,7 @@ const Radio = () => {
   useEffect(() => {
     let cancelled = false;
     async function resolveStreamUrl() {
-      if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
+      if (secretVideo) {
         if (!cancelled) {
           setResolvedStreamUrl(null);
         }
@@ -414,7 +419,7 @@ const Radio = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeStation.hls, activeStation.id, activeStation.streamUrl]);
+  }, [activeStation.hls, activeStation.id, activeStation.streamUrl, secretVideo]);
 
   const uniqueCountries = useMemo(() => {
     const fromMeta = firstMeta?.countries;
@@ -964,7 +969,7 @@ const Radio = () => {
     if (!activeStation.id || !activeStation.streamUrl) {
       return;
     }
-    if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
+    if (secretVideo) {
       return;
     }
 
@@ -978,7 +983,7 @@ const Radio = () => {
     return () => {
       controller.abort();
     };
-  }, [activeStation.id, activeStation.streamUrl]);
+  }, [activeStation.id, activeStation.streamUrl, secretVideo]);
 
   const maxFrequencyLabel =
     displayStations.length > 0
@@ -1036,7 +1041,7 @@ const Radio = () => {
                 shareDisabled={!shareLink}
                 shareButtonRef={shareButtonRef}
               />
-              {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""] ? (
+              {secretVideo ? (
                 <div className="border border-terminal-green/40 rounded-md bg-black/80 p-3 space-y-2">
                   <p className="text-terminal-cyan text-xs uppercase tracking-[0.3em]">
                     Secret Broadcast
@@ -1044,14 +1049,14 @@ const Radio = () => {
                   <div className="relative w-full pt-[56.25%]">
                     <iframe
                       title="Secret Broadcast Feed"
-                      src={SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].embed}
+                      src={secretEmbedUrl ?? secretVideo.embed}
                       allow="autoplay; encrypted-media"
                       allowFullScreen
                       className="absolute inset-0 h-full w-full border border-terminal-green/30"
                     />
                   </div>
                   <p className="text-terminal-white/60 text-[0.65rem]">
-                    {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].label}
+                    {secretVideo.label}
                   </p>
                 </div>
               ) : null}
