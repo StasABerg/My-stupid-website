@@ -149,7 +149,9 @@ impl Routing {
         if method != http::Method::GET {
             return false;
         }
-        target.service == "radio" && target.path.starts_with("/stations")
+        target.service == "radio"
+            && target.path.starts_with("/stations")
+            && !target.path.contains("/stream")
     }
 
     pub fn build_cache_key(&self, target: &Target, query: Option<&str>) -> String {

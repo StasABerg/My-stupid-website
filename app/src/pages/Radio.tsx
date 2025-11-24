@@ -130,6 +130,22 @@ const SECRET_BROADCAST_VIDEOS: Record<
   },
 };
 
+const buildSecretEmbedUrl = (stationId?: string | null) => {
+  if (!stationId) return null;
+  const secret = SECRET_BROADCAST_VIDEOS[stationId];
+  if (!secret) return null;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const separator = secret.embed.includes("?") ? "&" : "?";
+  const params = new URLSearchParams();
+  if (origin) {
+    params.set("origin", origin);
+  }
+  params.set("playsinline", "1");
+  // preserve existing query params on the embed
+  const glue = params.toString();
+  return glue ? `${secret.embed}${separator}${glue}` : secret.embed;
+};
+
 type StationOverride = {
   station: RadioStation;
   allowUnknown?: boolean;

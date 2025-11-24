@@ -10,10 +10,13 @@ use async_trait::async_trait;
 use axum::body::Body;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bytes::Bytes;
+use futures_util::StreamExt;
 use http::{HeaderMap, HeaderName, HeaderValue, Response, StatusCode, header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
+use std::io;
 use std::net::SocketAddr;
 use std::str;
 
@@ -138,24 +141,8 @@ impl GatewayProxy for Proxy {
 
         let status = response.status();
         let headers = sanitize_response_headers(response.headers());
-        let bytes = match response.bytes().await {
-            Ok(body) => body,
-            Err(error) => {
-                self.logger.error(
-                    "proxy.response_read_failed",
-                    serde_json::json!({
-                        "requestId": options.request_id,
-                        "target": target_url,
-                        "error": error.to_string(),
-                    }),
-                );
-                return build_error_response(
-                    StatusCode::BAD_GATEWAY,
-                    "Upstream response invalid",
-                    &options.cors_headers,
-                );
-            }
-        };
+        let is_stream_target = is_streaming_target(options.target);
+        let cacheable = options.cacheable && !is_stream_target;
 
         let mut response_headers = HeaderMap::new();
         for (key, value) in headers.iter() {
@@ -166,15 +153,16 @@ impl GatewayProxy for Proxy {
         }
         response_headers.insert(
             HeaderName::from_static("x-cache"),
-            HeaderValue::from_static("MISS"),
+            HeaderValue::from_static(if cacheable { "MISS" } else { "BYPASS" }),
         );
 
-        if response_headers.get(header::CONTENT_TYPE).is_none() {
+        if !is_stream_target && response_headers.get(header::CONTENT_TYPE).is_none() {
             response_headers.insert(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("application/json"),
             );
         }
+        response_headers.remove(header::CONTENT_LENGTH);
 
         if let Some(session) = options.session {
             if response_headers.get("x-gateway-session").is_none() {
@@ -196,7 +184,54 @@ impl GatewayProxy for Proxy {
             );
         }
 
-        if options.cacheable
+        if is_stream_target {
+            let logger = self.logger.clone();
+            let request_id = options.request_id.to_string();
+            let target = target_url.clone();
+            let stream = response.bytes_stream().map(move |chunk| match chunk {
+                Ok(bytes) => Ok(bytes),
+                Err(error) => {
+                    logger.warn(
+                        "proxy.stream_forward_error",
+                        json!({
+                            "requestId": request_id,
+                            "target": target,
+                            "error": error.to_string(),
+                        }),
+                    );
+                    Err(io::Error::other(error))
+                }
+            });
+            let mut builder = Response::builder().status(status);
+            *builder.headers_mut().unwrap() = response_headers;
+            return builder.body(Body::from_stream(stream)).unwrap_or_else(|_| {
+                Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::from("{}"))
+                    .expect("failed to build streaming proxy response")
+            });
+        }
+
+        let bytes = match response.bytes().await {
+            Ok(body) => body,
+            Err(error) => {
+                self.logger.error(
+                    "proxy.response_read_failed",
+                    json!({
+                        "requestId": options.request_id,
+                        "target": target_url,
+                        "error": error.to_string(),
+                    }),
+                );
+                return build_error_response(
+                    StatusCode::BAD_GATEWAY,
+                    "Upstream response invalid",
+                    &options.cors_headers,
+                );
+            }
+        };
+
+        if cacheable
             && let Some(cache_key) = &options.cache_key
             && let Some(content_type) = response_headers
                 .get(header::CONTENT_TYPE)
@@ -217,7 +252,6 @@ impl GatewayProxy for Proxy {
             }
         }
 
-        response_headers.remove(header::CONTENT_LENGTH);
         let mut builder = Response::builder().status(status);
         *builder.headers_mut().unwrap() = response_headers;
         builder.body(Body::from(bytes)).unwrap_or_else(|_| {
@@ -341,4 +375,8 @@ fn header_map_to_string(headers: HeaderMap) -> HashMap<String, String> {
                 .map(|raw| (key.as_str().to_string(), raw.to_string()))
         })
         .collect()
+}
+
+fn is_streaming_target(target: &Target) -> bool {
+    target.service == "radio" && target.path.contains("/stream")
 }
