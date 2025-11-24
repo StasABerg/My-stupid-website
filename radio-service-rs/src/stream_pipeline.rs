@@ -167,8 +167,10 @@ impl GStreamerEngine {
         config: &StreamPipelineConfig,
     ) -> Result<(gst::Pipeline, gst_app::AppSink), PipelineError> {
         let pipeline = gst::parse::launch(&format!(
-            "urisrcbin uri={url} ! queue max-size-time={} ! appsink name=outsink emit-signals=true sync=false",
-            gst::ClockTime::SECOND.saturating_mul(config.buffer_seconds)
+            "souphttpsrc location=\"{url}\" user-agent=\"{ua}\" timeout={timeout}s is-live=true do-timestamp=true ! queue max-size-time={buffer} ! appsink name=outsink emit-signals=true sync=false",
+            ua = config.user_agent,
+            timeout = config.timeout_ms / 1000,
+            buffer = gst::ClockTime::SECOND.saturating_mul(config.buffer_seconds)
         ))
         .map_err(|err| PipelineError::Generic(format!("parse pipeline: {:?}", err)))?;
 

@@ -201,7 +201,7 @@ fn upstream_error_response(status: StatusCode, message: String) -> Response {
 
 fn is_playlist_candidate(url: &str) -> bool {
     let lower = url.to_lowercase();
-    lower.ends_with(".m3u8") || lower.ends_with(".m3u") || lower.ends_with(".pls")
+    lower.contains(".m3u8") || lower.contains(".m3u") || lower.contains(".pls")
 }
 
 impl IntoResponse for ApiError {
