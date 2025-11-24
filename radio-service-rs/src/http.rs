@@ -1261,6 +1261,14 @@ async fn stream_station(
                 );
             }
         }
+    } else if is_playlist_candidate(&station.stream_url) {
+        logger().info(
+            "stream.pipeline.skipped_playlist",
+            json!({
+                "stationId": station_id,
+                "url": station.stream_url,
+            }),
+        );
     }
     let request = state
         .http_client

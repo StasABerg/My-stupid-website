@@ -85,11 +85,20 @@ impl StreamPipeline {
                     engine: PipelineEngine::Disabled,
                 };
             }
-            Self {
+            let instance = Self {
                 semaphore: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
                 config,
                 engine: PipelineEngine::GStreamer(GStreamerEngine),
-            }
+            };
+            logger().info(
+                "stream.pipeline.enabled",
+                serde_json::json!({
+                    "engine": "gstreamer",
+                    "maxConcurrency": instance.config.max_concurrency,
+                    "bufferSeconds": instance.config.buffer_seconds,
+                }),
+            );
+            instance
         }
 
         #[cfg(not(feature = "gstreamer"))]
@@ -129,6 +138,13 @@ impl StreamPipeline {
         {
             match &self.engine {
                 PipelineEngine::GStreamer(engine) => {
+                    logger().info(
+                        "stream.pipeline.attempt",
+                        serde_json::json!({
+                            "engine": "gstreamer",
+                            "url": _url,
+                        }),
+                    );
                     engine.start(_url, self.config.clone(), permit)
                 }
                 PipelineEngine::Disabled => Err(PipelineError::Unavailable),
