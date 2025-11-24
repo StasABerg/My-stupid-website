@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.8", features = ["macros", "json"] }
-bytes = "1.10"
+bytes = "1.11"
 hex = "0.4"
 hmac = "0.12"
 http = "1.3"
