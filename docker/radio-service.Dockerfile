@@ -1,6 +1,8 @@
 FROM rust:slim AS base
 ENV DEBIAN_FRONTEND=noninteractive
-RUN set -eux; \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    bash -c 'set -eux; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -15,7 +17,7 @@ RUN set -eux; \
         gstreamer1.0-libav \
         libgstreamer1.0-dev \
         libgstreamer-plugins-base1.0-dev; \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*'
 RUN cargo install cargo-chef
 WORKDIR /app
 
@@ -39,7 +41,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM debian:trixie-slim AS runner
 ENV DEBIAN_FRONTEND=noninteractive
-RUN set -eux; \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    bash -c 'set -eux; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -51,7 +55,7 @@ RUN set -eux; \
         gstreamer1.0-plugins-ugly \
         gstreamer1.0-libav; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*; \
-    useradd -r -u 1000 radio
+    useradd -r -u 1000 radio'
 WORKDIR /app
 COPY --from=build /app/radio-service-rs/target/release/radio-service-rs /usr/local/bin/radio-service
 COPY --from=build /app/radio-service-rs/migrations ./migrations
