@@ -5,9 +5,14 @@ use tokio::sync::Semaphore;
 
 #[cfg(feature = "gstreamer")]
 use {
+    bytes::Bytes,
+    gstreamer as gst,
+    gstreamer::prelude::*,
+    gstreamer_app as gst_app,
+    serde_json::json,
     std::sync::atomic::{AtomicBool, Ordering},
-    bytes::Bytes, gstreamer as gst, gstreamer::prelude::*, gstreamer_app as gst_app,
-    serde_json::json, tokio::sync::mpsc, tokio_stream::wrappers::ReceiverStream,
+    tokio::sync::mpsc,
+    tokio_stream::wrappers::ReceiverStream,
     tokio_stream::StreamExt,
 };
 

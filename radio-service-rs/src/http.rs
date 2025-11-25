@@ -1370,18 +1370,67 @@ async fn stream_station(
             }),
         );
     }
-    let request = state
-        .http_client
-        .get(&station.stream_url)
-        .headers(pick_forward_headers(&headers, &["user-agent", "accept"]));
+    let mut response = None;
+    let mut last_error: Option<String> = None;
+    let max_retries = state.config.stream_proxy.max_retries.max(1);
+    for attempt in 1..=max_retries {
+        let request = state
+            .http_client
+            .get(&station.stream_url)
+            .headers(pick_forward_headers(&headers, &["user-agent", "accept"]));
 
-    let response = timeout(
-        Duration::from_millis(state.config.stream_proxy.timeout_ms),
-        request.send(),
-    )
-    .await
-    .map_err(|_| ApiError::ServiceUnavailable("Stream request timed out"))?
-    .map_err(|_| ApiError::ServiceUnavailable("Failed to reach stream URL."))?;
+        match timeout(
+            Duration::from_millis(state.config.stream_proxy.timeout_ms),
+            request.send(),
+        )
+        .await
+        {
+            Ok(Ok(resp)) => {
+                response = Some(resp);
+                break;
+            }
+            Ok(Err(err)) => {
+                last_error = Some(err.to_string());
+                logger().warn(
+                    "stream.proxy.request_failed",
+                    json!({
+                        "stationId": station_id,
+                        "url": station.stream_url,
+                        "attempt": attempt,
+                        "maxRetries": max_retries,
+                        "error": format!("{:?}", err),
+                    }),
+                );
+            }
+            Err(_) => {
+                last_error = Some("timeout".into());
+                logger().warn(
+                    "stream.proxy.request_timeout",
+                    json!({
+                        "stationId": station_id,
+                        "url": station.stream_url,
+                        "attempt": attempt,
+                        "maxRetries": max_retries,
+                    }),
+                );
+            }
+        }
+    }
+
+    let response = if let Some(resp) = response {
+        resp
+    } else {
+        logger().warn(
+            "stream.proxy.exhausted_retries",
+            json!({
+                "stationId": station_id,
+                "url": station.stream_url,
+                "attempts": max_retries,
+                "error": last_error,
+            }),
+        );
+        return Err(ApiError::ServiceUnavailable("Failed to reach stream URL."));
+    };
 
     if pipeline_attempted {
         logger().info(

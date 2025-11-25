@@ -247,6 +247,9 @@ impl AppState {
         let stations = StationStorage::new(postgres.clone());
         let favorites = FavoritesStore::new(redis.clone());
         let http_client = Client::builder()
+            .http1_only()
+            .pool_idle_timeout(Some(Duration::from_secs(30)))
+            .tcp_nodelay(true)
             .build()
             .context("failed to build http client")?;
         let radio_browser = RadioBrowserClient::new(

@@ -66,6 +66,7 @@ pub struct RadioBrowserConfig {
 #[derive(Debug, Clone, Serialize)]
 pub struct StreamProxyConfig {
     pub timeout_ms: u64,
+    pub max_retries: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -391,7 +392,11 @@ impl RadioBrowserConfig {
 impl StreamProxyConfig {
     fn from_env() -> Result<Self, ConfigError> {
         let timeout_ms = env_u64("STREAM_PROXY_TIMEOUT_MS", 5000)?;
-        Ok(Self { timeout_ms })
+        let max_retries = env_usize("STREAM_PROXY_MAX_RETRIES", 2)?.max(1);
+        Ok(Self {
+            timeout_ms,
+            max_retries,
+        })
     }
 }
 
