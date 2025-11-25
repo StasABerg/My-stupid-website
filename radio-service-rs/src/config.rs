@@ -67,6 +67,7 @@ pub struct RadioBrowserConfig {
 pub struct StreamProxyConfig {
     pub timeout_ms: u64,
     pub max_retries: usize,
+    pub buffer_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -393,9 +394,11 @@ impl StreamProxyConfig {
     fn from_env() -> Result<Self, ConfigError> {
         let timeout_ms = env_u64("STREAM_PROXY_TIMEOUT_MS", 5000)?;
         let max_retries = env_usize("STREAM_PROXY_MAX_RETRIES", 2)?.max(1);
+        let buffer_seconds = env_u64("STREAM_PROXY_BUFFER_SECONDS", 3)?;
         Ok(Self {
             timeout_ms,
             max_retries,
+            buffer_seconds,
         })
     }
 }
@@ -490,6 +493,11 @@ impl Config {
         if self.stream_proxy.timeout_ms == 0 {
             return Err(ConfigError::Message(
                 "STREAM_PROXY_TIMEOUT_MS must be greater than zero".into(),
+            ));
+        }
+        if self.stream_proxy.buffer_seconds == 0 {
+            return Err(ConfigError::Message(
+                "STREAM_PROXY_BUFFER_SECONDS must be greater than zero".into(),
             ));
         }
         if self.stream_pipeline.enabled {

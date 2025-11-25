@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use futures_util::TryStreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use reqwest::header::{HeaderMap as ReqwestHeaderMap, HeaderName};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -871,7 +871,7 @@ async fn load_station(state: &AppState, station_id: &str) -> Result<Station, Api
         .ok_or(ApiError::NotFound("Station not found"))
 }
 
-fn forward_stream_response(response: reqwest::Response) -> Response {
+fn forward_stream_response(response: reqwest::Response, buffer_delay: Duration) -> Response {
     let status = response.status();
     let mut builder = Response::builder().status(status);
     for (key, value) in response.headers().iter() {
@@ -880,7 +880,29 @@ fn forward_stream_response(response: reqwest::Response) -> Response {
         }
         builder = builder.header(key, value.clone());
     }
-    let body = Body::from_stream(response.bytes_stream().map_err(io::Error::other));
+    let start_time = Instant::now();
+    let stream = response
+        .bytes_stream()
+        .map_err(io::Error::other)
+        .then(move |chunk| {
+            let delay = buffer_delay;
+            let start = start_time;
+            async move {
+                match chunk {
+                    Ok(bytes) => {
+                        if !delay.is_zero() {
+                            let elapsed = Instant::now().saturating_duration_since(start);
+                            if elapsed < delay {
+                                tokio::time::sleep(delay - elapsed).await;
+                            }
+                        }
+                        Ok(bytes)
+                    }
+                    Err(err) => Err(err),
+                }
+            }
+        });
+    let body = Body::from_stream(stream);
     builder
         .header("Cache-Control", "no-store")
         .body(body)
@@ -1461,7 +1483,11 @@ async fn stream_station(
     let csrf_params = resolve_csrf_params(&headers, &params);
 
     if !should_treat_as_playlist(&station.stream_url, content_type) {
-        return Ok(with_rate_limit(forward_stream_response(response), &rate));
+        let buffer_delay = Duration::from_secs(state.config.stream_proxy.buffer_seconds);
+        return Ok(with_rate_limit(
+            forward_stream_response(response, buffer_delay),
+            &rate,
+        ));
     }
 
     let playlist = response
@@ -1561,7 +1587,11 @@ async fn stream_segment(
     let csrf_params = resolve_csrf_params(&headers, &query_map);
 
     if !should_treat_as_playlist(target.as_str(), content_type) {
-        return Ok(with_rate_limit(forward_stream_response(response), &rate));
+        let buffer_delay = Duration::from_secs(state.config.stream_proxy.buffer_seconds);
+        return Ok(with_rate_limit(
+            forward_stream_response(response, buffer_delay),
+            &rate,
+        ));
     }
 
     let playlist = response

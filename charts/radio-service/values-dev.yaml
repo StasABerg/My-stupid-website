@@ -72,6 +72,12 @@ env:
     value: "3"
   - name: STREAM_PIPELINE_FAILURE_CACHE_TTL
     value: "300"
+  - name: STREAM_PROXY_TIMEOUT_MS
+    value: "15000"
+  - name: STREAM_PROXY_MAX_RETRIES
+    value: "3"
+  - name: STREAM_PROXY_BUFFER_SECONDS
+    value: "3"
   - name: FC_CACHEDIR
     value: "/tmp/fontconfig-cache"
   - name: XDG_CACHE_HOME
