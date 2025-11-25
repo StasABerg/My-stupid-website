@@ -392,8 +392,8 @@ impl RadioBrowserConfig {
 
 impl StreamProxyConfig {
     fn from_env() -> Result<Self, ConfigError> {
-        let timeout_ms = env_u64("STREAM_PROXY_TIMEOUT_MS", 5000)?;
-        let max_retries = env_usize("STREAM_PROXY_MAX_RETRIES", 2)?.max(1);
+        let timeout_ms = env_u64("STREAM_PROXY_TIMEOUT_MS", 15_000)?;
+        let max_retries = env_usize("STREAM_PROXY_MAX_RETRIES", 3)?.max(1);
         let buffer_seconds = env_u64("STREAM_PROXY_BUFFER_SECONDS", 3)?;
         Ok(Self {
             timeout_ms,

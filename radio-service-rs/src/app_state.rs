@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use deadpool_redis::{redis::AsyncCommands, Pool as RedisPool};
-use reqwest::Client;
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
@@ -246,7 +246,17 @@ impl AppState {
 
         let stations = StationStorage::new(postgres.clone());
         let favorites = FavoritesStore::new(redis.clone());
+        let mut default_headers = header::HeaderMap::new();
+        default_headers.insert(
+            header::HeaderName::from_static("icy-metadata"),
+            header::HeaderValue::from_static("1"),
+        );
+        default_headers.insert(
+            header::CONNECTION,
+            header::HeaderValue::from_static("keep-alive"),
+        );
         let http_client = Client::builder()
+            .default_headers(default_headers)
             .http1_only()
             .pool_idle_timeout(Some(Duration::from_secs(30)))
             .tcp_nodelay(true)

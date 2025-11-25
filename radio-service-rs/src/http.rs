@@ -1395,11 +1395,12 @@ async fn stream_station(
     let mut response = None;
     let mut last_error: Option<String> = None;
     let max_retries = state.config.stream_proxy.max_retries.max(1);
+    let forward_headers = pick_forward_headers(&headers, &["user-agent", "accept"]);
     for attempt in 1..=max_retries {
-        let request = state
-            .http_client
-            .get(&station.stream_url)
-            .headers(pick_forward_headers(&headers, &["user-agent", "accept"]));
+        let mut request = state.http_client.get(&station.stream_url);
+        for (key, value) in forward_headers.iter() {
+            request = request.header(key, value);
+        }
 
         match timeout(
             Duration::from_millis(state.config.stream_proxy.timeout_ms),

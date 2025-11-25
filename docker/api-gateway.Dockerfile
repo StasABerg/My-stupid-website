@@ -2,8 +2,12 @@ FROM rust:slim AS base
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
-    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates clang lld sccache && \
     rm -rf /var/lib/apt/lists/*
+ENV RUSTC_WRAPPER="/usr/bin/sccache"
+ENV SCCACHE_DIR="/sccache"
+ENV SCCACHE_CACHE_SIZE="10G"
+ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=lld"
 RUN cargo install cargo-chef
 WORKDIR /app
 
@@ -18,11 +22,13 @@ COPY --from=planner /app/api-gateway-service/recipe.json ./recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
+    --mount=type=cache,target=/sccache \
     cargo chef cook --release --recipe-path recipe.json
 COPY api-gateway-service/ .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
+    --mount=type=cache,target=/sccache \
     cargo build --release
 
 FROM debian:trixie-slim AS runner

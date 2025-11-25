@@ -9,6 +9,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         pkg-config \
         libssl-dev \
         ca-certificates \
+        clang \
+        lld \
+        sccache \
         gstreamer1.0-tools \
         gstreamer1.0-plugins-base \
         gstreamer1.0-plugins-good \
@@ -18,6 +21,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libgstreamer1.0-dev \
         libgstreamer-plugins-base1.0-dev; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*'
+ENV RUSTC_WRAPPER="/usr/bin/sccache"
+ENV SCCACHE_DIR="/sccache"
+ENV SCCACHE_CACHE_SIZE="10G"
+ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=lld"
 RUN cargo install cargo-chef
 WORKDIR /app
 
@@ -32,11 +39,13 @@ COPY --from=planner /app/radio-service-rs/recipe.json ./recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
+    --mount=type=cache,target=/sccache \
     cargo chef cook --release --recipe-path recipe.json
 COPY radio-service-rs/ .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
+    --mount=type=cache,target=/sccache \
     cargo build --release --features gstreamer
 
 FROM debian:trixie-slim AS runner
