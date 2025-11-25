@@ -1252,6 +1252,20 @@ async fn stream_station(
     let is_playlist = is_playlist_candidate(&station.stream_url);
     let mut pipeline_attempted = false;
     let mut pipeline_enabled = state.stream_pipeline.is_enabled();
+    let pipeline_overridden = params
+        .get("pipeline")
+        .map(|value| value.eq_ignore_ascii_case("off"))
+        .unwrap_or(false);
+    if pipeline_overridden && pipeline_enabled {
+        pipeline_enabled = false;
+        logger().info(
+            "stream.pipeline.client_override",
+            json!({
+                "stationId": station_id,
+                "url": station.stream_url,
+            }),
+        );
+    }
 
     if pipeline_enabled && state.config.stream_pipeline.failure_cache_ttl_seconds > 0 {
         let key = pipeline_failure_cache_key(&station.stream_url);

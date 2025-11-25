@@ -253,6 +253,10 @@ const Radio = () => {
   const [presetStationOverride, setPresetStationOverride] = useState<StationOverride | null>(null);
   const [volume, setVolume] = useState(0.65);
   const [playbackKey, setPlaybackKey] = useState(0);
+  const [pipelineBypassState, setPipelineBypassState] = useState<{
+    stationId: string | null;
+    bypass: boolean;
+  }>({ stationId: null, bypass: false });
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [midnightActive, setMidnightActive] = useState(() => isMidnightHour());
   const [mysteryStation, setMysteryStation] = useState<RadioStation>(() => randomMidnightStation());
@@ -264,6 +268,7 @@ const Radio = () => {
     attempts: 0,
     timer: null,
   });
+  const manualReloadRef = useRef(false);
   const unmountedRef = useRef(false);
   const shareButtonRef = useRef<HTMLButtonElement | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -357,6 +362,11 @@ const Radio = () => {
     () => buildSecretEmbedUrl(activeStation.id),
     [activeStation.id],
   );
+  const pipelineBypass =
+    pipelineBypassState.stationId === (activeStation.id ?? null)
+      ? pipelineBypassState.bypass
+      : false;
+
   const shareLink = useMemo(() => {
     if (typeof window === "undefined" || typeof window.btoa !== "function") {
       return null;
@@ -403,6 +413,9 @@ const Radio = () => {
           if (session.proof && session.proof.length > 0) {
             params.set("csrfProof", session.proof);
           }
+          if (pipelineBypass) {
+            params.set("pipeline", "off");
+          }
           streamPath = `${streamPath}?${params.toString()}`;
         }
       } catch {
@@ -419,7 +432,7 @@ const Radio = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeStation.hls, activeStation.id, activeStation.streamUrl, secretVideo]);
+  }, [activeStation.hls, activeStation.id, activeStation.streamUrl, pipelineBypass, secretVideo]);
 
   const uniqueCountries = useMemo(() => {
     const fromMeta = firstMeta?.countries;
@@ -764,6 +777,21 @@ const Radio = () => {
           attempts: state.attempts,
           maxAttempts: MAX_RECONNECT_ATTEMPTS,
         });
+        if (!pipelineBypass) {
+          logger.warn("playback.pipeline_bypass_enabled", {
+            stationId: activeStation.id,
+            reason,
+          });
+          setPipelineBypassState({
+            stationId: activeStation.id ?? null,
+            bypass: true,
+          });
+          state.attempts = 0;
+          clearReconnectTimer();
+          resetReconnectAttempts();
+          manualReloadRef.current = true;
+          setPlaybackKey((value) => value + 1);
+        }
         return;
       }
 
@@ -781,10 +809,11 @@ const Radio = () => {
         if (unmountedRef.current) {
           return;
         }
+        manualReloadRef.current = true;
         setPlaybackKey((value) => value + 1);
       }, delay);
     },
-    [clearReconnectTimer, resolvedStreamUrl],
+    [activeStation.id, clearReconnectTimer, pipelineBypass, resetReconnectAttempts, resolvedStreamUrl],
   );
 
   useEffect(() => {
@@ -819,11 +848,18 @@ const Radio = () => {
     const resumeEvents: Array<keyof HTMLMediaElementEventMap> = ["playing", "canplay"];
 
     const handleRecoverable = (event: Event) => {
+      if (
+        manualReloadRef.current &&
+        (event.type === "emptied" || event.type === "abort")
+      ) {
+        return;
+      }
       schedulePlaybackRetry(event.type, { immediate: event.type === "error" });
     };
 
     const handleResume = () => {
       resetReconnectAttempts();
+      manualReloadRef.current = false;
     };
 
     for (const eventType of recoverableEvents) {
