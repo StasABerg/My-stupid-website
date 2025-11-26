@@ -255,10 +255,6 @@ const Radio = () => {
   const [presetStationOverride, setPresetStationOverride] = useState<StationOverride | null>(null);
   const [volume, setVolume] = useState(0.65);
   const [playbackKey, setPlaybackKey] = useState(0);
-  const [pipelineBypassState, setPipelineBypassState] = useState<{
-    stationId: string | null;
-    bypass: boolean;
-  }>({ stationId: null, bypass: false });
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [midnightActive, setMidnightActive] = useState(() => isMidnightHour());
   const [mysteryStation, setMysteryStation] = useState<RadioStation>(() => randomMidnightStation());
@@ -366,10 +362,6 @@ const Radio = () => {
     [activeStation.id],
   );
   const [probeNonce, setProbeNonce] = useState(0);
-  const pipelineBypass =
-    pipelineBypassState.stationId === (activeStation.id ?? null)
-      ? pipelineBypassState.bypass
-      : false;
   const probeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const shareLink = useMemo(() => {
@@ -441,25 +433,10 @@ const Radio = () => {
           if (session.proof && session.proof.length > 0) {
             params.set("csrfProof", session.proof);
           }
-          if (pipelineBypass) {
-            params.set("pipeline", "off");
-          }
           streamPath = `${streamPath}?${params.toString()}`;
         }
       } catch {
         // ignore token resolution errors; fall back to unsigned streamPath
-      }
-
-      if (pipelineBypass) {
-        if (!cancelled) {
-          setResolvedIsHls(activeStation.hls);
-          setResolvedStreamUrl(streamPath);
-          setPipelineBypassState({
-            stationId: activeStation.id ?? null,
-            bypass: false,
-          });
-        }
-        return;
       }
 
       const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
@@ -490,14 +467,10 @@ const Radio = () => {
               }
               return;
             }
-            if (
-              !pipelineBypass &&
-              reason !== "hls_warming" &&
-              (reason === "engine_disabled" || reason === "recent_failure")
-            ) {
-              setPipelineBypassState({
-                stationId: activeStation.id ?? null,
-                bypass: true,
+            if (reason !== "hls_warming" && (reason === "engine_disabled" || reason === "recent_failure")) {
+              logger.warn("playback.pipeline_degraded", {
+                stationId: activeStation.id,
+                reason,
               });
             }
             if (!cancelled) {
@@ -531,13 +504,6 @@ const Radio = () => {
           probeResponse.headers.get("x-stream-pipeline") === "hls";
         setResolvedIsHls(isHls || activeStation.hls);
         setResolvedStreamUrl(streamPath);
-        setPipelineBypassState((prev) => {
-          const currentId = activeStation.id ?? null;
-          if (prev.stationId === currentId && prev.bypass) {
-            return { stationId: currentId, bypass: false };
-          }
-          return prev;
-        });
       }
     }
 
@@ -551,7 +517,6 @@ const Radio = () => {
     activeStation.hls,
     activeStation.id,
     activeStation.streamUrl,
-    pipelineBypass,
     playbackKey,
     probeNonce,
     scheduleProbeRetry,
@@ -901,21 +866,11 @@ const Radio = () => {
           attempts: state.attempts,
           maxAttempts: MAX_RECONNECT_ATTEMPTS,
         });
-        if (!pipelineBypass) {
-          logger.warn("playback.pipeline_bypass_enabled", {
-            stationId: activeStation.id,
-            reason,
-          });
-          setPipelineBypassState({
-            stationId: activeStation.id ?? null,
-            bypass: true,
-          });
-          state.attempts = 0;
-          clearReconnectTimer();
-          resetReconnectAttempts();
-          manualReloadRef.current = true;
-          setPlaybackKey((value) => value + 1);
-        }
+        state.attempts = 0;
+        clearReconnectTimer();
+        resetReconnectAttempts();
+        manualReloadRef.current = true;
+        setPlaybackKey((value) => value + 1);
         return;
       }
 
@@ -937,7 +892,7 @@ const Radio = () => {
         setPlaybackKey((value) => value + 1);
       }, delay);
     },
-    [activeStation.id, clearReconnectTimer, pipelineBypass, resetReconnectAttempts, resolvedStreamUrl],
+    [clearReconnectTimer, resetReconnectAttempts, resolvedStreamUrl],
   );
 
 
