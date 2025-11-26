@@ -369,7 +369,10 @@ impl GStreamerEngine {
                             break;
                         }
                         gst::MessageView::Error(err) => {
-                            let debug = err.debug().unwrap_or_else(|| "none".into());
+                            let debug = err
+                                .debug()
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "none".into());
                             let _ = tx_bus.try_send(Err(std::io::Error::other(format!(
                                 "pipeline error: {:?}",
                                 err.error()
