@@ -471,6 +471,13 @@ const Radio = () => {
               // ignore JSON probe errors
             }
             const reason = typeof payload?.reason === "string" ? payload.reason : "probe-unavailable";
+            if (reason === "client_override") {
+              if (!cancelled) {
+                setResolvedIsHls(activeStation.hls);
+                setResolvedStreamUrl(streamPath);
+              }
+              return;
+            }
             if (
               !pipelineBypass &&
               reason !== "hls_warming" &&
@@ -512,6 +519,13 @@ const Radio = () => {
           probeResponse.headers.get("x-stream-pipeline") === "hls";
         setResolvedIsHls(isHls || activeStation.hls);
         setResolvedStreamUrl(streamPath);
+        setPipelineBypassState((prev) => {
+          const currentId = activeStation.id ?? null;
+          if (prev.stationId === currentId && prev.bypass) {
+            return { stationId: currentId, bypass: false };
+          }
+          return prev;
+        });
       }
     }
 
