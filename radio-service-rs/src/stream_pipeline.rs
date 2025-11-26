@@ -700,6 +700,13 @@ impl GStreamerEngine {
                         &station_forward,
                         &url_forward,
                     );
+                    logger().debug(
+                        "stream.pipeline.body_channel_closed",
+                        json!({
+                            "stationId": station_forward,
+                            "url": url_forward,
+                        }),
+                    );
                     break;
                 }
             }
