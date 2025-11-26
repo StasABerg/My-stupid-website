@@ -454,6 +454,10 @@ const Radio = () => {
         if (!cancelled) {
           setResolvedIsHls(activeStation.hls);
           setResolvedStreamUrl(streamPath);
+          setPipelineBypassState({
+            stationId: activeStation.id ?? null,
+            bypass: false,
+          });
         }
         return;
       }
