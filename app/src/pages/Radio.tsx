@@ -362,7 +362,33 @@ const Radio = () => {
     [activeStation.id],
   );
   const [probeNonce, setProbeNonce] = useState(0);
+  const [pipelineOverrideState, setPipelineOverrideState] = useState<{
+    stationId: string | null;
+    override: "auto" | "off";
+  }>({ stationId: null, override: "auto" });
+  const pipelineOverride =
+    pipelineOverrideState.stationId === activeStation.id
+      ? pipelineOverrideState.override
+      : "auto";
   const probeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const forcePipelineOff = useCallback(
+    (reason: string) => {
+      if (!activeStation.id || pipelineOverride === "off") {
+        return;
+      }
+      setPipelineOverrideState({ stationId: activeStation.id, override: "off" });
+      if (probeRetryTimerRef.current) {
+        clearTimeout(probeRetryTimerRef.current);
+        probeRetryTimerRef.current = null;
+      }
+      logger.warn("playback.pipeline_forced_off", {
+        stationId: activeStation.id,
+        reason,
+      });
+    },
+    [activeStation.id, pipelineOverride],
+  );
 
   const shareLink = useMemo(() => {
     if (typeof window === "undefined" || typeof window.btoa !== "function") {
@@ -424,19 +450,25 @@ const Radio = () => {
 
       const encodedId = encodeURIComponent(activeStation.id);
       let streamPath = `${RADIO_API_BASE}/stations/${encodedId}/stream`;
+      const queryParams = new URLSearchParams();
 
       try {
         const session = await ensureGatewaySession();
         if (session.token && session.token.length > 0) {
-          const params = new URLSearchParams();
-          params.set("csrfToken", session.token);
+          queryParams.set("csrfToken", session.token);
           if (session.proof && session.proof.length > 0) {
-            params.set("csrfProof", session.proof);
+            queryParams.set("csrfProof", session.proof);
           }
-          streamPath = `${streamPath}?${params.toString()}`;
         }
       } catch {
         // ignore token resolution errors; fall back to unsigned streamPath
+      }
+      if (pipelineOverride === "off") {
+        queryParams.set("pipeline", "off");
+      }
+      const queryString = queryParams.toString();
+      if (queryString) {
+        streamPath = `${streamPath}?${queryString}`;
       }
 
       const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
@@ -467,11 +499,13 @@ const Radio = () => {
               }
               return;
             }
-            if (reason !== "hls_warming" && (reason === "engine_disabled" || reason === "recent_failure")) {
+            if (reason === "engine_disabled" || reason === "recent_failure") {
               logger.warn("playback.pipeline_degraded", {
                 stationId: activeStation.id,
                 reason,
               });
+              forcePipelineOff(reason);
+              return;
             }
             if (!cancelled) {
               scheduleProbeRetry(
@@ -517,6 +551,8 @@ const Radio = () => {
     activeStation.hls,
     activeStation.id,
     activeStation.streamUrl,
+    forcePipelineOff,
+    pipelineOverride,
     playbackKey,
     probeNonce,
     scheduleProbeRetry,
@@ -866,6 +902,7 @@ const Radio = () => {
           attempts: state.attempts,
           maxAttempts: MAX_RECONNECT_ATTEMPTS,
         });
+        forcePipelineOff(`reconnect-limit-${reason}`);
         state.attempts = 0;
         clearReconnectTimer();
         resetReconnectAttempts();
@@ -892,7 +929,7 @@ const Radio = () => {
         setPlaybackKey((value) => value + 1);
       }, delay);
     },
-    [clearReconnectTimer, resetReconnectAttempts, resolvedStreamUrl],
+    [clearReconnectTimer, forcePipelineOff, resetReconnectAttempts, resolvedStreamUrl],
   );
 
 
