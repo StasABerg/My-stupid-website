@@ -451,8 +451,9 @@ const Radio = () => {
       }
 
       const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
+      let probeResponse: Response | null = null;
       try {
-        const probeResponse = await fetch(probeUrl, {
+        probeResponse = await fetch(probeUrl, {
           method: "GET",
           credentials: "include",
           cache: "no-store",
@@ -504,7 +505,7 @@ const Radio = () => {
         return;
       }
 
-      if (!cancelled) {
+      if (!cancelled && probeResponse) {
         const contentType = probeResponse.headers.get("content-type") ?? "";
         const isHls =
           contentType.toLowerCase().includes("application/vnd.apple.mpegurl") ||
