@@ -250,18 +250,41 @@ impl GStreamerEngine {
 
         let convert_weak = convert.downgrade();
         decode.connect_pad_added(move |_dbin, src_pad| {
-            if let Some(convert) = convert_weak.upgrade() {
-                if let Some(sink_pad) = convert.static_pad("sink") {
-                    if sink_pad.is_linked() {
-                        return;
-                    }
-                    if let Err(err) = src_pad.link(&sink_pad) {
-                        logger().warn(
-                            "stream.pipeline.decode_link_failed",
-                            json!({ "error": format!("{:?}", err) }),
-                        );
-                    }
-                }
+            let Some(convert) = convert_weak.upgrade() else {
+                return;
+            };
+            let Some(sink_pad) = convert.static_pad("sink") else {
+                return;
+            };
+            if sink_pad.is_linked() {
+                return;
+            }
+
+            let mut caps_name = None;
+            if let Some(caps) = src_pad
+                .current_caps()
+                .or_else(|| Some(src_pad.query_caps(None)))
+            {
+                caps_name = caps
+                    .structure(0)
+                    .map(|structure| structure.name().as_str().to_string());
+            }
+
+            if caps_name.as_deref() != Some("audio/x-raw") {
+                logger().debug(
+                    "stream.pipeline.decode_pad_skipped",
+                    json!({
+                        "caps": caps_name,
+                    }),
+                );
+                return;
+            }
+
+            if let Err(err) = src_pad.link(&sink_pad) {
+                logger().warn(
+                    "stream.pipeline.decode_link_failed",
+                    json!({ "error": format!("{:?}", err) }),
+                );
             }
         });
 
@@ -346,6 +369,7 @@ impl GStreamerEngine {
                             break;
                         }
                         gst::MessageView::Error(err) => {
+                            let debug = err.debug().unwrap_or_else(|| "none".into());
                             let _ = tx_bus.try_send(Err(std::io::Error::other(format!(
                                 "pipeline error: {:?}",
                                 err.error()
@@ -355,6 +379,7 @@ impl GStreamerEngine {
                                 json!({
                                     "url": url_bus,
                                     "error": format!("{:?}", err.error()),
+                                    "debug": debug,
                                 }),
                             );
                             downstream_logged_bus.store(true, Ordering::Relaxed);
@@ -375,7 +400,27 @@ impl GStreamerEngine {
             drop(permit);
         });
 
-        let stream = ReceiverStream::new(rx).map(|result| result.map_err(std::io::Error::other));
+        let buffer_delay = std::time::Duration::from_secs(config.buffer_seconds);
+        let start_time = std::time::Instant::now();
+        let stream = ReceiverStream::new(rx).then(move |result| {
+            let delay = buffer_delay;
+            let start = start_time;
+            async move {
+                match result {
+                    Ok(bytes) => {
+                        if !delay.is_zero() {
+                            let elapsed =
+                                std::time::Instant::now().saturating_duration_since(start);
+                            if elapsed < delay {
+                                tokio::time::sleep(delay - elapsed).await;
+                            }
+                        }
+                        Ok::<Bytes, std::io::Error>(bytes)
+                    }
+                    Err(err) => Err(err),
+                }
+            }
+        });
         let body = axum::body::Body::from_stream(stream);
         Ok(PipelineDecision::Stream {
             body,
