@@ -9,6 +9,7 @@ mod migrations;
 mod radio_browser;
 mod refresh;
 mod stations;
+mod stream_format;
 mod stream_pipeline;
 mod stream_validation;
 

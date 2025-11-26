@@ -182,6 +182,7 @@ const PAGE_SIZE = 40;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 15000;
+const PROBE_DEFAULT_DELAY_MS = 2000;
 
 const serializeStationForShare = (station: RadioStation): string => {
   const payload: SharedStationPayload = {
@@ -362,10 +363,12 @@ const Radio = () => {
     () => buildSecretEmbedUrl(activeStation.id),
     [activeStation.id],
   );
+  const [probeNonce, setProbeNonce] = useState(0);
   const pipelineBypass =
     pipelineBypassState.stationId === (activeStation.id ?? null)
       ? pipelineBypassState.bypass
       : false;
+  const probeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const shareLink = useMemo(() => {
     if (typeof window === "undefined" || typeof window.btoa !== "function") {
@@ -386,16 +389,38 @@ const Radio = () => {
     }
   }, [activeStation]);
 
+  const scheduleProbeRetry = useCallback(
+    (reason: string, delayMs?: number) => {
+      const boundedDelay = Math.min(
+        RECONNECT_MAX_DELAY_MS,
+        Math.max(PROBE_DEFAULT_DELAY_MS, delayMs ?? PROBE_DEFAULT_DELAY_MS),
+      );
+      if (probeRetryTimerRef.current) {
+        clearTimeout(probeRetryTimerRef.current);
+      }
+      logger.warn("playback.probe_retry_scheduled", {
+        stationId: activeStation.id,
+        reason,
+        delayMs: boundedDelay,
+      });
+      probeRetryTimerRef.current = setTimeout(() => {
+        probeRetryTimerRef.current = null;
+        setProbeNonce((value) => value + 1);
+      }, boundedDelay);
+    },
+    [activeStation.id],
+  );
+
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    if (probeRetryTimerRef.current) {
+      clearTimeout(probeRetryTimerRef.current);
+      probeRetryTimerRef.current = null;
+    }
+
     async function resolveStreamUrl() {
-      if (secretVideo) {
-        if (!cancelled) {
-          setResolvedStreamUrl(null);
-        }
-        return;
-      }
-      if (!activeStation.id || !activeStation.streamUrl) {
+      if (secretVideo || !activeStation.id || !activeStation.streamUrl) {
         if (!cancelled) {
           setResolvedStreamUrl(null);
         }
@@ -422,6 +447,59 @@ const Radio = () => {
         // ignore token resolution errors; fall back to unsigned streamPath
       }
 
+      const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
+      try {
+        const probeResponse = await fetch(probeUrl, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+          },
+        });
+        if (!probeResponse.ok) {
+          if (probeResponse.status === 503) {
+            let payload: { reason?: string; retryAfterMs?: number } | null = null;
+            try {
+              payload = await probeResponse.json();
+            } catch {
+              // ignore JSON probe errors
+            }
+            const reason = typeof payload?.reason === "string" ? payload.reason : "probe-unavailable";
+            if (
+              !pipelineBypass &&
+              (reason === "engine_disabled" || reason === "recent_failure")
+            ) {
+              setPipelineBypassState({
+                stationId: activeStation.id ?? null,
+                bypass: true,
+              });
+            }
+            if (!cancelled) {
+              scheduleProbeRetry(
+                reason,
+                typeof payload?.retryAfterMs === "number" ? payload.retryAfterMs : undefined,
+              );
+            }
+            return;
+          }
+          logger.warn("playback.probe_unexpected_status", {
+            stationId: activeStation.id,
+            status: probeResponse.status,
+          });
+        }
+      } catch (error) {
+        if (!controller.signal.aborted && !cancelled) {
+          logger.warn("playback.probe_failed", {
+            stationId: activeStation.id,
+            error,
+          });
+          scheduleProbeRetry("probe-error");
+        }
+        return;
+      }
+
       if (!cancelled) {
         setResolvedStreamUrl(streamPath);
       }
@@ -431,8 +509,18 @@ const Radio = () => {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [activeStation.hls, activeStation.id, activeStation.streamUrl, pipelineBypass, secretVideo]);
+  }, [
+    activeStation.hls,
+    activeStation.id,
+    activeStation.streamUrl,
+    pipelineBypass,
+    playbackKey,
+    probeNonce,
+    scheduleProbeRetry,
+    secretVideo,
+  ]);
 
   const uniqueCountries = useMemo(() => {
     const fromMeta = firstMeta?.countries;
@@ -816,12 +904,22 @@ const Radio = () => {
     [activeStation.id, clearReconnectTimer, pipelineBypass, resetReconnectAttempts, resolvedStreamUrl],
   );
 
+
   useEffect(() => {
     return () => {
       unmountedRef.current = true;
       clearReconnectTimer();
     };
   }, [clearReconnectTimer]);
+
+  useEffect(() => {
+    return () => {
+      if (probeRetryTimerRef.current) {
+        clearTimeout(probeRetryTimerRef.current);
+        probeRetryTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!resolvedStreamUrl) {

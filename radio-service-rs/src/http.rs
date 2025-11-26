@@ -14,16 +14,19 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use bytes::Bytes;
 use chrono::Utc;
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::StreamExt;
 use reqwest::header::{HeaderMap as ReqwestHeaderMap, HeaderName};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::{
     net::TcpListener,
-    time::{timeout, Duration},
+    sync::mpsc,
+    time::{sleep, timeout, Duration},
 };
+use tokio_stream::wrappers::ReceiverStream;
 use url::Url;
 use uuid::Uuid;
 
@@ -35,6 +38,7 @@ use crate::{
         sanitize_station_id, FavoriteEntry, FavoriteStation, MAX_FAVORITES,
     },
     stations::{intersect_lists, ProcessedStations, Station, StationsPayload},
+    stream_format::{detect_stream_format, FormatDetection},
     stream_pipeline::PipelineDecision,
 };
 use deadpool_redis::redis::AsyncCommands;
@@ -167,6 +171,22 @@ where
     (status, Json(payload)).into_response()
 }
 
+fn classify_reqwest_error(err: &reqwest::Error) -> (&'static str, String) {
+    if err.is_timeout() {
+        ("timeout", err.to_string())
+    } else if err.is_connect() {
+        ("connect", err.to_string())
+    } else if err.is_decode() {
+        ("decode", err.to_string())
+    } else if err.is_request() {
+        ("request", err.to_string())
+    } else if err.is_body() {
+        ("body", err.to_string())
+    } else {
+        ("other", err.to_string())
+    }
+}
+
 #[derive(Debug)]
 enum ApiError {
     ServiceUnavailable(&'static str),
@@ -206,6 +226,13 @@ fn pipeline_failure_cache_key(url: &str) -> String {
     hasher.update(url.as_bytes());
     let hash = hex::encode(hasher.finalize());
     format!("radio:pipeline:failure:{hash}")
+}
+
+fn parse_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn is_playlist_candidate(url: &str) -> bool {
@@ -880,28 +907,51 @@ fn forward_stream_response(response: reqwest::Response, buffer_delay: Duration) 
         }
         builder = builder.header(key, value.clone());
     }
-    let start_time = Instant::now();
-    let stream = response
-        .bytes_stream()
-        .map_err(io::Error::other)
-        .then(move |chunk| {
-            let delay = buffer_delay;
-            let start = start_time;
-            async move {
-                match chunk {
-                    Ok(bytes) => {
-                        if !delay.is_zero() {
-                            let elapsed = Instant::now().saturating_duration_since(start);
-                            if elapsed < delay {
-                                tokio::time::sleep(delay - elapsed).await;
-                            }
-                        }
-                        Ok(bytes)
+
+    let (tx_samples, mut rx_samples) = mpsc::unbounded_channel::<Result<Bytes, std::io::Error>>();
+    let (body_tx, body_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(256);
+    let source_url = response.url().to_string();
+    let upstream_label = source_url.clone();
+
+    tokio::spawn(async move {
+        let mut upstream = response.bytes_stream();
+        while let Some(chunk) = upstream.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    if tx_samples.send(Ok(bytes)).is_err() {
+                        logger().debug(
+                            "stream.proxy.buffer_closed",
+                            json!({ "url": upstream_label }),
+                        );
+                        break;
                     }
-                    Err(err) => Err(err),
+                }
+                Err(err) => {
+                    let _ = tx_samples.send(Err(io::Error::other(err)));
+                    break;
                 }
             }
-        });
+        }
+    });
+
+    let buffer_label = source_url;
+    tokio::spawn(async move {
+        let start = Instant::now();
+        while let Some(item) = rx_samples.recv().await {
+            if !buffer_delay.is_zero() {
+                let elapsed = Instant::now().saturating_duration_since(start);
+                if elapsed < buffer_delay {
+                    tokio::time::sleep(buffer_delay - elapsed).await;
+                }
+            }
+            if body_tx.send(item).await.is_err() {
+                logger().debug("stream.proxy.body_closed", json!({ "url": buffer_label }));
+                break;
+            }
+        }
+    });
+
+    let stream = ReceiverStream::new(body_rx);
     let body = Body::from_stream(stream);
     builder
         .header("Cache-Control", "no-store")
@@ -1271,15 +1321,67 @@ async fn stream_station(
     let rate = enforce_rate_limit(&state, &headers).await?;
 
     let station = load_station(&state, station_id).await?;
-    let is_playlist = is_playlist_candidate(&station.stream_url);
+    let mut is_playlist = is_playlist_candidate(&station.stream_url);
+    let cached_format = state.get_cached_format_hint(&station.stream_url).await;
+    let format_detection = if let Some(format) = cached_format {
+        FormatDetection::from_cache(format)
+    } else {
+        let detection = detect_stream_format(
+            &state.http_client,
+            &station.stream_url,
+            Duration::from_secs(3),
+        )
+        .await;
+        state
+            .store_format_hint(&station.stream_url, detection.format)
+            .await;
+        detection
+    };
+    if format_detection.format.is_playlist_like() {
+        is_playlist = true;
+    }
+    let csrf_params = resolve_csrf_params(&headers, &params);
+    let mut cached_playlist: Option<String> = None;
+    if is_playlist {
+        if let Some(raw) = state.get_cached_hls_playlist(&station.stream_url).await {
+            logger().info(
+                "stream.proxy.hls_cache_hit",
+                json!({
+                    "stationId": station_id,
+                    "url": station.stream_url,
+                }),
+            );
+            cached_playlist = Some(raw);
+        }
+    }
+    logger().info(
+        "stream.format.detected",
+        json!({
+            "stationId": station_id,
+            "url": station.stream_url,
+            "format": format_detection.format,
+            "indicators": format_detection.indicators,
+            "treatedAsPlaylist": is_playlist,
+        }),
+    );
     let mut pipeline_attempted = false;
     let mut pipeline_enabled = state.stream_pipeline.is_enabled();
+    let mut pipeline_block_reason = if pipeline_enabled {
+        None
+    } else {
+        Some("engine_disabled")
+    };
     let pipeline_overridden = params
         .get("pipeline")
         .map(|value| value.eq_ignore_ascii_case("off"))
         .unwrap_or(false);
+    let probe_requested = params
+        .get("probe")
+        .map(|value| parse_truthy(value))
+        .unwrap_or(false);
     if pipeline_overridden && pipeline_enabled {
         pipeline_enabled = false;
+        pipeline_block_reason = Some("client_override");
         logger().info(
             "stream.pipeline.client_override",
             json!({
@@ -1302,6 +1404,7 @@ async fn stream_station(
                         }),
                     );
                     pipeline_enabled = false;
+                    pipeline_block_reason = Some("recent_failure");
                 }
                 Ok(false) => {}
                 Err(err) => {
@@ -1327,8 +1430,39 @@ async fn stream_station(
             "pipelineEnabled": pipeline_enabled,
         }),
     );
+    if probe_requested {
+        let mut payload = json!({
+            "stationId": station_id,
+            "pipelineEnabled": pipeline_enabled,
+            "isPlaylist": is_playlist,
+        });
+        if let Some(reason) = pipeline_block_reason {
+            payload["reason"] = json!(reason);
+        }
+        let mut status = StatusCode::OK;
+        if pipeline_block_reason.is_some() && !is_playlist {
+            status = StatusCode::SERVICE_UNAVAILABLE;
+            if pipeline_block_reason == Some("recent_failure")
+                && state.config.stream_pipeline.failure_cache_ttl_seconds > 0
+            {
+                payload["retryAfterMs"] =
+                    json!(state.config.stream_pipeline.failure_cache_ttl_seconds * 1000);
+            }
+        }
+        let response = Response::builder()
+            .status(status)
+            .header("Content-Type", "application/json")
+            .header("Cache-Control", "no-store")
+            .body(Body::from(payload.to_string()))
+            .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
+        return Ok(with_rate_limit(response, &rate));
+    }
     if pipeline_enabled && !is_playlist {
-        match state.stream_pipeline.attempt(&station.stream_url).await {
+        match state
+            .stream_pipeline
+            .attempt(&station.stream_url, format_detection.format)
+            .await
+        {
             Ok(PipelineDecision::Skip) => {}
             Ok(PipelineDecision::Stream { body, content_type }) => {
                 let mut builder = Response::builder()
@@ -1383,6 +1517,23 @@ async fn stream_station(
                 "url": station.stream_url,
             }),
         );
+        if let Some(raw_playlist) = cached_playlist.take() {
+            let rewritten = rewrite_playlist(
+                &station.stream_url,
+                &raw_playlist,
+                &csrf_params,
+                "stream/segment",
+            );
+            let builder = Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/vnd.apple.mpegurl")
+                .header("Cache-Control", "no-store");
+            let body = Body::from(rewritten);
+            let response = builder
+                .body(body)
+                .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
+            return Ok(with_rate_limit(response, &rate));
+        }
     } else {
         logger().info(
             "stream.pipeline.disabled",
@@ -1413,7 +1564,8 @@ async fn stream_station(
                 break;
             }
             Ok(Err(err)) => {
-                last_error = Some(err.to_string());
+                let (reason, detail) = classify_reqwest_error(&err);
+                last_error = Some(format!("{reason}: {detail}"));
                 logger().warn(
                     "stream.proxy.request_failed",
                     json!({
@@ -1421,7 +1573,8 @@ async fn stream_station(
                         "url": station.stream_url,
                         "attempt": attempt,
                         "maxRetries": max_retries,
-                        "error": format!("{:?}", err),
+                        "reason": reason,
+                        "error": detail,
                     }),
                 );
             }
@@ -1437,6 +1590,21 @@ async fn stream_station(
                     }),
                 );
             }
+        }
+
+        if response.is_none() && attempt < max_retries {
+            let backoff_ms = (250 * attempt * attempt) as u64;
+            let backoff = Duration::from_millis(backoff_ms).min(Duration::from_secs(3));
+            logger().debug(
+                "stream.proxy.backoff",
+                json!({
+                    "stationId": station_id,
+                    "url": station.stream_url,
+                    "attempt": attempt,
+                    "delayMs": backoff.as_millis(),
+                }),
+            );
+            sleep(backoff).await;
         }
     }
 
@@ -1468,6 +1636,14 @@ async fn stream_station(
 
     if !response.status().is_success() {
         let status = response.status();
+        logger().warn(
+            "stream.proxy.upstream_status",
+            json!({
+                "stationId": station_id,
+                "url": station.stream_url,
+                "status": status.as_u16(),
+            }),
+        );
         let message = format!("Upstream returned {}", status.as_u16());
         return Ok(with_rate_limit(
             upstream_error_response(status, message),
@@ -1481,8 +1657,6 @@ async fn stream_station(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
 
-    let csrf_params = resolve_csrf_params(&headers, &params);
-
     if !should_treat_as_playlist(&station.stream_url, content_type) {
         let buffer_delay = Duration::from_secs(state.config.stream_proxy.buffer_seconds);
         return Ok(with_rate_limit(
@@ -1495,6 +1669,16 @@ async fn stream_station(
         .text()
         .await
         .map_err(|_| ApiError::ServiceUnavailable("Failed to read playlist from upstream."))?;
+    state
+        .store_hls_playlist(&station.stream_url, playlist.clone())
+        .await;
+    logger().info(
+        "stream.proxy.hls_cache_store",
+        json!({
+            "stationId": station_id,
+            "url": station.stream_url,
+        }),
+    );
     let rewritten = rewrite_playlist(
         &station.stream_url,
         &playlist,

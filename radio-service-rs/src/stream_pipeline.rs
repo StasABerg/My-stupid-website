@@ -1,23 +1,21 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
+use serde_json::json;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Semaphore;
 
 #[cfg(feature = "gstreamer")]
 use {
-    bytes::Bytes,
-    gstreamer as gst,
-    gstreamer::prelude::*,
-    gstreamer_app as gst_app,
-    serde_json::json,
-    std::sync::atomic::{AtomicBool, Ordering},
-    tokio::sync::mpsc,
-    tokio_stream::wrappers::ReceiverStream,
-    tokio_stream::StreamExt,
+    bytes::Bytes, gstreamer as gst, gstreamer::prelude::*, gstreamer_app as gst_app,
+    std::sync::atomic::AtomicBool, std::sync::mpsc as std_mpsc, tokio::sync::mpsc as tokio_mpsc,
+    tokio_stream::wrappers::ReceiverStream, tokio_stream::StreamExt,
 };
 
 use crate::config::StreamPipelineConfig;
 use crate::logging::logger;
+use crate::stream_format::StreamFormat;
 
 #[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
@@ -35,6 +33,7 @@ pub enum PipelineError {
 pub struct PipelineAttemptMetadata {
     pub engine: &'static str,
     pub enabled: bool,
+    pub format: StreamFormat,
 }
 
 #[allow(dead_code)]
@@ -52,6 +51,7 @@ pub struct StreamPipeline {
     config: StreamPipelineConfig,
     semaphore: Arc<Semaphore>,
     engine: PipelineEngine,
+    metrics: Arc<PipelineMetrics>,
 }
 
 #[derive(Clone)]
@@ -65,13 +65,79 @@ enum PipelineEngine {
 #[derive(Clone)]
 struct GStreamerEngine;
 
+#[cfg(feature = "gstreamer")]
+struct EncoderSpec {
+    encoder: gst::Element,
+    extra_elements: Vec<gst::Element>,
+    caps: gst::Caps,
+    content_type: &'static str,
+    use_icydemux: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Default)]
+struct PipelineMetrics {
+    attempts: AtomicU64,
+    successes: AtomicU64,
+    failures: Mutex<HashMap<&'static str, u64>>,
+}
+
+#[allow(dead_code)]
+impl PipelineMetrics {
+    fn record_attempt(&self, url: &str) {
+        self.attempts.fetch_add(1, Ordering::Relaxed);
+        logger().debug(
+            "stream.pipeline.metrics.attempt",
+            json!({
+                "url": url,
+                "attempts": self.attempts.load(Ordering::Relaxed),
+            }),
+        );
+    }
+
+    fn record_success(&self, engine: &str, url: &str) {
+        self.successes.fetch_add(1, Ordering::Relaxed);
+        logger().info(
+            "stream.pipeline.metrics.success",
+            json!({
+                "engine": engine,
+                "url": url,
+                "attempts": self.attempts.load(Ordering::Relaxed),
+                "successes": self.successes.load(Ordering::Relaxed),
+            }),
+        );
+    }
+
+    fn record_failure(&self, reason: &'static str, url: &str) {
+        let mut guard = self.failures.lock().unwrap();
+        *guard.entry(reason).or_insert(0) += 1;
+        let failure_counts: Vec<_> = guard
+            .iter()
+            .map(|(r, count)| json!({ "reason": r, "count": count }))
+            .collect();
+        drop(guard);
+        logger().warn(
+            "stream.pipeline.metrics.failure",
+            json!({
+                "reason": reason,
+                "url": url,
+                "attempts": self.attempts.load(Ordering::Relaxed),
+                "successes": self.successes.load(Ordering::Relaxed),
+                "failures": failure_counts,
+            }),
+        );
+    }
+}
+
 impl StreamPipeline {
     pub fn new(config: StreamPipelineConfig) -> Self {
+        let metrics = Arc::new(PipelineMetrics::default());
         if !config.enabled {
             return Self {
                 semaphore: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
                 config,
                 engine: PipelineEngine::Disabled,
+                metrics,
             };
         }
 
@@ -89,12 +155,14 @@ impl StreamPipeline {
                     semaphore: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
                     config,
                     engine: PipelineEngine::Disabled,
+                    metrics,
                 };
             }
             let instance = Self {
                 semaphore: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
                 config,
                 engine: PipelineEngine::GStreamer(GStreamerEngine),
+                metrics,
             };
             logger().info(
                 "stream.pipeline.enabled",
@@ -120,6 +188,7 @@ impl StreamPipeline {
                 semaphore: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
                 config,
                 engine: PipelineEngine::Disabled,
+                metrics,
             }
         }
     }
@@ -128,7 +197,11 @@ impl StreamPipeline {
         !matches!(self.engine, PipelineEngine::Disabled)
     }
 
-    pub async fn attempt(&self, _url: &str) -> Result<PipelineDecision, PipelineError> {
+    pub async fn attempt(
+        &self,
+        _url: &str,
+        format: StreamFormat,
+    ) -> Result<PipelineDecision, PipelineError> {
         if !self.is_enabled() {
             return Err(PipelineError::Disabled);
         }
@@ -140,6 +213,8 @@ impl StreamPipeline {
             .await
             .map_err(|_| PipelineError::Unavailable)?;
 
+        self.metrics.record_attempt(_url);
+
         #[cfg(feature = "gstreamer")]
         {
             match &self.engine {
@@ -149,9 +224,20 @@ impl StreamPipeline {
                         serde_json::json!({
                             "engine": "gstreamer",
                             "url": _url,
+                            "format": format,
                         }),
                     );
-                    engine.start(_url, self.config.clone(), permit)
+                    let metrics = self.metrics.clone();
+                    match engine.start(_url, self.config.clone(), format, metrics.clone(), permit) {
+                        Ok(decision) => {
+                            metrics.record_success("gstreamer", _url);
+                            Ok(decision)
+                        }
+                        Err(err) => {
+                            metrics.record_failure("start_failed", _url);
+                            Err(err)
+                        }
+                    }
                 }
                 PipelineEngine::Disabled => Err(PipelineError::Unavailable),
             }
@@ -160,6 +246,7 @@ impl StreamPipeline {
         #[cfg(not(feature = "gstreamer"))]
         {
             let _ = permit;
+            let _ = format;
             Err(PipelineError::Unavailable)
         }
     }
@@ -171,9 +258,26 @@ impl GStreamerEngine {
         &self,
         url: &str,
         config: &StreamPipelineConfig,
-    ) -> Result<(gst::Pipeline, gst_app::AppSink), PipelineError> {
+        format: StreamFormat,
+    ) -> Result<(gst::Pipeline, gst_app::AppSink, String), PipelineError> {
         let timeout_seconds = std::cmp::max(1, (config.timeout_ms / 1000).max(1)) as u32;
         let pipeline = gst::Pipeline::new();
+        let EncoderSpec {
+            encoder,
+            extra_elements,
+            caps,
+            content_type,
+            use_icydemux,
+        } = Self::encoder_spec(format)?;
+        let pipeline_kind = content_type;
+        logger().info(
+            "stream.pipeline.builder",
+            json!({
+                "url": url,
+                "format": format,
+                "kind": pipeline_kind,
+            }),
+        );
 
         let src = gst::ElementFactory::make("souphttpsrc")
             .name("source")
@@ -184,6 +288,17 @@ impl GStreamerEngine {
             .property("is-live", true)
             .build()
             .map_err(|err| PipelineError::Generic(format!("build source: {:?}", err)))?;
+
+        let demux = if use_icydemux {
+            Some(
+                gst::ElementFactory::make("icydemux")
+                    .name("icydemux")
+                    .build()
+                    .map_err(|err| PipelineError::Generic(format!("build icydemux: {:?}", err)))?,
+            )
+        } else {
+            None
+        };
 
         let decode = gst::ElementFactory::make("decodebin")
             .name("decode")
@@ -200,22 +315,11 @@ impl GStreamerEngine {
             .build()
             .map_err(|err| PipelineError::Generic(format!("build audioresample: {:?}", err)))?;
 
-        let encoder = gst::ElementFactory::make("lamemp3enc")
-            .name("encoder")
-            .property("bitrate", 128i32)
-            .build()
-            .map_err(|err| PipelineError::Generic(format!("build lamemp3enc: {:?}", err)))?;
-
-        let sink_caps = gst::Caps::builder("audio/mpeg")
-            .field("mpegversion", 1i32)
-            .field("layer", 3i32)
-            .build();
-
         let sink = gst::ElementFactory::make("appsink")
             .name("outsink")
             .property("emit-signals", true)
             .property("sync", false)
-            .property("caps", sink_caps)
+            .property("caps", caps)
             .build()
             .map_err(|err| PipelineError::Generic(format!("build appsink: {:?}", err)))?;
 
@@ -223,30 +327,62 @@ impl GStreamerEngine {
             .downcast()
             .map_err(|_| PipelineError::Generic("failed to cast appsink".into()))?;
 
+        let mut elements: Vec<&gst::Element> = vec![src.upcast_ref::<gst::Element>()];
+        if let Some(demux) = demux.as_ref() {
+            elements.push(demux.upcast_ref::<gst::Element>());
+        }
+        elements.push(decode.upcast_ref::<gst::Element>());
+        elements.push(convert.upcast_ref::<gst::Element>());
+        elements.push(resample.upcast_ref::<gst::Element>());
+        elements.push(encoder.upcast_ref::<gst::Element>());
+        for extra in extra_elements.iter() {
+            elements.push(extra.upcast_ref::<gst::Element>());
+        }
+        elements.push(sink.upcast_ref::<gst::Element>());
+
         pipeline
-            .add_many([
-                src.upcast_ref::<gst::Element>(),
-                decode.upcast_ref::<gst::Element>(),
-                convert.upcast_ref::<gst::Element>(),
-                resample.upcast_ref::<gst::Element>(),
-                encoder.upcast_ref::<gst::Element>(),
-                sink.upcast_ref::<gst::Element>(),
-            ])
+            .add_many(elements.as_slice())
             .map_err(|err| PipelineError::Generic(format!("add elements: {:?}", err)))?;
 
-        gst::Element::link_many([
+        let mut convert_chain: Vec<&gst::Element> = vec![
             convert.upcast_ref::<gst::Element>(),
             resample.upcast_ref::<gst::Element>(),
             encoder.upcast_ref::<gst::Element>(),
-        ])
-        .map_err(|err| PipelineError::Generic(format!("link convert chain: {:?}", err)))?;
-        encoder
-            .link(sink.upcast_ref::<gst::Element>())
-            .map_err(|err| PipelineError::Generic(format!("link encoder->sink: {:?}", err)))?;
+        ];
+        for extra in extra_elements.iter() {
+            convert_chain.push(extra.upcast_ref::<gst::Element>());
+        }
+        convert_chain.push(sink.upcast_ref::<gst::Element>());
+        gst::Element::link_many(convert_chain.as_slice())
+            .map_err(|err| PipelineError::Generic(format!("link convert chain: {:?}", err)))?;
 
-        // Link source -> decodebin (dynamic) in the pad-added handler.
-        src.link(&decode)
-            .map_err(|err| PipelineError::Generic(format!("link source->decode: {:?}", err)))?;
+        if let Some(demux_element) = demux.as_ref() {
+            let decode_weak = decode.downgrade();
+            demux_element.connect_pad_added(move |_demux, src_pad| {
+                let Some(decode) = decode_weak.upgrade() else {
+                    return;
+                };
+                let Some(sink_pad) = decode.static_pad("sink") else {
+                    return;
+                };
+                if sink_pad.is_linked() {
+                    return;
+                }
+                if let Err(err) = src_pad.link(&sink_pad) {
+                    logger().warn(
+                        "stream.pipeline.demux_link_failed",
+                        json!({ "error": format!("{:?}", err) }),
+                    );
+                }
+            });
+
+            src.link(demux_element).map_err(|err| {
+                PipelineError::Generic(format!("link source->icydemux: {:?}", err))
+            })?;
+        } else {
+            src.link(&decode)
+                .map_err(|err| PipelineError::Generic(format!("link source->decode: {:?}", err)))?;
+        }
 
         let convert_weak = convert.downgrade();
         decode.connect_pad_added(move |_dbin, src_pad| {
@@ -288,23 +424,135 @@ impl GStreamerEngine {
             }
         });
 
-        Ok((pipeline, sink))
+        Ok((pipeline, sink, content_type.to_string()))
+    }
+
+    #[cfg(feature = "gstreamer")]
+    fn encoder_spec(format: StreamFormat) -> Result<EncoderSpec, PipelineError> {
+        match format {
+            StreamFormat::Aac => {
+                let encoder = gst::ElementFactory::make("avenc_aac")
+                    .name("encoder")
+                    .property("bitrate", 128_000i32)
+                    .build()
+                    .map_err(|err| PipelineError::Generic(format!("build avenc_aac: {:?}", err)))?;
+                let caps = gst::Caps::builder("audio/mpeg")
+                    .field("mpegversion", 4i32)
+                    .field("stream-format", "adts")
+                    .build();
+                Ok(EncoderSpec {
+                    encoder,
+                    extra_elements: Vec::new(),
+                    caps,
+                    content_type: "audio/aac",
+                    use_icydemux: false,
+                })
+            }
+            StreamFormat::Ogg => {
+                let encoder = gst::ElementFactory::make("vorbisenc")
+                    .name("encoder")
+                    .property("quality", 0.3f64)
+                    .build()
+                    .map_err(|err| PipelineError::Generic(format!("build vorbisenc: {:?}", err)))?;
+                let mux = gst::ElementFactory::make("oggmux")
+                    .name("oggmux")
+                    .build()
+                    .map_err(|err| PipelineError::Generic(format!("build oggmux: {:?}", err)))?;
+                Ok(EncoderSpec {
+                    encoder,
+                    extra_elements: vec![mux],
+                    caps: gst::Caps::builder("application/ogg").build(),
+                    content_type: "audio/ogg",
+                    use_icydemux: false,
+                })
+            }
+            StreamFormat::Opus => {
+                let encoder = gst::ElementFactory::make("opusenc")
+                    .name("encoder")
+                    .property("bitrate", 128_000i32)
+                    .build()
+                    .map_err(|err| PipelineError::Generic(format!("build opusenc: {:?}", err)))?;
+                let mux = gst::ElementFactory::make("oggmux")
+                    .name("oggmux")
+                    .build()
+                    .map_err(|err| PipelineError::Generic(format!("build oggmux: {:?}", err)))?;
+                Ok(EncoderSpec {
+                    encoder,
+                    extra_elements: vec![mux],
+                    caps: gst::Caps::builder("application/ogg").build(),
+                    content_type: "audio/ogg; codecs=opus",
+                    use_icydemux: false,
+                })
+            }
+            StreamFormat::Flac => {
+                let encoder = gst::ElementFactory::make("flacenc")
+                    .name("encoder")
+                    .build()
+                    .map_err(|err| PipelineError::Generic(format!("build flacenc: {:?}", err)))?;
+                Ok(EncoderSpec {
+                    encoder,
+                    extra_elements: Vec::new(),
+                    caps: gst::Caps::builder("audio/x-flac").build(),
+                    content_type: "audio/flac",
+                    use_icydemux: false,
+                })
+            }
+            StreamFormat::Wma => {
+                let encoder = gst::ElementFactory::make("avenc_wmav2")
+                    .name("encoder")
+                    .build()
+                    .map_err(|err| {
+                        PipelineError::Generic(format!("build avenc_wmav2: {:?}", err))
+                    })?;
+                Ok(EncoderSpec {
+                    encoder,
+                    extra_elements: Vec::new(),
+                    caps: gst::Caps::builder("audio/x-ms-wma").build(),
+                    content_type: "audio/x-ms-wma",
+                    use_icydemux: false,
+                })
+            }
+            _ => {
+                let encoder = gst::ElementFactory::make("lamemp3enc")
+                    .name("encoder")
+                    .property("bitrate", 128i32)
+                    .build()
+                    .map_err(|err| {
+                        PipelineError::Generic(format!("build lamemp3enc: {:?}", err))
+                    })?;
+                let caps = gst::Caps::builder("audio/mpeg")
+                    .field("mpegversion", 1i32)
+                    .field("layer", 3i32)
+                    .build();
+                Ok(EncoderSpec {
+                    encoder,
+                    extra_elements: Vec::new(),
+                    caps,
+                    content_type: "audio/mpeg",
+                    use_icydemux: true,
+                })
+            }
+        }
     }
 
     fn start(
         &self,
         url: &str,
         config: StreamPipelineConfig,
+        format: StreamFormat,
+        metrics: Arc<PipelineMetrics>,
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Result<PipelineDecision, PipelineError> {
-        let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(64);
+        let (tx_samples, rx_samples) = std_mpsc::channel::<Result<Bytes, std::io::Error>>();
+        let (body_tx, body_rx) = tokio_mpsc::channel::<Result<Bytes, std::io::Error>>(512);
         let url = url.to_string();
-        let (pipeline, appsink) = Self
-            .build_pipeline(&url, &config)
+        let (pipeline, appsink, content_type) = Self
+            .build_pipeline(&url, &config, format)
             .map_err(|err| PipelineError::Generic(format!("pipeline build failed: {:?}", err)))?;
 
         // Use appsink callbacks to push samples without blocking the async runtime.
-        let tx_samples = tx.clone();
+        let tx_samples_clone = tx_samples.clone();
+        let metrics_samples = metrics.clone();
         let url_for_samples = url.clone();
         let downstream_logged = Arc::new(AtomicBool::new(false));
         let downstream_logged_samples = downstream_logged.clone();
@@ -315,7 +563,9 @@ impl GStreamerEngine {
                         if let Some(buffer) = sample.buffer() {
                             if let Ok(map) = buffer.map_readable() {
                                 let chunk = Bytes::copy_from_slice(map.as_ref());
-                                if tx_samples.blocking_send(Ok(chunk)).is_err() {
+                                if tx_samples_clone.send(Ok(chunk)).is_err() {
+                                    metrics_samples
+                                        .record_failure("downstream_closed", &url_for_samples);
                                     if !downstream_logged_samples.swap(true, Ordering::Relaxed) {
                                         logger().info(
                                             "stream.pipeline.downstream_closed",
@@ -329,9 +579,10 @@ impl GStreamerEngine {
                         Ok(gst::FlowSuccess::Ok)
                     }
                     Err(err) => {
-                        let _ = tx_samples.blocking_send(Err(std::io::Error::other(format!(
+                        let _ = tx_samples_clone.send(Err(std::io::Error::other(format!(
                             "sample pull error: {err:?}"
                         ))));
+                        metrics_samples.record_failure("sample_pull_error", &url_for_samples);
                         logger().warn(
                             "stream.pipeline.sample_error",
                             json!({
@@ -353,18 +604,20 @@ impl GStreamerEngine {
             "stream.pipeline.started",
             json!({
                 "url": url,
+                "format": format,
             }),
         );
 
         if let Some(bus) = pipeline.bus() {
-            let tx_bus = tx.clone();
+            let tx_bus = tx_samples.clone();
             let url_bus = url.clone();
+            let metrics_bus = metrics.clone();
             let downstream_logged_bus = downstream_logged.clone();
             std::thread::spawn(move || {
                 while let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(1)) {
                     match msg.view() {
                         gst::MessageView::Eos(..) => {
-                            let _ = tx_bus.try_send(Err(std::io::Error::other("pipeline eos")));
+                            let _ = tx_bus.send(Err(std::io::Error::other("pipeline eos")));
                             downstream_logged_bus.store(true, Ordering::Relaxed);
                             break;
                         }
@@ -373,10 +626,11 @@ impl GStreamerEngine {
                                 .debug()
                                 .map(|value| value.to_string())
                                 .unwrap_or_else(|| "none".into());
-                            let _ = tx_bus.try_send(Err(std::io::Error::other(format!(
+                            let _ = tx_bus.send(Err(std::io::Error::other(format!(
                                 "pipeline error: {:?}",
                                 err.error()
                             ))));
+                            metrics_bus.record_failure("bus_error", &url_bus);
                             logger().warn(
                                 "stream.pipeline.bus_error",
                                 json!({
@@ -394,40 +648,35 @@ impl GStreamerEngine {
             });
         }
 
-        let tx_end = tx.clone();
+        let pipeline_for_shutdown = pipeline.clone();
+        let buffer_delay = std::time::Duration::from_secs(config.buffer_seconds);
+        let body_tx_forward = body_tx.clone();
+        let metrics_forward = metrics.clone();
+        let url_forward = url.to_string();
         std::thread::spawn(move || {
-            while !tx_end.is_closed() {
-                std::thread::sleep(std::time::Duration::from_millis(500));
+            let start = std::time::Instant::now();
+            while let Ok(item) = rx_samples.recv() {
+                if !buffer_delay.is_zero() {
+                    let elapsed = start.elapsed();
+                    if elapsed < buffer_delay {
+                        std::thread::sleep(buffer_delay - elapsed);
+                    }
+                }
+                if body_tx_forward.blocking_send(item).is_err() {
+                    metrics_forward.record_failure("body_channel_closed", &url_forward);
+                    break;
+                }
             }
-            let _ = pipeline.set_state(gst::State::Null);
+            let _ = pipeline_for_shutdown.set_state(gst::State::Null);
             drop(permit);
         });
 
-        let buffer_delay = std::time::Duration::from_secs(config.buffer_seconds);
-        let start_time = std::time::Instant::now();
-        let stream = ReceiverStream::new(rx).then(move |result| {
-            let delay = buffer_delay;
-            let start = start_time;
-            async move {
-                match result {
-                    Ok(bytes) => {
-                        if !delay.is_zero() {
-                            let elapsed =
-                                std::time::Instant::now().saturating_duration_since(start);
-                            if elapsed < delay {
-                                tokio::time::sleep(delay - elapsed).await;
-                            }
-                        }
-                        Ok::<Bytes, std::io::Error>(bytes)
-                    }
-                    Err(err) => Err(err),
-                }
-            }
-        });
+        let stream =
+            ReceiverStream::new(body_rx).map(|result| result.map_err(std::io::Error::other));
         let body = axum::body::Body::from_stream(stream);
         Ok(PipelineDecision::Stream {
             body,
-            content_type: Some("audio/mpeg".to_string()),
+            content_type: Some(content_type),
         })
     }
 }

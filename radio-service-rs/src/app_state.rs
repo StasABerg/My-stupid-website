@@ -24,9 +24,13 @@ use crate::{
     radio_browser::RadioBrowserClient,
     refresh,
     stations::{sanitize_persisted_payload, ProcessedStations, StationStorage, StationsPayload},
+    stream_format::StreamFormat,
     stream_pipeline::StreamPipeline,
     stream_validation::StreamValidator,
 };
+
+const FORMAT_HINT_TTL: Duration = Duration::from_secs(300);
+const HLS_CACHE_TTL: Duration = Duration::from_secs(5);
 
 #[allow(dead_code)]
 #[derive(Clone)]
@@ -42,6 +46,8 @@ pub struct AppState {
     pub stream_validator: StreamValidator,
     pub stream_pipeline: StreamPipeline,
     memory_cache: Arc<RwLock<Option<MemoryEntry>>>,
+    format_hints: Arc<RwLock<HashMap<String, FormatHintEntry>>>,
+    hls_cache: Arc<RwLock<HashMap<String, HlsCacheEntry>>>,
     refresh_mutex: Arc<Mutex<()>>,
     rate_limiter: Arc<RateLimiter>,
     status_monitor: Arc<EventLoopMonitor>,
@@ -60,6 +66,18 @@ struct MemoryEntry {
     payload: StationsPayload,
     cache_source: String,
     expires_at: Instant,
+}
+
+#[derive(Clone)]
+struct FormatHintEntry {
+    format: StreamFormat,
+    detected_at: Instant,
+}
+
+#[derive(Clone)]
+struct HlsCacheEntry {
+    content: String,
+    detected_at: Instant,
 }
 
 struct SanitizedPayload {
@@ -277,6 +295,8 @@ impl AppState {
         EventLoopMonitor::spawn(status_monitor.clone());
         let system = Arc::new(Mutex::new(System::new_all()));
         let started_at = Instant::now();
+        let format_hints = Arc::new(RwLock::new(HashMap::new()));
+        let hls_cache = Arc::new(RwLock::new(HashMap::new()));
 
         Ok(Self {
             config,
@@ -290,12 +310,79 @@ impl AppState {
             stream_validator,
             stream_pipeline,
             memory_cache,
+            format_hints,
+            hls_cache,
             refresh_mutex,
             rate_limiter,
             status_monitor,
             system,
             started_at,
         })
+    }
+
+    pub async fn get_cached_format_hint(&self, url: &str) -> Option<StreamFormat> {
+        let mut should_purge = false;
+        let mut result = None;
+        {
+            let guard = self.format_hints.read().await;
+            if let Some(entry) = guard.get(url) {
+                if Instant::now().saturating_duration_since(entry.detected_at) <= FORMAT_HINT_TTL {
+                    result = Some(entry.format);
+                } else {
+                    should_purge = true;
+                }
+            }
+        }
+        if should_purge {
+            let mut guard = self.format_hints.write().await;
+            guard.remove(url);
+        }
+        result
+    }
+
+    pub async fn store_format_hint(&self, url: &str, format: StreamFormat) {
+        if matches!(format, StreamFormat::Unknown) {
+            return;
+        }
+        let mut guard = self.format_hints.write().await;
+        guard.insert(
+            url.to_string(),
+            FormatHintEntry {
+                format,
+                detected_at: Instant::now(),
+            },
+        );
+    }
+
+    pub async fn get_cached_hls_playlist(&self, url: &str) -> Option<String> {
+        let mut should_purge = false;
+        let mut result = None;
+        {
+            let guard = self.hls_cache.read().await;
+            if let Some(entry) = guard.get(url) {
+                if Instant::now().saturating_duration_since(entry.detected_at) <= HLS_CACHE_TTL {
+                    result = Some(entry.content.clone());
+                } else {
+                    should_purge = true;
+                }
+            }
+        }
+        if should_purge {
+            let mut guard = self.hls_cache.write().await;
+            guard.remove(url);
+        }
+        result
+    }
+
+    pub async fn store_hls_playlist(&self, url: &str, content: String) {
+        let mut guard = self.hls_cache.write().await;
+        guard.insert(
+            url.to_string(),
+            HlsCacheEntry {
+                content,
+                detected_at: Instant::now(),
+            },
+        );
     }
 }
 
