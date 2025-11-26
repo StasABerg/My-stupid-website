@@ -183,6 +183,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 15000;
 const PROBE_DEFAULT_DELAY_MS = 2000;
+const STALL_RECOVERY_THRESHOLD_MS = 8000;
 
 const serializeStationForShare = (station: RadioStation): string => {
   const payload: SharedStationPayload = {
