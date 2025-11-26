@@ -452,11 +452,11 @@ const Radio = () => {
 
       const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
       try {
-      const probeResponse = await fetch(probeUrl, {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-        signal: controller.signal,
+        const probeResponse = await fetch(probeUrl, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
           headers: {
             Accept: "application/json",
           },
@@ -472,6 +472,7 @@ const Radio = () => {
             const reason = typeof payload?.reason === "string" ? payload.reason : "probe-unavailable";
             if (
               !pipelineBypass &&
+              reason !== "hls_warming" &&
               (reason === "engine_disabled" || reason === "recent_failure")
             ) {
               setPipelineBypassState({
