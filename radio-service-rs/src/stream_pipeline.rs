@@ -84,23 +84,25 @@ struct PipelineMetrics {
 
 #[allow(dead_code)]
 impl PipelineMetrics {
-    fn record_attempt(&self, url: &str) {
+    fn record_attempt(&self, station_id: &str, url: &str) {
         self.attempts.fetch_add(1, Ordering::Relaxed);
         logger().debug(
             "stream.pipeline.metrics.attempt",
             json!({
+                "stationId": station_id,
                 "url": url,
                 "attempts": self.attempts.load(Ordering::Relaxed),
             }),
         );
     }
 
-    fn record_success(&self, engine: &str, url: &str) {
+    fn record_success(&self, engine: &str, station_id: &str, url: &str) {
         self.successes.fetch_add(1, Ordering::Relaxed);
         logger().info(
             "stream.pipeline.metrics.success",
             json!({
                 "engine": engine,
+                "stationId": station_id,
                 "url": url,
                 "attempts": self.attempts.load(Ordering::Relaxed),
                 "successes": self.successes.load(Ordering::Relaxed),
@@ -108,7 +110,7 @@ impl PipelineMetrics {
         );
     }
 
-    fn record_failure(&self, reason: &'static str, url: &str) {
+    fn record_failure(&self, reason: &'static str, station_id: &str, url: &str) {
         let mut guard = self.failures.lock().unwrap();
         *guard.entry(reason).or_insert(0) += 1;
         let failure_counts: Vec<_> = guard
@@ -120,6 +122,7 @@ impl PipelineMetrics {
             "stream.pipeline.metrics.failure",
             json!({
                 "reason": reason,
+                "stationId": station_id,
                 "url": url,
                 "attempts": self.attempts.load(Ordering::Relaxed),
                 "successes": self.successes.load(Ordering::Relaxed),
@@ -199,8 +202,9 @@ impl StreamPipeline {
 
     pub async fn attempt(
         &self,
-        _url: &str,
+        url: &str,
         format: StreamFormat,
+        station_id: &str,
     ) -> Result<PipelineDecision, PipelineError> {
         if !self.is_enabled() {
             return Err(PipelineError::Disabled);
@@ -213,7 +217,7 @@ impl StreamPipeline {
             .await
             .map_err(|_| PipelineError::Unavailable)?;
 
-        self.metrics.record_attempt(_url);
+        self.metrics.record_attempt(station_id, url);
 
         #[cfg(feature = "gstreamer")]
         {
@@ -223,18 +227,26 @@ impl StreamPipeline {
                         "stream.pipeline.attempt",
                         serde_json::json!({
                             "engine": "gstreamer",
-                            "url": _url,
+                            "stationId": station_id,
+                            "url": url,
                             "format": format,
                         }),
                     );
                     let metrics = self.metrics.clone();
-                    match engine.start(_url, self.config.clone(), format, metrics.clone(), permit) {
+                    match engine.start(
+                        url,
+                        station_id,
+                        self.config.clone(),
+                        format,
+                        metrics.clone(),
+                        permit,
+                    ) {
                         Ok(decision) => {
-                            metrics.record_success("gstreamer", _url);
+                            metrics.record_success("gstreamer", station_id, url);
                             Ok(decision)
                         }
                         Err(err) => {
-                            metrics.record_failure("start_failed", _url);
+                            metrics.record_failure("start_failed", station_id, url);
                             Err(err)
                         }
                     }
@@ -257,6 +269,7 @@ impl GStreamerEngine {
     fn build_pipeline(
         &self,
         url: &str,
+        station_id: &str,
         config: &StreamPipelineConfig,
         format: StreamFormat,
     ) -> Result<(gst::Pipeline, gst_app::AppSink, String), PipelineError> {
@@ -273,6 +286,7 @@ impl GStreamerEngine {
         logger().info(
             "stream.pipeline.builder",
             json!({
+                "stationId": station_id,
                 "url": url,
                 "format": format,
                 "kind": pipeline_kind,
@@ -538,22 +552,25 @@ impl GStreamerEngine {
     fn start(
         &self,
         url: &str,
+        station_id: &str,
         config: StreamPipelineConfig,
         format: StreamFormat,
         metrics: Arc<PipelineMetrics>,
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Result<PipelineDecision, PipelineError> {
+        let station_id_owned = station_id.to_string();
         let (tx_samples, rx_samples) = std_mpsc::channel::<Result<Bytes, std::io::Error>>();
         let (body_tx, body_rx) = tokio_mpsc::channel::<Result<Bytes, std::io::Error>>(512);
         let url = url.to_string();
         let (pipeline, appsink, content_type) = Self
-            .build_pipeline(&url, &config, format)
+            .build_pipeline(&url, &station_id_owned, &config, format)
             .map_err(|err| PipelineError::Generic(format!("pipeline build failed: {:?}", err)))?;
 
         // Use appsink callbacks to push samples without blocking the async runtime.
         let tx_samples_clone = tx_samples.clone();
         let metrics_samples = metrics.clone();
         let url_for_samples = url.clone();
+        let station_for_samples = station_id_owned.clone();
         let downstream_logged = Arc::new(AtomicBool::new(false));
         let downstream_logged_samples = downstream_logged.clone();
         appsink.set_callbacks(
@@ -564,12 +581,18 @@ impl GStreamerEngine {
                             if let Ok(map) = buffer.map_readable() {
                                 let chunk = Bytes::copy_from_slice(map.as_ref());
                                 if tx_samples_clone.send(Ok(chunk)).is_err() {
-                                    metrics_samples
-                                        .record_failure("downstream_closed", &url_for_samples);
+                                    metrics_samples.record_failure(
+                                        "downstream_closed",
+                                        &station_for_samples,
+                                        &url_for_samples,
+                                    );
                                     if !downstream_logged_samples.swap(true, Ordering::Relaxed) {
                                         logger().info(
                                             "stream.pipeline.downstream_closed",
-                                            json!({ "url": url_for_samples }),
+                                            json!({
+                                                "stationId": station_for_samples,
+                                                "url": url_for_samples
+                                            }),
                                         );
                                     }
                                     return Err(gst::FlowError::Eos);
@@ -582,10 +605,15 @@ impl GStreamerEngine {
                         let _ = tx_samples_clone.send(Err(std::io::Error::other(format!(
                             "sample pull error: {err:?}"
                         ))));
-                        metrics_samples.record_failure("sample_pull_error", &url_for_samples);
+                        metrics_samples.record_failure(
+                            "sample_pull_error",
+                            &station_for_samples,
+                            &url_for_samples,
+                        );
                         logger().warn(
                             "stream.pipeline.sample_error",
                             json!({
+                                "stationId": station_for_samples,
                                 "url": url_for_samples,
                                 "error": format!("{err:?}"),
                             }),
@@ -603,6 +631,7 @@ impl GStreamerEngine {
         logger().info(
             "stream.pipeline.started",
             json!({
+                "stationId": station_id_owned,
                 "url": url,
                 "format": format,
             }),
@@ -612,6 +641,7 @@ impl GStreamerEngine {
             let tx_bus = tx_samples.clone();
             let url_bus = url.clone();
             let metrics_bus = metrics.clone();
+            let station_for_bus = station_id_owned.clone();
             let downstream_logged_bus = downstream_logged.clone();
             std::thread::spawn(move || {
                 while let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(1)) {
@@ -630,10 +660,11 @@ impl GStreamerEngine {
                                 "pipeline error: {:?}",
                                 err.error()
                             ))));
-                            metrics_bus.record_failure("bus_error", &url_bus);
+                            metrics_bus.record_failure("bus_error", &station_for_bus, &url_bus);
                             logger().warn(
                                 "stream.pipeline.bus_error",
                                 json!({
+                                    "stationId": station_for_bus,
                                     "url": url_bus,
                                     "error": format!("{:?}", err.error()),
                                     "debug": debug,
@@ -653,6 +684,7 @@ impl GStreamerEngine {
         let body_tx_forward = body_tx.clone();
         let metrics_forward = metrics.clone();
         let url_forward = url.to_string();
+        let station_forward = station_id_owned.clone();
         std::thread::spawn(move || {
             let start = std::time::Instant::now();
             while let Ok(item) = rx_samples.recv() {
@@ -663,7 +695,11 @@ impl GStreamerEngine {
                     }
                 }
                 if body_tx_forward.blocking_send(item).is_err() {
-                    metrics_forward.record_failure("body_channel_closed", &url_forward);
+                    metrics_forward.record_failure(
+                        "body_channel_closed",
+                        &station_forward,
+                        &url_forward,
+                    );
                     break;
                 }
             }

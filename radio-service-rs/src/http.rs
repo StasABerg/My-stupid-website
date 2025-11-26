@@ -907,6 +907,9 @@ fn forward_stream_response(response: reqwest::Response, buffer_delay: Duration) 
         }
         builder = builder.header(key, value.clone());
     }
+    builder = builder
+        .header("Cache-Control", "no-store")
+        .header("Alt-Svc", "clear");
 
     let (tx_samples, mut rx_samples) = mpsc::unbounded_channel::<Result<Bytes, std::io::Error>>();
     let (body_tx, body_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(256);
@@ -1460,14 +1463,15 @@ async fn stream_station(
     if pipeline_enabled && !is_playlist {
         match state
             .stream_pipeline
-            .attempt(&station.stream_url, format_detection.format)
+            .attempt(&station.stream_url, format_detection.format, station_id)
             .await
         {
             Ok(PipelineDecision::Skip) => {}
             Ok(PipelineDecision::Stream { body, content_type }) => {
                 let mut builder = Response::builder()
                     .status(StatusCode::OK)
-                    .header("Cache-Control", "no-store");
+                    .header("Cache-Control", "no-store")
+                    .header("Alt-Svc", "clear");
                 if let Some(ct) = content_type {
                     builder = builder.header("Content-Type", ct);
                 }
@@ -1527,7 +1531,8 @@ async fn stream_station(
             let builder = Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/vnd.apple.mpegurl")
-                .header("Cache-Control", "no-store");
+                .header("Cache-Control", "no-store")
+                .header("Alt-Svc", "clear");
             let body = Body::from(rewritten);
             let response = builder
                 .body(body)
@@ -1792,6 +1797,7 @@ async fn stream_segment(
             .status(StatusCode::OK)
             .header("Content-Type", "application/vnd.apple.mpegurl")
             .header("Cache-Control", "no-store")
+            .header("Alt-Svc", "clear")
             .body(Body::from(rewritten))
             .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?,
         &rate,
