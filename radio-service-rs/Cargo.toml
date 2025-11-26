@@ -40,3 +40,4 @@ uuid = { version = "1.18", features = ["v4"] }
 gstreamer = { version = "0.24", optional = true, default-features = false }
 gstreamer-app = { version = "0.24", optional = true, default-features = false }
 bytes = "1.11"
+base64 = "0.22"

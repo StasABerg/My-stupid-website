@@ -1,19 +1,34 @@
 use std::collections::HashMap;
+#[cfg(feature = "gstreamer")]
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
+use bytes::Bytes;
+use deadpool_redis::Pool as RedisPool;
 use serde::Serialize;
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
 #[cfg(feature = "gstreamer")]
 use {
-    bytes::Bytes, gstreamer as gst, gstreamer::prelude::*, gstreamer_app as gst_app,
-    std::sync::atomic::AtomicBool, std::sync::mpsc as std_mpsc, tokio::sync::mpsc as tokio_mpsc,
-    tokio_stream::wrappers::ReceiverStream, tokio_stream::StreamExt,
+    bytes::Bytes,
+    gstreamer as gst,
+    gstreamer::prelude::*,
+    gstreamer_app as gst_app,
+    std::sync::atomic::AtomicBool,
+    std::sync::mpsc as std_mpsc,
+    std::time::Duration,
+    tokio::sync::{mpsc as tokio_mpsc, OwnedSemaphorePermit},
+    tokio_stream::wrappers::ReceiverStream,
+    tokio_stream::StreamExt,
 };
 
-use crate::config::StreamPipelineConfig;
+use crate::config::{StreamPipelineConfig, StreamPipelineHlsConfig};
+#[cfg(feature = "gstreamer")]
+use crate::hls::SegmentPayload;
+use crate::hls::{HlsSegmentStore, PlaylistSnapshot};
 use crate::logging::logger;
 use crate::stream_format::StreamFormat;
 
@@ -52,6 +67,67 @@ pub struct StreamPipeline {
     semaphore: Arc<Semaphore>,
     engine: PipelineEngine,
     metrics: Arc<PipelineMetrics>,
+    hls_manager: Option<Arc<HlsManager>>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone)]
+struct HlsManager {
+    store: HlsSegmentStore,
+    config: StreamPipelineHlsConfig,
+    active: Arc<AsyncMutex<HashMap<String, Arc<HlsHandle>>>>,
+}
+
+#[allow(dead_code)]
+struct HlsHandle {
+    last_access: Mutex<Instant>,
+}
+
+#[allow(dead_code)]
+impl HlsManager {
+    fn new(store: HlsSegmentStore, config: StreamPipelineHlsConfig) -> Self {
+        Self {
+            store,
+            config,
+            active: Arc::new(AsyncMutex::new(HashMap::new())),
+        }
+    }
+
+    async fn register(&self, station_id: &str) -> bool {
+        let mut guard = self.active.lock().await;
+        if guard.contains_key(station_id) {
+            return false;
+        }
+        guard.insert(
+            station_id.to_string(),
+            Arc::new(HlsHandle {
+                last_access: Mutex::new(Instant::now()),
+            }),
+        );
+        true
+    }
+
+    async fn unregister(&self, station_id: &str) {
+        let mut guard = self.active.lock().await;
+        guard.remove(station_id);
+    }
+
+    async fn touch(&self, station_id: &str) {
+        let guard = self.active.lock().await;
+        if let Some(handle) = guard.get(station_id) {
+            if let Ok(mut last) = handle.last_access.lock() {
+                *last = Instant::now();
+            }
+        }
+    }
+
+    fn store(&self) -> HlsSegmentStore {
+        self.store.clone()
+    }
+
+    fn config(&self) -> StreamPipelineHlsConfig {
+        self.config.clone()
+    }
 }
 
 #[derive(Clone)]
@@ -133,14 +209,23 @@ impl PipelineMetrics {
 }
 
 impl StreamPipeline {
-    pub fn new(config: StreamPipelineConfig) -> Self {
+    pub fn new(config: StreamPipelineConfig, redis: RedisPool) -> Self {
         let metrics = Arc::new(PipelineMetrics::default());
+        let hls_manager = if config.hls.enabled {
+            Some(Arc::new(HlsManager::new(
+                HlsSegmentStore::new(redis, config.hls.clone()),
+                config.hls.clone(),
+            )))
+        } else {
+            None
+        };
         if !config.enabled {
             return Self {
                 semaphore: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
                 config,
                 engine: PipelineEngine::Disabled,
                 metrics,
+                hls_manager,
             };
         }
 
@@ -159,6 +244,7 @@ impl StreamPipeline {
                     config,
                     engine: PipelineEngine::Disabled,
                     metrics,
+                    hls_manager: hls_manager.clone(),
                 };
             }
             let instance = Self {
@@ -166,6 +252,7 @@ impl StreamPipeline {
                 config,
                 engine: PipelineEngine::GStreamer(GStreamerEngine),
                 metrics,
+                hls_manager,
             };
             logger().info(
                 "stream.pipeline.enabled",
@@ -192,12 +279,117 @@ impl StreamPipeline {
                 config,
                 engine: PipelineEngine::Disabled,
                 metrics,
+                hls_manager,
             }
         }
     }
 
     pub fn is_enabled(&self) -> bool {
         !matches!(self.engine, PipelineEngine::Disabled)
+    }
+
+    pub async fn load_hls_segment(
+        &self,
+        station_id: &str,
+        sequence: u64,
+    ) -> Result<Option<(String, Bytes)>, PipelineError> {
+        let Some(manager) = &self.hls_manager else {
+            return Err(PipelineError::Unavailable);
+        };
+        match manager.store().load_segment(station_id, sequence).await {
+            Ok(Some(segment)) => {
+                manager.touch(station_id).await;
+                Ok(Some((segment.content_type, segment.bytes)))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => {
+                logger().warn(
+                    "stream.pipeline.hls.segment_load_failed",
+                    json!({
+                        "stationId": station_id,
+                        "sequence": sequence,
+                        "error": format!("{:?}", err),
+                    }),
+                );
+                Err(PipelineError::Generic(
+                    "failed to load HLS segment from store".into(),
+                ))
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn request_hls_playlist(
+        &self,
+        station_id: &str,
+        url: &str,
+        format: StreamFormat,
+    ) -> Result<Option<PlaylistSnapshot>, PipelineError> {
+        let Some(manager) = &self.hls_manager else {
+            return Err(PipelineError::Unavailable);
+        };
+
+        #[cfg(not(feature = "gstreamer"))]
+        let _ = format;
+
+        match manager.store().load_playlist(station_id).await {
+            Ok(Some(snapshot)) => {
+                manager.touch(station_id).await;
+                return Ok(Some(snapshot));
+            }
+            Ok(None) => {}
+            Err(err) => {
+                logger().warn(
+                    "stream.pipeline.hls.playlist_load_failed",
+                    json!({
+                        "stationId": station_id,
+                        "url": url,
+                        "error": format!("{:?}", err),
+                    }),
+                );
+            }
+        }
+
+        if !manager.register(station_id).await {
+            manager.touch(station_id).await;
+            return Ok(None);
+        }
+
+        let permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| PipelineError::Unavailable)?;
+
+        #[cfg(not(feature = "gstreamer"))]
+        {
+            drop(permit);
+        }
+
+        #[cfg(feature = "gstreamer")]
+        let result: Result<(), PipelineError> = match &self.engine {
+            PipelineEngine::GStreamer(engine) => engine.start_hls(
+                url,
+                station_id,
+                self.config.clone(),
+                format,
+                self.metrics.clone(),
+                permit,
+                manager.clone(),
+            ),
+            PipelineEngine::Disabled => Err(PipelineError::Unavailable),
+        };
+
+        #[cfg(not(feature = "gstreamer"))]
+        let result: Result<(), PipelineError> = Err(PipelineError::Unavailable);
+
+        if let Err(err) = result {
+            manager.unregister(station_id).await;
+            return Err(err);
+        }
+
+        Ok(None)
     }
 
     pub async fn attempt(
@@ -722,4 +914,239 @@ impl GStreamerEngine {
             content_type: Some(content_type),
         })
     }
+
+    fn start_hls(
+        &self,
+        url: &str,
+        station_id: &str,
+        config: StreamPipelineConfig,
+        format: StreamFormat,
+        metrics: Arc<PipelineMetrics>,
+        permit: OwnedSemaphorePermit,
+        manager: Arc<HlsManager>,
+    ) -> Result<(), PipelineError> {
+        let station_id_owned = station_id.to_string();
+        let (tx_samples, rx_samples) = std_mpsc::channel::<Result<Bytes, std::io::Error>>();
+        let url = url.to_string();
+        let (pipeline, appsink, content_type) = Self
+            .build_pipeline(&url, &station_id_owned, &config, format)
+            .map_err(|err| PipelineError::Generic(format!("pipeline build failed: {:?}", err)))?;
+
+        let tx_samples_clone = tx_samples.clone();
+        let metrics_samples = metrics.clone();
+        let url_for_samples = url.clone();
+        let station_for_samples = station_id_owned.clone();
+        let downstream_logged = Arc::new(AtomicBool::new(false));
+        let downstream_logged_samples = downstream_logged.clone();
+        appsink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |sink| match sink.pull_sample() {
+                    Ok(sample) => {
+                        if let Some(buffer) = sample.buffer() {
+                            if let Ok(map) = buffer.map_readable() {
+                                let chunk = Bytes::copy_from_slice(map.as_ref());
+                                if tx_samples_clone.send(Ok(chunk)).is_err() {
+                                    metrics_samples.record_failure(
+                                        "downstream_closed",
+                                        &station_for_samples,
+                                        &url_for_samples,
+                                    );
+                                    if !downstream_logged_samples.swap(true, Ordering::Relaxed) {
+                                        logger().info(
+                                            "stream.pipeline.downstream_closed",
+                                            json!({
+                                                "stationId": station_for_samples,
+                                                "url": url_for_samples
+                                            }),
+                                        );
+                                    }
+                                    return Err(gst::FlowError::Eos);
+                                }
+                            }
+                        }
+                        Ok(gst::FlowSuccess::Ok)
+                    }
+                    Err(err) => {
+                        let _ = tx_samples_clone.send(Err(std::io::Error::other(format!(
+                            "sample pull error: {err:?}"
+                        ))));
+                        metrics_samples.record_failure(
+                            "sample_pull_error",
+                            &station_for_samples,
+                            &url_for_samples,
+                        );
+                        logger().warn(
+                            "stream.pipeline.sample_error",
+                            json!({
+                                "stationId": station_for_samples,
+                                "url": url_for_samples,
+                                "error": format!("{err:?}"),
+                            }),
+                        );
+                        Err(gst::FlowError::Error)
+                    }
+                })
+                .build(),
+        );
+
+        pipeline.set_state(gst::State::Playing).map_err(|err| {
+            PipelineError::Generic(format!("failed to start pipeline: {:?}", err))
+        })?;
+
+        logger().info(
+            "stream.pipeline.hls_started",
+            json!({
+                "stationId": station_id_owned,
+                "url": url,
+                "format": format,
+            }),
+        );
+
+        if let Some(bus) = pipeline.bus() {
+            let tx_bus = tx_samples.clone();
+            let url_bus = url.clone();
+            let metrics_bus = metrics.clone();
+            let station_for_bus = station_id_owned.clone();
+            let downstream_logged_bus = downstream_logged.clone();
+            std::thread::spawn(move || {
+                while let Some(msg) = bus.timed_pop(gst::ClockTime::from_seconds(1)) {
+                    match msg.view() {
+                        gst::MessageView::Eos(..) => {
+                            let _ = tx_bus.send(Err(std::io::Error::other("pipeline eos")));
+                            downstream_logged_bus.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                        gst::MessageView::Error(err) => {
+                            let debug = err
+                                .debug()
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "none".into());
+                            let _ = tx_bus.send(Err(std::io::Error::other(format!(
+                                "pipeline error: {:?}",
+                                err.error()
+                            ))));
+                            metrics_bus.record_failure("bus_error", &station_for_bus, &url_bus);
+                            logger().warn(
+                                "stream.pipeline.bus_error",
+                                json!({
+                                    "stationId": station_for_bus,
+                                    "url": url_bus,
+                                    "error": format!("{:?}", err.error()),
+                                    "debug": debug,
+                                }),
+                            );
+                            downstream_logged_bus.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+
+        let pipeline_for_shutdown = pipeline.clone();
+        let hls_config = manager.config();
+        let hls_store = manager.store();
+        let manager_for_shutdown = manager.clone();
+        let station_for_shutdown = station_id_owned.clone();
+        let runtime = tokio::runtime::Handle::current();
+        std::thread::spawn(move || {
+            let segment_duration = Duration::from_secs(hls_config.segment_seconds.max(1));
+            let mut segment_started = Instant::now();
+            let mut buffer: Vec<u8> = Vec::new();
+            let mut next_sequence: u64 = 0;
+            let mut window: VecDeque<u64> = VecDeque::new();
+            let max_segments = hls_config.segment_count.max(1);
+            let content_type_owned = content_type.clone();
+
+            let mut flush_segment = |data: Vec<u8>, sequence: u64| {
+                if data.is_empty() {
+                    return;
+                }
+                let payload = SegmentPayload {
+                    sequence,
+                    content_type: content_type_owned.clone(),
+                    bytes: Bytes::from(data),
+                };
+                let store_clone = hls_store.clone();
+                let station_clone = station_id_owned.clone();
+                let target_duration = hls_config.segment_seconds.max(1);
+                window.push_back(sequence);
+                while window.len() > max_segments {
+                    window.pop_front();
+                }
+                let playlist_body = build_playlist_body(&window, target_duration);
+                let media_sequence = window.front().copied().unwrap_or(sequence);
+                let store_future = async {
+                    if let Err(err) = store_clone.store_segment(&station_clone, &payload).await {
+                        logger().warn(
+                            "stream.pipeline.hls.segment_store_failed",
+                            json!({
+                                "stationId": station_clone,
+                                "sequence": sequence,
+                                "error": format!("{:?}", err),
+                            }),
+                        );
+                        return;
+                    }
+                    let snapshot =
+                        store_clone.create_playlist_snapshot(playlist_body.clone(), media_sequence);
+                    if let Err(err) = store_clone.store_playlist(&station_clone, &snapshot).await {
+                        logger().warn(
+                            "stream.pipeline.hls.playlist_store_failed",
+                            json!({
+                                "stationId": station_clone,
+                                "sequence": sequence,
+                                "error": format!("{:?}", err),
+                            }),
+                        );
+                    }
+                };
+                runtime.block_on(store_future);
+            };
+
+            while let Ok(item) = rx_samples.recv() {
+                match item {
+                    Ok(chunk) => {
+                        buffer.extend_from_slice(chunk.as_ref());
+                        if segment_started.elapsed() >= segment_duration {
+                            let data = std::mem::take(&mut buffer);
+                            flush_segment(data, next_sequence);
+                            next_sequence = next_sequence.wrapping_add(1);
+                            segment_started = Instant::now();
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            if !buffer.is_empty() {
+                let data = std::mem::take(&mut buffer);
+                flush_segment(data, next_sequence);
+            }
+
+            let _ = pipeline_for_shutdown.set_state(gst::State::Null);
+            runtime.block_on(async {
+                manager_for_shutdown.unregister(&station_for_shutdown).await;
+            });
+            drop(permit);
+        });
+
+        Ok(())
+    }
+}
+#[cfg(feature = "gstreamer")]
+fn build_playlist_body(sequences: &VecDeque<u64>, target_duration: u64) -> String {
+    let mut lines = Vec::new();
+    lines.push("#EXTM3U".to_string());
+    lines.push("#EXT-X-VERSION:3".to_string());
+    lines.push(format!("#EXT-X-TARGETDURATION:{}", target_duration.max(1)));
+    let media_sequence = sequences.front().copied().unwrap_or(0);
+    lines.push(format!("#EXT-X-MEDIA-SEQUENCE:{}", media_sequence));
+    for sequence in sequences.iter() {
+        lines.push(format!("#EXTINF:{}.0,", target_duration.max(1)));
+        lines.push(format!("segment?n={sequence}"));
+    }
+    lines.push(String::new());
+    lines.join("\n")
 }

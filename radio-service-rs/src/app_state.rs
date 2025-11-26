@@ -286,7 +286,7 @@ impl AppState {
         )?;
         let stream_validator =
             StreamValidator::new(config.stream_validation.clone(), http_client.clone());
-        let stream_pipeline = StreamPipeline::new(config.stream_pipeline.clone());
+        let stream_pipeline = StreamPipeline::new(config.stream_pipeline.clone(), redis.clone());
         let processed_cache = Arc::new(RwLock::new(None));
         let memory_cache = Arc::new(RwLock::new(None));
         let refresh_mutex = Arc::new(Mutex::new(()));

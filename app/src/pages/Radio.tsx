@@ -359,6 +359,7 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const [resolvedIsHls, setResolvedIsHls] = useState(false);
   const secretVideo = SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""];
   const secretEmbedUrl = useMemo(
     () => buildSecretEmbedUrl(activeStation.id),
@@ -424,6 +425,7 @@ const Radio = () => {
       if (secretVideo || !activeStation.id || !activeStation.streamUrl) {
         if (!cancelled) {
           setResolvedStreamUrl(null);
+          setResolvedIsHls(false);
         }
         return;
       }
@@ -450,11 +452,11 @@ const Radio = () => {
 
       const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
       try {
-        const probeResponse = await fetch(probeUrl, {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          signal: controller.signal,
+      const probeResponse = await fetch(probeUrl, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        signal: controller.signal,
           headers: {
             Accept: "application/json",
           },
@@ -502,6 +504,11 @@ const Radio = () => {
       }
 
       if (!cancelled) {
+        const contentType = probeResponse.headers.get("content-type") ?? "";
+        const isHls =
+          contentType.toLowerCase().includes("application/vnd.apple.mpegurl") ||
+          probeResponse.headers.get("x-stream-pipeline") === "hls";
+        setResolvedIsHls(isHls || activeStation.hls);
         setResolvedStreamUrl(streamPath);
       }
     }
@@ -999,7 +1006,9 @@ const Radio = () => {
       return () => {};
     }
 
-    if (activeStation.hls) {
+    const shouldUseHls = resolvedIsHls || activeStation.hls;
+
+    if (shouldUseHls) {
       let cancelled = false;
       let cleanup: (() => void) | undefined;
 
@@ -1098,7 +1107,7 @@ const Radio = () => {
       element.removeAttribute("src");
       element.load();
     };
-  }, [activeStation.hls, playbackKey, resolvedStreamUrl, schedulePlaybackRetry]);
+  }, [activeStation.hls, playbackKey, resolvedIsHls, resolvedStreamUrl, schedulePlaybackRetry]);
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {

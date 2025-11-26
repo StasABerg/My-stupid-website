@@ -3,6 +3,7 @@ mod cache;
 mod config;
 mod database;
 mod favorites;
+mod hls;
 mod http;
 mod logging;
 mod migrations;

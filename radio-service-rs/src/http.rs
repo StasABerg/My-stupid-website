@@ -37,6 +37,7 @@ use crate::{
         build_favorites_key, dedupe_entries, is_valid_favorites_session, is_valid_session_token,
         sanitize_station_id, FavoriteEntry, FavoriteStation, MAX_FAVORITES,
     },
+    hls::PlaylistSnapshot,
     stations::{intersect_lists, ProcessedStations, Station, StationsPayload},
     stream_format::{detect_stream_format, FormatDetection},
     stream_pipeline::PipelineDecision,
@@ -1040,6 +1041,43 @@ fn rewrite_playlist(
         .join("\n")
 }
 
+fn rewrite_local_hls_playlist(station_id: &str, playlist: &str, csrf: &CsrfParams) -> String {
+    playlist
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("segment?") {
+                let mut rewritten = format!("/stations/{station_id}/stream/{trimmed}");
+                append_csrf_params(&mut rewritten, csrf);
+                rewritten
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn append_csrf_params(target: &mut String, csrf: &CsrfParams) {
+    if let Some(token) = &csrf.token {
+        append_query_param(target, "csrfToken", token);
+    }
+    if let Some(proof) = &csrf.proof {
+        append_query_param(target, "csrfProof", proof);
+    }
+}
+
+fn append_query_param(target: &mut String, key: &str, value: &str) {
+    if target.contains('?') {
+        target.push('&');
+    } else {
+        target.push('?');
+    }
+    target.push_str(key);
+    target.push('=');
+    target.push_str(&urlencoding::encode(value));
+}
+
 fn parse_bool(value: Option<String>) -> bool {
     matches!(
         value
@@ -1155,7 +1193,10 @@ struct UpsertFavoriteBody {
 
 #[derive(Deserialize)]
 struct StreamSegmentQuery {
-    source: String,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(rename = "n")]
+    sequence: Option<String>,
     #[serde(rename = "csrfToken")]
     csrf_token: Option<String>,
     #[serde(rename = "csrfProof")]
@@ -1424,6 +1465,34 @@ async fn stream_station(
         }
     }
 
+    let mut hls_snapshot: Option<PlaylistSnapshot> = None;
+    let mut hls_warming = false;
+    if pipeline_enabled && !is_playlist && state.config.stream_pipeline.hls.enabled {
+        match state
+            .stream_pipeline
+            .request_hls_playlist(station_id, &station.stream_url, format_detection.format)
+            .await
+        {
+            Ok(Some(snapshot)) => {
+                hls_snapshot = Some(snapshot);
+            }
+            Ok(None) => {
+                hls_warming = true;
+                pipeline_block_reason = Some("hls_warming");
+            }
+            Err(err) => {
+                logger().warn(
+                    "stream.pipeline.hls_request_failed",
+                    json!({
+                        "stationId": station_id,
+                        "url": station.stream_url,
+                        "error": format!("{:?}", err),
+                    }),
+                );
+            }
+        }
+    }
+
     logger().info(
         "stream.pipeline.decision",
         json!({
@@ -1431,6 +1500,7 @@ async fn stream_station(
             "url": station.stream_url,
             "isPlaylist": is_playlist,
             "pipelineEnabled": pipeline_enabled,
+            "hlsEnabled": state.config.stream_pipeline.hls.enabled,
         }),
     );
     if probe_requested {
@@ -1451,9 +1521,51 @@ async fn stream_station(
                 payload["retryAfterMs"] =
                     json!(state.config.stream_pipeline.failure_cache_ttl_seconds * 1000);
             }
+            if pipeline_block_reason == Some("hls_warming") {
+                payload["retryAfterMs"] =
+                    json!(state.config.stream_pipeline.hls.segment_seconds.max(1) * 1000);
+            }
         }
-        let response = Response::builder()
+        let mut builder = Response::builder()
             .status(status)
+            .header("Content-Type", "application/json")
+            .header("Cache-Control", "no-store");
+        if hls_snapshot.is_some() {
+            builder = builder.header("X-Stream-Pipeline", "hls");
+        }
+        let response = builder
+            .body(Body::from(payload.to_string()))
+            .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
+        return Ok(with_rate_limit(response, &rate));
+    }
+    if let Some(snapshot) = hls_snapshot {
+        let playlist_body = rewrite_local_hls_playlist(station_id, &snapshot.body, &csrf_params);
+        logger().info(
+            "stream.pipeline.hls_playlist_served",
+            json!({
+                "stationId": station_id,
+                "url": station.stream_url,
+            }),
+        );
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/vnd.apple.mpegurl")
+            .header("Cache-Control", "no-store")
+            .header("Alt-Svc", "clear")
+            .body(Body::from(playlist_body))
+            .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
+        return Ok(with_rate_limit(response, &rate));
+    }
+    if hls_warming {
+        let retry_after = state.config.stream_pipeline.hls.segment_seconds.max(1) * 1000;
+        let payload = json!({
+            "stationId": station_id,
+            "pipelineEnabled": pipeline_enabled,
+            "reason": "hls_warming",
+            "retryAfterMs": retry_after,
+        });
+        let response = Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
             .header("Content-Type", "application/json")
             .header("Cache-Control", "no-store")
             .body(Body::from(payload.to_string()))
@@ -1532,7 +1644,8 @@ async fn stream_station(
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/vnd.apple.mpegurl")
                 .header("Cache-Control", "no-store")
-                .header("Alt-Svc", "clear");
+                .header("Alt-Svc", "clear")
+                .header("X-Stream-Pipeline", "hls");
             let body = Body::from(rewritten);
             let response = builder
                 .body(body)
@@ -1712,14 +1825,42 @@ async fn stream_segment(
     if station_id.is_empty() {
         return Err(ApiError::BadRequest("Station identifier is required."));
     }
-    if query.source.trim().is_empty() {
+    let parsed_sequence = query
+        .sequence
+        .as_deref()
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    let source = query
+        .source
+        .as_deref()
+        .map(|value| value.trim())
+        .unwrap_or("");
+    if parsed_sequence.is_none() && source.is_empty() {
         return Err(ApiError::BadRequest(
-            "A source query parameter is required.",
+            "A source or sequence query parameter is required.",
         ));
     }
     let rate = enforce_rate_limit(&state, &headers).await?;
 
-    let decoded = urlencoding::decode(&query.source)
+    if let Some(sequence) = parsed_sequence {
+        let payload = state
+            .stream_pipeline
+            .load_hls_segment(station_id, sequence)
+            .await
+            .map_err(|_| ApiError::ServiceUnavailable("Stream segment unavailable."))?;
+        if let Some((content_type, bytes)) = payload {
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", content_type)
+                .header("Cache-Control", "no-store")
+                .header("Alt-Svc", "clear")
+                .body(Body::from(bytes))
+                .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
+            return Ok(with_rate_limit(response, &rate));
+        }
+        return Err(ApiError::NotFound("Stream segment not found."));
+    }
+
+    let decoded = urlencoding::decode(source)
         .map_err(|_| ApiError::BadRequest("Invalid segment URL provided."))?;
     let target = Url::parse(decoded.as_ref())
         .map_err(|_| ApiError::BadRequest("Invalid segment URL provided."))?;
