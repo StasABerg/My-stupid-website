@@ -13,7 +13,6 @@ use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
 #[cfg(feature = "gstreamer")]
 use {
-    bytes::Bytes,
     gstreamer as gst,
     gstreamer::prelude::*,
     gstreamer_app as gst_app,
