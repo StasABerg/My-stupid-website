@@ -450,6 +450,14 @@ const Radio = () => {
         // ignore token resolution errors; fall back to unsigned streamPath
       }
 
+      if (pipelineBypass) {
+        if (!cancelled) {
+          setResolvedIsHls(activeStation.hls);
+          setResolvedStreamUrl(streamPath);
+        }
+        return;
+      }
+
       const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
       let probeResponse: Response | null = null;
       try {
