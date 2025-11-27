@@ -56,5 +56,11 @@ env:
         optional: false
   - name: ALLOW_INSECURE_TRANSPORT
     value: "true"
+  - name: RADIO_BROWSER_LIMIT
+    value: "60000"
+  - name: RADIO_BROWSER_PAGE_SIZE
+    value: "500"
+  - name: RADIO_BROWSER_MAX_PAGES
+    value: "200"
   - name: TRUST_PROXY
     value: loopback,linklocal,uniquelocal
