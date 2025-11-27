@@ -130,6 +130,30 @@ const SECRET_BROADCAST_VIDEOS: Record<
   },
 };
 
+const buildSecretEmbedUrl = (stationId?: string | null) => {
+  if (!stationId) {
+    return null;
+  }
+  const secret = SECRET_BROADCAST_VIDEOS[stationId];
+  if (!secret) {
+    return null;
+  }
+  try {
+    const url = new URL(secret.embed);
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "https://gitgud.zip";
+    if (origin) {
+      url.searchParams.set("origin", origin);
+    }
+    if (!url.searchParams.has("playsinline")) {
+      url.searchParams.set("playsinline", "1");
+    }
+    return url.toString();
+  } catch {
+    return secret.embed;
+  }
+};
+
 type StationOverride = {
   station: RadioStation;
   allowUnknown?: boolean;
@@ -336,6 +360,10 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const secretEmbedUrl = useMemo(
+    () => buildSecretEmbedUrl(activeStation.id),
+    [activeStation.id],
+  );
   const shareLink = useMemo(() => {
     if (typeof window === "undefined" || typeof window.btoa !== "function") {
       return null;
@@ -1027,7 +1055,7 @@ const Radio = () => {
                 shareDisabled={!shareLink}
                 shareButtonRef={shareButtonRef}
               />
-              {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""] ? (
+              {secretEmbedUrl ? (
                 <div className="border border-terminal-green/40 rounded-md bg-black/80 p-3 space-y-2">
                   <p className="text-terminal-cyan text-xs uppercase tracking-[0.3em]">
                     Secret Broadcast
@@ -1035,7 +1063,7 @@ const Radio = () => {
                   <div className="relative w-full pt-[56.25%]">
                     <iframe
                       title="Secret Broadcast Feed"
-                      src={SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].embed}
+                      src={secretEmbedUrl}
                       allow="autoplay; encrypted-media"
                       allowFullScreen
                       className="absolute inset-0 h-full w-full border border-terminal-green/30"
