@@ -9,7 +9,7 @@ axum = { version = "0.8", features = ["macros", "json"] }
 bytes = "1.11"
 hex = "0.4"
 hmac = "0.12"
-http = "1.3"
+http = "1.4"
 http-body-util = "0.1"
 hyper = { version = "1.8", features = ["full"] }
 libc = "0.2"
