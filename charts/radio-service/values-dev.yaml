@@ -62,5 +62,7 @@ env:
     value: "500"
   - name: RADIO_BROWSER_MAX_PAGES
     value: "200"
+  - name: RADIO_BROWSER_USER_AGENT
+    value: "gitgud.qzz.io blog"
   - name: TRUST_PROXY
     value: loopback,linklocal,uniquelocal
