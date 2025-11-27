@@ -32,7 +32,7 @@ const SwaggerDirectory = () => (
       <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm">
         <TerminalPrompt
           user="sandbox"
-          host="gitgud.qzz.io"
+          host="gitgud.zip"
           path="~/swagger"
           command={(
             <Link

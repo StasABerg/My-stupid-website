@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss";
 import animate from "tailwindcss-animate";
+import plugin from "tailwindcss/plugin";
 
 const terminalColors = {
   green: "hsl(var(--terminal-green))",
@@ -159,5 +160,21 @@ export default {
       },
     },
   },
-  plugins: [animate],
+  plugins: [
+    animate,
+    plugin(function ({ addUtilities }) {
+      const widthUtilities = Object.fromEntries(
+        Array.from({ length: 101 }, (_, i) => [`.w-pct-${i}`, { width: `${i}%` }]),
+      );
+      const translateUtilities = Object.fromEntries(
+        Array.from({ length: 101 }, (_, i) => [`.translate-pct-${i}`, { transform: `translateX(-${100 - i}%)` }]),
+      );
+      addUtilities(widthUtilities);
+      addUtilities(translateUtilities);
+    }),
+  ],
+  safelist: [
+    ...Array.from({ length: 101 }, (_, i) => `w-pct-${i}`),
+    ...Array.from({ length: 101 }, (_, i) => `translate-pct-${i}`),
+  ],
 } satisfies Config;

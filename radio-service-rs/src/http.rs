@@ -2,13 +2,14 @@ use std::{
     collections::HashMap,
     io,
     net::SocketAddr,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    extract::{ConnectInfo, Path, Query, State},
+    http::{header, HeaderMap, HeaderValue, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
@@ -23,7 +24,9 @@ use tokio::{
     time::{timeout, Duration},
 };
 use url::Url;
+use uuid::Uuid;
 
+use crate::logging::logger;
 use crate::{
     app_state::{AppState, RateLimitMetadata},
     favorites::{
@@ -68,6 +71,91 @@ const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
 "#;
 
 type ApiResponse = Result<Response, ApiError>;
+
+fn extract_request_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string())
+}
+
+fn extract_client_ip(headers: &HeaderMap, remote: Option<&SocketAddr>) -> Option<String> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|raw| raw.split(',').next())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.to_string())
+        })
+        .or_else(|| remote.map(|addr| addr.ip().to_string()))
+}
+
+async fn log_requests(request: Request<Body>, next: Next) -> Response {
+    let request_id = extract_request_id(request.headers());
+    let method = request.method().clone();
+    let raw_url = request.uri().to_string();
+    let origin = request
+        .headers()
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let remote = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| &info.0);
+    let client_ip = extract_client_ip(request.headers(), remote);
+    let user_agent = request
+        .headers()
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let started_at = Instant::now();
+
+    logger().info(
+        "request.received",
+        json!({
+            "requestId": request_id,
+            "method": method.as_str(),
+            "rawUrl": raw_url,
+            "origin": origin,
+            "clientIp": client_ip,
+            "userAgent": user_agent,
+        }),
+    );
+
+    let mut response = next.run(request).await;
+    let status = response.status().as_u16();
+    let duration_ms = started_at.elapsed().as_secs_f64() * 1000.0;
+
+    logger().info(
+        "request.completed",
+        json!({
+            "requestId": request_id,
+            "method": method.as_str(),
+            "rawUrl": raw_url,
+            "statusCode": status,
+            "durationMs": duration_ms,
+            "origin": origin,
+            "clientIp": client_ip,
+            "userAgent": user_agent,
+        }),
+    );
+
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response
+            .headers_mut()
+            .insert(header::HeaderName::from_static("x-request-id"), value);
+    }
+
+    response
+}
 
 fn json_response<T>(status: StatusCode, payload: T) -> Response
 where
@@ -171,7 +259,15 @@ impl IntoResponse for ApiError {
                 response
             }
             ApiError::Internal(error) => {
-                tracing::error!(error = ?error, "internal error");
+                logger().error(
+                    "internal.error",
+                    json!({
+                        "error": {
+                            "message": error.to_string(),
+                            "debug": format!("{:?}", error),
+                        }
+                    }),
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -207,14 +303,23 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
             "/favorites/{station_id}",
             put(upsert_favorite).delete(delete_favorite),
         )
-        .with_state(state.clone());
+        .with_state(state.clone())
+        .layer(middleware::from_fn(log_requests));
 
     let listener = TcpListener::bind(addr).await?;
-    tracing::info!(address = %addr, "radio-service-rs listening");
+    logger().info(
+        "server.listening",
+        json!({
+            "address": addr.to_string()
+        }),
+    );
 
-    axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     Ok(())
 }
@@ -514,37 +619,22 @@ fn station_matches_filters(station: &Station, filters: &NormalizedStationsQuery)
             return false;
         }
     }
-    if let Some(search) = &filters.search {
-        let search_lower = search.to_lowercase();
-        let mut haystack = station.name.to_lowercase();
-        if let Some(country) = &station.country {
-            haystack.push_str(&country.to_lowercase());
-        }
-        for tag in &station.tags {
-            haystack.push_str(&tag.to_lowercase());
-        }
-        for language in &station.languages {
-            haystack.push_str(&language.to_lowercase());
-        }
-        if !haystack.contains(&search_lower) {
-            return false;
-        }
-    }
+    // Search is already handled by ProcessedStations::search_matches; skip redundant work.
     true
 }
 
 fn build_favorites_response(
     payload: &StationsPayload,
+    processed: &ProcessedStations,
     entries: Vec<FavoriteEntry>,
 ) -> (FavoritesResponse, bool, Vec<FavoriteEntry>) {
-    let station_map = build_station_map(payload);
     let mut items = Vec::new();
     let mut persist = false;
     let mut next_entries = Vec::new();
 
     for entry in entries.into_iter().take(MAX_FAVORITES) {
-        if let Some(station) = station_map.get(&entry.id) {
-            let projected = project_station(station);
+        if let Some(station) = get_station_by_id(payload, processed, &entry.id) {
+            let projected = project_station(&station);
             let changed = entry.station.as_ref() != Some(&projected);
             if changed {
                 persist = true;
@@ -570,14 +660,6 @@ fn build_favorites_response(
         persist,
         next_entries,
     )
-}
-
-fn build_station_map(payload: &StationsPayload) -> HashMap<String, Station> {
-    let mut map = HashMap::new();
-    for station in &payload.stations {
-        map.insert(station.id.clone(), station.clone());
-    }
-    map
 }
 
 fn project_station_for_client(station: &Station) -> StationListItem {
@@ -618,6 +700,17 @@ fn project_station(station: &Station) -> FavoriteStation {
         is_online: station.is_online,
         click_count: station.click_count,
     }
+}
+
+fn get_station_by_id(
+    payload: &StationsPayload,
+    processed: &ProcessedStations,
+    station_id: &str,
+) -> Option<Station> {
+    processed
+        .station_index(station_id)
+        .and_then(|idx| payload.stations.get(idx))
+        .cloned()
 }
 
 fn apply_rate_limit_headers(headers: &mut HeaderMap, info: &RateLimitMetadata) {
@@ -743,14 +836,19 @@ fn resolve_csrf_params(headers: &HeaderMap, query: &HashMap<String, String>) -> 
 }
 
 async fn load_station(state: &AppState, station_id: &str) -> Result<Station, ApiError> {
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
-    load.payload
-        .stations
-        .into_iter()
-        .find(|station| station.id == station_id)
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
+    get_station_by_id(&load.payload, &processed, station_id)
         .ok_or(ApiError::NotFound("Station not found"))
 }
 
@@ -800,7 +898,12 @@ fn should_treat_as_playlist(url: &str, content_type: &str) -> bool {
     false
 }
 
-fn rewrite_playlist(base_url: &str, playlist: &str, csrf: &CsrfParams) -> String {
+fn rewrite_playlist(
+    base_url: &str,
+    playlist: &str,
+    csrf: &CsrfParams,
+    segment_path: &str,
+) -> String {
     let base = Url::parse(base_url);
     playlist
         .lines()
@@ -810,10 +913,19 @@ fn rewrite_playlist(base_url: &str, playlist: &str, csrf: &CsrfParams) -> String
                 line.to_string()
             } else if let Ok(base_url) = &base {
                 if let Ok(resolved) = base_url.join(trimmed) {
-                    let mut proxied = format!(
-                        "stream/segment?source={}",
-                        urlencoding::encode(resolved.as_str())
-                    );
+                    let mut upgrade = resolved.clone();
+                    if upgrade.scheme() == "http" {
+                        let _ = upgrade.set_scheme("https");
+                    }
+                    if upgrade.scheme() != "https" {
+                        return "# dropped http stream".to_string();
+                    }
+                    let mut proxied = segment_path.to_string();
+                    if !proxied.ends_with("?") && !proxied.ends_with("&") {
+                        proxied.push_str(if proxied.contains('?') { "&" } else { "?" });
+                    }
+                    proxied.push_str("source=");
+                    proxied.push_str(&urlencoding::encode(upgrade.as_str()));
                     if let Some(token) = &csrf.token {
                         proxied.push_str("&csrfToken=");
                         proxied.push_str(&urlencoding::encode(token));
@@ -901,10 +1013,18 @@ async fn get_favorites(State(state): State<AppState>, headers: HeaderMap) -> Api
     let favorites_session = extract_favorites_session(&headers);
     let key = build_favorites_key(&session, favorites_session.as_deref());
 
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
     let payload = load.payload;
 
     let favorites = state
@@ -912,7 +1032,8 @@ async fn get_favorites(State(state): State<AppState>, headers: HeaderMap) -> Api
         .read(&key)
         .await
         .map_err(ApiError::internal)?;
-    let (response, persist, updated_entries) = build_favorites_response(&payload, favorites);
+    let (response, persist, updated_entries) =
+        build_favorites_response(&payload, &processed, favorites);
 
     if persist {
         state
@@ -968,15 +1089,21 @@ async fn upsert_favorite(
         }
     }
 
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
     let payload = load.payload;
 
-    let station_map = build_station_map(&payload);
-    let station = station_map
-        .get(&sanitized_station_id)
+    let station = get_station_by_id(&payload, &processed, &sanitized_station_id)
         .ok_or(ApiError::NotFound("Station not found"))?;
 
     let mut favorites = state
@@ -992,7 +1119,7 @@ async fn upsert_favorite(
         favorites.remove(index);
     }
 
-    let projected = project_station(station);
+    let projected = project_station(&station);
     let new_entry = FavoriteEntry {
         id: sanitized_station_id.clone(),
         saved_at: current_timestamp(),
@@ -1016,7 +1143,7 @@ async fn upsert_favorite(
     }
 
     let favorites = dedupe_entries(favorites);
-    let (response, _, updated_entries) = build_favorites_response(&payload, favorites);
+    let (response, _, updated_entries) = build_favorites_response(&payload, &processed, favorites);
 
     state
         .favorites
@@ -1042,10 +1169,18 @@ async fn delete_favorite(
     let sanitized_station_id = sanitize_station_id(&station_id)
         .ok_or(ApiError::BadRequest("Invalid station identifier"))?;
 
-    let load = state
+    let mut load = state
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
+    let fingerprint = load
+        .payload
+        .ensure_fingerprint()
+        .map_err(ApiError::internal)?
+        .to_string();
+    let processed = state
+        .ensure_processed(&fingerprint, &load.payload.stations)
+        .await;
     let payload = load.payload;
 
     let favorites = state
@@ -1061,7 +1196,7 @@ async fn delete_favorite(
         .filter(|entry| entry.id != sanitized_station_id)
         .collect();
 
-    let (response, persist, updated_entries) = build_favorites_response(&payload, next);
+    let (response, persist, updated_entries) = build_favorites_response(&payload, &processed, next);
 
     if persist || removed {
         state
@@ -1133,7 +1268,12 @@ async fn stream_station(
         .text()
         .await
         .map_err(|_| ApiError::ServiceUnavailable("Failed to read playlist from upstream."))?;
-    let rewritten = rewrite_playlist(&station.stream_url, &playlist, &csrf_params);
+    let rewritten = rewrite_playlist(
+        &station.stream_url,
+        &playlist,
+        &csrf_params,
+        "stream/segment",
+    );
 
     let builder = Response::builder()
         .status(StatusCode::OK)
@@ -1228,7 +1368,9 @@ async fn stream_segment(
         .text()
         .await
         .map_err(|_| ApiError::ServiceUnavailable("Failed to read playlist from upstream."))?;
-    let rewritten = rewrite_playlist(target.as_str(), &playlist, &csrf_params);
+    // When rewriting nested playlists, keep the path relative to the segment handler
+    // so we don't accumulate extra "/stream" segments as the player walks deeper.
+    let rewritten = rewrite_playlist(target.as_str(), &playlist, &csrf_params, "segment");
 
     Ok(with_rate_limit(
         Response::builder()

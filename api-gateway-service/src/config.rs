@@ -1,6 +1,5 @@
 use crate::logger::Logger;
-use anyhow::Result;
-use sha2::{Digest, Sha256};
+use anyhow::{Result, anyhow};
 use std::{collections::HashSet, env, time::Duration};
 
 const DEFAULT_PORT: u16 = 8080;
@@ -9,7 +8,6 @@ const DEFAULT_RADIO_BASE_URL: &str =
 const DEFAULT_TERMINAL_BASE_URL: &str =
     "http://my-stupid-website-terminal.my-stupid-website.svc.cluster.local:80";
 const DEFAULT_CACHE_TTL_SECONDS: u64 = 60;
-const DEFAULT_SECRET_SEED: &str = "my-stupid-website-secret-seed";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -102,14 +100,15 @@ impl Config {
             10_000,
         ) as u64);
 
-        let (session_secret, session_secret_generated) =
-            derive_secret(env::var("SESSION_SECRET").ok(), "session.secret", logger);
+        let session_secret = read_required_secret("SESSION_SECRET", logger)?;
+        let session_secret_generated = false;
         let csrf_secret = env::var("CSRF_PROOF_SECRET").ok();
-        let (csrf_proof_secret, csrf_proof_secret_generated) = if let Some(secret) = csrf_secret {
-            derive_secret(Some(secret), "csrf.secret", logger)
-        } else {
-            (session_secret.clone(), session_secret_generated)
-        };
+        let (csrf_proof_secret, csrf_proof_secret_generated) =
+            if let Some(secret) = read_optional_secret(csrf_secret, "CSRF_PROOF_SECRET", logger)? {
+                (secret, false)
+            } else {
+                (session_secret.clone(), true)
+            };
 
         let session_cookie_name = env::var("SESSION_COOKIE_NAME")
             .ok()
@@ -174,7 +173,7 @@ impl Config {
             store: session_store,
         };
 
-        Ok(Self {
+        let config = Self {
             port,
             radio_service_url,
             terminal_service_url,
@@ -186,7 +185,10 @@ impl Config {
             csrf_proof_secret,
             csrf_proof_secret_generated,
             trust_proxy: parse_bool(env::var("TRUST_PROXY").ok(), false),
-        })
+        };
+
+        config.validate()?;
+        Ok(config)
     }
 }
 
@@ -302,34 +304,126 @@ fn merge_unique(left: Vec<String>, right: impl Iterator<Item = String>) -> Vec<S
     result
 }
 
-fn derive_secret(value: Option<String>, label: &str, logger: &Logger) -> (String, bool) {
-    if let Some(secret) = value.and_then(|raw| {
-        let trimmed = raw.trim().to_string();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    }) {
-        if secret.len() < 32 {
-            logger.warn(
-                "secret.short",
-                serde_json::json!({ "label": label, "message": "Secret shorter than 32 chars" }),
-            );
-        }
-        return (secret, false);
+fn read_required_secret(env_var: &str, logger: &Logger) -> Result<String> {
+    let value = env::var(env_var)
+        .ok()
+        .map(|raw| raw.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("{env_var} must be set and non-empty"))?;
+
+    if value.len() < 32 {
+        logger.warn(
+            "secret.short",
+            serde_json::json!({ "label": env_var, "message": "Secret shorter than 32 chars" }),
+        );
     }
 
-    let seed = env::var("INSTANCE_SECRET_SEED")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_SECRET_SEED.to_string());
-    let deterministic = format!("{}|{}", seed, label);
-    let hash = Sha256::digest(deterministic.as_bytes());
-    let generated = hex::encode(hash);
-    logger.warn(
-        "secret.derived",
-        serde_json::json!({ "label": label, "message": "Secret not provided; derived from seed" }),
-    );
-    (generated, true)
+    Ok(value)
+}
+
+fn read_optional_secret(
+    value: Option<String>,
+    env_var: &str,
+    logger: &Logger,
+) -> Result<Option<String>> {
+    let secret = match value {
+        Some(raw) => {
+            let trimmed = raw.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }
+        None => None,
+    };
+
+    if let Some(secret) = secret.as_ref()
+        && secret.len() < 32
+    {
+        logger.warn(
+            "secret.short",
+            serde_json::json!({ "label": env_var, "message": "Secret shorter than 32 chars" }),
+        );
+    }
+
+    Ok(secret)
+}
+
+impl Config {
+    fn validate(&self) -> Result<()> {
+        if self.request_timeout.as_millis() == 0 {
+            return Err(anyhow!("UPSTREAM_TIMEOUT_MS must be greater than zero"));
+        }
+        if self.cache.ttl.as_secs() == 0 {
+            return Err(anyhow!("CACHE_TTL_SECONDS must be greater than zero"));
+        }
+        if self.cache.memory.enabled && self.cache.memory.max_entries == 0 {
+            return Err(anyhow!(
+                "CACHE_MEMORY_MAX_ENTRIES must be greater than zero when memory cache is enabled"
+            ));
+        }
+
+        validate_url(&self.radio_service_url, "RADIO_SERVICE_URL")?;
+        validate_url(&self.terminal_service_url, "TERMINAL_SERVICE_URL")?;
+
+        if self.allowed_service_hostnames.is_empty() {
+            return Err(anyhow!(
+                "ALLOWED_SERVICE_HOSTNAMES must resolve to at least one host"
+            ));
+        }
+
+        if matches!(self.session.store, SessionStoreConfig::Memory)
+            && env::var("APP_ENV")
+                .unwrap_or_else(|_| "development".into())
+                .eq_ignore_ascii_case("production")
+        {
+            return Err(anyhow!(
+                "session store cannot fall back to memory when APP_ENV=production"
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_url(value: &str, label: &str) -> Result<()> {
+    let url = url::Url::parse(value).map_err(|err| anyhow!("{label} invalid URL: {err}"))?;
+    match url.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(anyhow!("{label} must use http or https (got {other})"));
+        }
+    }
+    if url.host_str().unwrap_or_default().is_empty() {
+        return Err(anyhow!("{label} must include a host"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logger::Logger;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn config_loads_with_dummy_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        unsafe {
+            env::set_var("SESSION_SECRET", "a_secure_dummy_secret_value_that_is_long");
+            env::remove_var("CACHE_REDIS_URL");
+            env::remove_var("SESSION_REDIS_URL");
+            env::remove_var("CORS_ALLOW_ORIGINS");
+            env::remove_var("ALLOWED_SERVICE_HOSTNAMES");
+            env::remove_var("APP_ENV");
+        }
+
+        let config = Config::load(&Logger::new("test")).expect("config should load");
+        assert!(config.port > 0);
+        assert_eq!(config.allowed_service_hostnames.len(), 2);
+        assert!(config.cache.ttl.as_secs() > 0);
+    }
 }

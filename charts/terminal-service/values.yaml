@@ -61,7 +61,7 @@ env:
   COMMAND_TIMEOUT_MS: "4000"
   MAX_PAYLOAD_BYTES: "2048"
   MAX_OUTPUT_BYTES: "16384"
-  CORS_ALLOW_ORIGIN: "https://gitgud.qzz.io,https://dev.gitgud.qzz.io"
+  CORS_ALLOW_ORIGIN: "https://gitgud.zip,https://dev.gitgud.zip"
 
 volumeMounts:
   - name: sandbox-data
@@ -111,3 +111,5 @@ autoscaling:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+logLevel: info

@@ -3,11 +3,30 @@ import { createCommandHandlers } from "./commands/index.js";
 import { logger } from "./logger.js";
 import { ensureSandboxFilesystem } from "./sandbox/filesystem.js";
 import { createServer } from "./server/create-server.js";
+import { stat } from "node:fs/promises";
 
 const commandHandlers = createCommandHandlers();
 const fastify = createServer({ logger, commandHandlers });
 
 async function start() {
+  if (process.argv.includes("--config-check")) {
+    logger.info("config.check_passed", {
+      port: config.port,
+      sandboxRoot: config.sandboxRoot,
+      allowedOrigins: config.allowedOrigins,
+      allowAllOrigins: config.allowAllOrigins,
+    });
+    return null;
+  }
+
+  try {
+    await stat(config.sandboxRoot);
+  } catch (error) {
+    logger.error("sandbox.root_missing", { error, sandboxRoot: config.sandboxRoot });
+    process.exitCode = 1;
+    return null;
+  }
+
   try {
     await ensureSandboxFilesystem();
   } catch (error) {
@@ -60,4 +79,3 @@ process.on("SIGINT", () => {
     process.exit(1);
   });
 });
-

@@ -17,7 +17,6 @@ use crate::{
 
 const VALIDATION_HEADERS: &[(&str, &str)] = &[
     ("range", "bytes=0-4095"),
-    ("user-agent", "radio-service-rs validation"),
     ("accept", "*/*"),
     ("accept-encoding", "gzip, deflate, br"),
     ("connection", "keep-alive"),
@@ -56,11 +55,17 @@ impl StreamValidator {
 
         let cache = Arc::new(self.load_cache(redis).await?);
         let now = current_timestamp();
+        let validation_user_agent = std::env::var("RADIO_BROWSER_USER_AGENT")
+            .unwrap_or_else(|_| "gitgud.zip blog".to_string());
 
         let outcomes = stream::iter(stations.into_iter().enumerate())
             .map(|(idx, station)| {
                 let cache_entry = cache.get(&station.stream_url).cloned();
-                async move { self.process_station(idx, station, cache_entry, now).await }
+                let validation_user_agent = validation_user_agent.clone();
+                async move {
+                    self.process_station(idx, station, cache_entry, now, &validation_user_agent)
+                        .await
+                }
             })
             .buffer_unordered(self.config.concurrency)
             .collect::<Vec<_>>()
@@ -113,6 +118,7 @@ impl StreamValidator {
         mut station: Station,
         cache_entry: Option<CacheEntry>,
         now: i64,
+        validation_user_agent: &str,
     ) -> ValidationOutcome {
         let signature = build_station_signature(&station);
         if let Some(entry) = cache_entry {
@@ -128,7 +134,7 @@ impl StreamValidator {
             }
         }
 
-        match self.validate_station(&station).await {
+        match self.validate_station(&station, validation_user_agent).await {
             Ok(result) => {
                 let cache_entry = CacheEntry::success(&result, &signature, &self.config);
                 if let Some(final_url) = result.final_url {
@@ -148,14 +154,18 @@ impl StreamValidator {
         }
     }
 
-    async fn validate_station(&self, station: &Station) -> Result<ValidatedStream, String> {
+    async fn validate_station(
+        &self,
+        station: &Station,
+        validation_user_agent: &str,
+    ) -> Result<ValidatedStream, String> {
         if is_blocked_domain(&station.stream_url) {
             return Err("blocked-domain".to_string());
         }
         let request = self
             .client
             .get(&station.stream_url)
-            .headers(build_validation_headers());
+            .headers(build_validation_headers(validation_user_agent));
 
         let response = timeout(
             Duration::from_millis(self.config.timeout_ms),
@@ -256,7 +266,7 @@ impl StreamValidator {
     }
 }
 
-fn build_validation_headers() -> reqwest::header::HeaderMap {
+fn build_validation_headers(user_agent: &str) -> reqwest::header::HeaderMap {
     let mut map = reqwest::header::HeaderMap::new();
     for (key, value) in VALIDATION_HEADERS {
         if let (Ok(name), Ok(val)) = (
@@ -264,6 +274,11 @@ fn build_validation_headers() -> reqwest::header::HeaderMap {
             reqwest::header::HeaderValue::from_str(value),
         ) {
             map.insert(name, val);
+        }
+    }
+    if let Ok(name) = reqwest::header::HeaderName::from_lowercase(b"user-agent") {
+        if let Ok(value) = reqwest::header::HeaderValue::from_str(user_agent) {
+            map.insert(name, value);
         }
     }
     map

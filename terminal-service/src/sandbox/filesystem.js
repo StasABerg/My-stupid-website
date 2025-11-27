@@ -141,7 +141,7 @@ export async function ensureSandboxFilesystem() {
     {
       virtualPath: config.motdVirtualPath,
       content: [
-        "Welcome to gitgud.qzz.io",
+        "Welcome to gitgud.zip",
         "This sandbox resets between sessions and has no network access.",
       ].join("\n"),
     },

@@ -104,29 +104,73 @@ impl RadioBrowserClient {
             query.append_pair("reverse", "true");
             query.append_pair("lastcheckok", "1");
             query.append_pair("ssl_error", "0");
-            if self.config.limit > 0 {
-                query.append_pair("limit", &self.config.limit.to_string());
-            }
         }
 
-        let response = self.client.get(stations_url.clone()).send().await?;
-        if !response.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "radio browser returned {}",
-                response.status()
-            ));
-        }
+        let total_limit: usize = self
+            .config
+            .limit
+            .max(1)
+            .try_into()
+            .unwrap_or(usize::MAX);
+        let page_size: usize = self
+            .config
+            .page_size
+            .max(1)
+            .try_into()
+            .unwrap_or(usize::MAX);
+        let max_pages: usize = self
+            .config
+            .max_pages
+            .max(1)
+            .try_into()
+            .unwrap_or(usize::MAX);
 
-        let raw: Vec<RadioBrowserStation> = response.json().await?;
         let mut stations = Vec::new();
-        for entry in raw {
-            if let Some(station) =
-                normalize_station(entry, &self.config, self.allow_insecure_transports)
+        let mut requests = Vec::new();
+
+        for page in 0..max_pages {
+            let offset = page.saturating_mul(page_size);
+            if offset >= total_limit {
+                break;
+            }
+            let remaining = total_limit.saturating_sub(offset);
+            if remaining == 0 {
+                break;
+            }
+            let page_limit = remaining.min(page_size);
+            let mut page_url = stations_url.clone();
             {
-                stations.push(station);
-                if self.config.limit > 0 && stations.len() as i64 >= self.config.limit {
-                    break;
+                let mut query = page_url.query_pairs_mut();
+                query.append_pair("offset", &offset.to_string());
+                query.append_pair("limit", &page_limit.to_string());
+            }
+
+            let response = self.client.get(page_url.clone()).send().await?;
+            if !response.status().is_success() {
+                return Err(anyhow::anyhow!(
+                    "radio browser returned {}",
+                    response.status()
+                ));
+            }
+
+            let raw: Vec<RadioBrowserStation> = response.json().await?;
+            if raw.is_empty() {
+                break;
+            }
+            requests.push(page_url.to_string());
+
+            for entry in raw {
+                if let Some(station) =
+                    normalize_station(entry, &self.config, self.allow_insecure_transports)
+                {
+                    stations.push(station);
+                    if stations.len() >= total_limit {
+                        break;
+                    }
                 }
+            }
+            if stations.len() >= total_limit {
+                break;
             }
         }
 
@@ -138,7 +182,7 @@ impl RadioBrowserClient {
             schema_version: Some(STATIONS_SCHEMA_VERSION),
             updated_at: Utc::now(),
             source: Some(stations_url.to_string()),
-            requests: vec![stations_url.to_string()],
+            requests,
             total: stations.len(),
             stations,
             fingerprint: None,
@@ -212,6 +256,9 @@ fn normalize_station(
     allow_insecure_transports: bool,
 ) -> Option<Station> {
     if raw.lastcheckok.unwrap_or_default() != 1 {
+        return None;
+    }
+    if raw.stationuuid.trim().is_empty() {
         return None;
     }
     if raw.ssl_error.unwrap_or_default() != 0 {

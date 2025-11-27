@@ -10,7 +10,27 @@ function gen(r) {
       "/radio",
       "/radio/docs",
       "/gateway/docs",
-      "/swagger"
+      "/swagger",
+      "/konami",
+      "/motivation",
+      "/begud",
+      "/gitgud",
+      "/how-to",
+      "/how-to/setup-nginx",
+      "/how-to/deploy-k8s",
+      "/how-to/roll-back",
+      "/how-to/monitor-prometheus",
+      "/how-to/configure-ci",
+      "/how-to/docker-hardening",
+      "/how-to/helm-upgrade",
+      "/how-to/ssl-renewal",
+      "/how-to/redis-scale",
+      "/how-to/postgres-backup",
+      "/how-to/logging-stack",
+      "/how-to/secret-rotation",
+      "/how-to/load-test",
+      "/how-to/argo-rollouts",
+      "/how-to/cdn-cache"
 
     ];
   var today = new Date().toISOString().slice(0, 10);

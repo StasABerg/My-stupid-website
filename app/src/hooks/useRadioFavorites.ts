@@ -77,8 +77,11 @@ async function parseFavoritesResponse(response: Response): Promise<FavoritesResp
   return normalizeFavoritesResponse(payload);
 }
 
-async function fetchFavorites(): Promise<FavoritesResponse> {
-  const response = await authorizedFetch(FAVORITES_ENDPOINT, withFavoritesSession());
+async function fetchFavorites(signal?: AbortSignal): Promise<FavoritesResponse> {
+  const response = await authorizedFetch(
+    FAVORITES_ENDPOINT,
+    withFavoritesSession({ signal }),
+  );
   return parseFavoritesResponse(response);
 }
 
@@ -87,7 +90,7 @@ export function useRadioFavorites() {
 
   const favoritesQuery = useQuery<FavoritesQueryData>({
     queryKey: FAVORITES_QUERY_KEY,
-    queryFn: fetchFavorites,
+    queryFn: ({ signal }) => fetchFavorites(signal),
     staleTime: 1000 * 30,
   });
 

@@ -1,6 +1,6 @@
-use tracing::info;
-
+use crate::logging::logger;
 use crate::{app_state::AppState, stations::StationsPayload};
+use serde_json::json;
 
 pub struct RefreshResult {
     pub payload: StationsPayload,
@@ -17,10 +17,12 @@ pub async fn run_refresh(state: &AppState) -> anyhow::Result<RefreshResult> {
         .validate(payload.stations.clone(), &state.redis)
         .await?;
     if validation.dropped > 0 {
-        info!(
-            dropped = validation.dropped,
-            reasons = ?validation.reasons,
-            "stream.validation"
+        logger().info(
+            "stream.validation",
+            json!({
+                "dropped": validation.dropped,
+                "reasons": validation.reasons,
+            }),
         );
     }
     payload.stations = validation.stations;

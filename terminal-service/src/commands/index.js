@@ -16,6 +16,8 @@ import {
 
 const LS_ALLOWED_FLAGS = new Set(config.lsAllowedFlags);
 const UNAME_ALLOWED_FLAGS = new Set(config.unameAllowedFlags);
+const MAX_COMMAND_LENGTH = 256;
+const MAX_ARGS = 32;
 
 function formatPermissions(stats) {
   const modes = [
@@ -244,13 +246,11 @@ async function handleCd(currentVirtualCwd, args) {
   };
 }
 
-async function handleMotd(currentVirtualCwd) {
-  const motdPath = config.motdVirtualPath;
-  const realPath = toRealPath(motdPath);
+async function handleMotd(currentVirtualCwd, motdProvider) {
   try {
-    const data = await readFile(realPath, { encoding: "utf-8" });
+    const motd = await motdProvider();
     return {
-      output: splitLines(data),
+      output: motd,
       error: false,
       cwd: currentVirtualCwd,
     };
@@ -291,7 +291,7 @@ async function handleUname(currentVirtualCwd, args) {
   };
 }
 
-async function handleExecute(body) {
+async function handleExecute(body, { motdProvider }) {
   if (!body || typeof body !== "object") {
     return {
       status: 400,
@@ -326,6 +326,13 @@ async function handleExecute(body) {
     };
   }
 
+  if (trimmed.length > MAX_COMMAND_LENGTH) {
+    return {
+      status: 422,
+      payload: { message: `Command length exceeds limit of ${MAX_COMMAND_LENGTH}` },
+    };
+  }
+
   let currentVirtualCwd;
   try {
     currentVirtualCwd = sanitizeVirtualPath(cwd ?? DEFAULT_CWD);
@@ -337,6 +344,13 @@ async function handleExecute(body) {
   }
   const [rawCommand, ...args] = trimmed.split(/\s+/);
   const command = rawCommand.toLowerCase();
+
+  if (args.length > MAX_ARGS) {
+    return {
+      status: 422,
+      payload: { message: `Too many arguments; maximum is ${MAX_ARGS}` },
+    };
+  }
 
   try {
     switch (command) {
@@ -413,7 +427,7 @@ async function handleExecute(body) {
       case "motd":
         return {
           status: 200,
-          payload: withDisplay(input, await handleMotd(currentVirtualCwd)),
+          payload: withDisplay(input, await handleMotd(currentVirtualCwd, motdProvider)),
         };
       case "uname":
         return {
@@ -448,7 +462,7 @@ async function handleExecute(body) {
   }
 }
 
-async function handleInfo() {
+async function handleInfo(motd) {
   return {
     status: 200,
     payload: {
@@ -467,7 +481,7 @@ async function handleInfo() {
         "motd",
         "uname",
       ],
-      motd: await handleMotd(DEFAULT_CWD).then((result) => result.output),
+      motd,
     },
   };
 }

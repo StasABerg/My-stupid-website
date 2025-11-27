@@ -11,6 +11,8 @@
 .env.*
 **/.env
 **/.env.*
+app/.npmrc
+.vscode
 logs
 *.log
 npm-debug.log*
@@ -38,3 +40,4 @@ Thumbs.db
 *.tgz
 todo.md
 etc
+AGENTS.md

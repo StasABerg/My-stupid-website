@@ -3,10 +3,24 @@ import fastifyHelmet from "@fastify/helmet";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import underPressure from "@fastify/under-pressure";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { config } from "../config.js";
+
+function getClientIp(req) {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  if (typeof forwardedFor === "string" && forwardedFor.trim().length > 0) {
+    return forwardedFor.split(",")[0].trim();
+  }
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim().length > 0) {
+    return realIp.trim();
+  }
+  return req.socket?.remoteAddress ?? null;
+}
 
 function createRequestContext(request, logger) {
   const req = request.raw;
@@ -15,11 +29,13 @@ function createRequestContext(request, logger) {
     typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
       ? requestIdHeader.trim()
       : randomUUID();
+  const clientIp = getClientIp(req);
   const baseContext = {
     requestId,
     method: req.method,
     rawUrl: req.url ?? null,
     origin: req.headers.origin ?? null,
+    clientIp,
     remoteAddress: req.socket?.remoteAddress ?? null,
   };
   request.appContext = {
@@ -28,6 +44,7 @@ function createRequestContext(request, logger) {
     completed: false,
   };
   logger.info("request.received", baseContext);
+  return baseContext;
 }
 
 function completeRequest(request, logger, statusCode, details = {}) {
@@ -50,6 +67,17 @@ export function createServer({ logger, commandHandlers }) {
 
   const fastify = Fastify({
     bodyLimit: config.maxPayloadBytes,
+  });
+
+  fastify.register(rateLimit, {
+    max: 30,
+    timeWindow: "1 minute",
+    hook: "onRequest",
+    keyGenerator: (request) =>
+      request.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      request.ip ||
+      "unknown",
+    skipOnError: true,
   });
 
   fastify.register(swagger, {
@@ -119,12 +147,16 @@ export function createServer({ logger, commandHandlers }) {
     },
   });
 
-  fastify.addHook("onRequest", (request, _reply, done) => {
-    createRequestContext(request, logger);
+  fastify.addHook("onRequest", (request, reply, done) => {
+    const baseContext = createRequestContext(request, logger);
+    reply.header("x-request-id", baseContext.requestId);
     done();
   });
 
   fastify.addHook("onResponse", (request, reply, done) => {
+    if (request.appContext?.baseContext?.requestId) {
+      reply.header("x-request-id", request.appContext.baseContext.requestId);
+    }
     if (request.appContext && !request.appContext.completed) {
       completeRequest(request, logger, reply.statusCode);
     }
@@ -132,6 +164,9 @@ export function createServer({ logger, commandHandlers }) {
   });
 
   fastify.setNotFoundHandler((request, reply) => {
+    if (request.appContext?.baseContext?.requestId) {
+      reply.header("x-request-id", request.appContext.baseContext.requestId);
+    }
     reply.code(404).headers({ "Content-Type": "application/json" }).send({ message: "Not Found" });
     completeRequest(request, logger, 404, { reason: "not-found" });
   });
@@ -139,6 +174,9 @@ export function createServer({ logger, commandHandlers }) {
   fastify.setErrorHandler((error, request, reply) => {
     const baseContext = request.appContext?.baseContext ?? {};
     if (error.code === "FST_ERR_BODY_TOO_LARGE") {
+      if (baseContext.requestId) {
+        reply.header("x-request-id", baseContext.requestId);
+      }
       reply.code(413).headers({ "Content-Type": "application/json" }).send({ message: "Payload too large" });
       logger.warn("request.body_invalid", {
         ...baseContext,
@@ -149,6 +187,9 @@ export function createServer({ logger, commandHandlers }) {
       return;
     }
     if (error.code === "FST_ERR_CTP_INVALID_JSON") {
+      if (baseContext.requestId) {
+        reply.header("x-request-id", baseContext.requestId);
+      }
       reply.code(400).headers({ "Content-Type": "application/json" }).send({ message: "Invalid JSON payload" });
       logger.warn("request.body_invalid", {
         ...baseContext,
@@ -159,6 +200,9 @@ export function createServer({ logger, commandHandlers }) {
       return;
     }
 
+    if (baseContext.requestId) {
+      reply.header("x-request-id", baseContext.requestId);
+    }
     logger.error("request.unhandled_exception", {
       ...baseContext,
       error,
@@ -208,6 +252,19 @@ export function createServer({ logger, commandHandlers }) {
       },
     },
   };
+
+  let cachedMotd = null;
+  async function getMotdLines() {
+    if (cachedMotd) return cachedMotd;
+    try {
+      const data = await readFile(config.motdVirtualPath, { encoding: "utf-8" });
+      cachedMotd = data.split(/\r?\n/);
+      return cachedMotd;
+    } catch {
+      cachedMotd = ["motd: Failed to read message of the day."];
+      return cachedMotd;
+    }
+  }
 
   const executionResponseSchema = {
     type: "object",
@@ -282,7 +339,8 @@ export function createServer({ logger, commandHandlers }) {
   });
 
   fastify.get("/info", { schema: infoRouteSchema }, async (request, reply) => {
-    const response = await handleInfo();
+    const motd = await getMotdLines();
+    const response = await handleInfo(motd);
     reply
       .code(response.status)
       .headers({
@@ -294,7 +352,7 @@ export function createServer({ logger, commandHandlers }) {
 
   fastify.post("/execute", { schema: executeRouteSchema }, async (request, reply) => {
     const body = (request.body && typeof request.body === "object") ? request.body : {};
-    const response = await handleExecute(body);
+    const response = await handleExecute(body, { motdProvider: getMotdLines });
     reply
       .code(response.status)
       .headers({

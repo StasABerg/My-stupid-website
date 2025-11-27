@@ -1,5 +1,13 @@
 import { Heart } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import { useLocation } from "react-router-dom";
 import {
   FilterPanel,
   PresetButtons,
@@ -8,12 +16,20 @@ import {
   StationInfoPanel,
   StatusFooter,
 } from "@/components/Radio";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
 import { useRadioFavorites } from "@/hooks/useRadioFavorites";
 import { authorizedFetch, ensureGatewaySession } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { logger } from "@/lib/logger";
 
 type HlsModule = typeof import("hls.js/dist/hls.light.min.js");
 type HlsConstructor = HlsModule["default"];
@@ -56,19 +72,174 @@ const fallbackStation: RadioStation = {
   clickCount: 0,
 };
 
+const MIDNIGHT_PRESETS: RadioStation[] = [
+  {
+    id: "midnight-rickroll",
+    name: "????",
+    streamUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ",
+    homepage: null,
+    favicon: null,
+    country: "Secret Broadcast",
+    countryCode: null,
+    state: null,
+    languages: ["English"],
+    tags: ["mystery", "midnight"],
+    bitrate: 128,
+    codec: "MP3",
+    hls: false,
+    isOnline: true,
+    clickCount: 0,
+  },
+  {
+    id: "midnight-lofi",
+    name: "????",
+    streamUrl: "https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1",
+    homepage: null,
+    favicon: null,
+    country: "Secret Broadcast",
+    countryCode: null,
+    state: null,
+    languages: ["Instrumental"],
+    tags: ["secret", "night"],
+    bitrate: 128,
+    codec: "MP3",
+    hls: false,
+    isOnline: true,
+    clickCount: 0,
+  },
+];
+
+const isMidnightHour = () => new Date().getHours() === 0;
+const randomMidnightStation = () =>
+  MIDNIGHT_PRESETS[Math.floor(Math.random() * MIDNIGHT_PRESETS.length)];
+const SECRET_BROADCAST_VIDEOS: Record<
+  string,
+  { embed: string; watch: string; label: string }
+> = {
+  "midnight-rickroll": {
+    embed:
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ&controls=0&modestbranding=1&rel=0",
+    watch: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    label: "80s Eternal Rick Broadcast",
+  },
+  "midnight-lofi": {
+    embed:
+      "https://www.youtube-nocookie.com/embed/jfKfPfyJRdk?autoplay=1&controls=0&modestbranding=1&rel=0&enablejsapi=1",
+    watch: "https://www.youtube.com/watch?v=jfKfPfyJRdk",
+    label: "Lofi Girl Control Tower",
+  },
+};
+
+type StationOverride = {
+  station: RadioStation;
+  allowUnknown?: boolean;
+};
+
+type ShareableStation = Pick<
+  RadioStation,
+  | "id"
+  | "name"
+  | "streamUrl"
+  | "homepage"
+  | "favicon"
+  | "country"
+  | "countryCode"
+  | "state"
+  | "languages"
+  | "tags"
+  | "bitrate"
+  | "codec"
+  | "hls"
+  | "isOnline"
+  | "clickCount"
+>;
+
+type SharedStationPayload = {
+  version: number;
+  station: ShareableStation;
+};
+
+const SHARE_QUERY_PARAM = "share";
+const SHARE_PAYLOAD_VERSION = 1;
+
 const PAGE_SIZE = 40;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 15000;
 
+const serializeStationForShare = (station: RadioStation): string => {
+  const payload: SharedStationPayload = {
+    version: SHARE_PAYLOAD_VERSION,
+    station: {
+      id: station.id,
+      name: station.name,
+      streamUrl: station.streamUrl,
+      homepage: station.homepage,
+      favicon: station.favicon,
+      country: station.country,
+      countryCode: station.countryCode,
+      state: station.state,
+      languages: Array.isArray(station.languages) ? station.languages : [],
+      tags: Array.isArray(station.tags) ? station.tags : [],
+      bitrate: station.bitrate,
+      codec: station.codec,
+      hls: Boolean(station.hls),
+      isOnline: Boolean(station.isOnline),
+      clickCount: station.clickCount,
+    },
+  };
+
+  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+};
+
+const deserializeSharedStation = (encoded: string): RadioStation | null => {
+  if (!encoded) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(decodeURIComponent(escape(atob(encoded)))) as SharedStationPayload;
+    if (!parsed || parsed.version !== SHARE_PAYLOAD_VERSION || !parsed.station?.id) {
+      return null;
+    }
+    const station = parsed.station;
+    if (!station.streamUrl) {
+      return null;
+    }
+
+    return {
+      ...fallbackStation,
+      ...station,
+      hls: Boolean(station.hls),
+      isOnline: Boolean(station.isOnline),
+      languages: Array.isArray(station.languages) ? station.languages : [],
+      tags: Array.isArray(station.tags) ? station.tags : [],
+      bitrate: typeof station.bitrate === "number" ? station.bitrate : null,
+      codec: station.codec ?? null,
+      homepage: station.homepage ?? null,
+      favicon: station.favicon ?? null,
+      country: station.country ?? null,
+      countryCode: station.countryCode ?? null,
+      state: station.state ?? null,
+      clickCount: typeof station.clickCount === "number" ? station.clickCount : fallbackStation.clickCount,
+    };
+  } catch (error) {
+    logger.warn("share.parse_failed", { error });
+    return null;
+  }
+};
+
 const Radio = () => {
+  const location = useLocation();
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("");
   const [genre, setGenre] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [presetStationOverride, setPresetStationOverride] = useState<RadioStation | null>(null);
+  const [presetStationOverride, setPresetStationOverride] = useState<StationOverride | null>(null);
   const [volume, setVolume] = useState(0.65);
   const [playbackKey, setPlaybackKey] = useState(0);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [midnightActive, setMidnightActive] = useState(() => isMidnightHour());
+  const [mysteryStation, setMysteryStation] = useState<RadioStation>(() => randomMidnightStation());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<HlsInstance | null>(null);
   const listRef = useRef<HTMLOListElement | null>(null);
@@ -78,8 +249,27 @@ const Radio = () => {
     timer: null,
   });
   const unmountedRef = useRef(false);
+  const shareButtonRef = useRef<HTMLButtonElement | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
+  const lastShareParamRef = useRef<string | null>(null);
+  const shareParam = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get(SHARE_QUERY_PARAM);
+  }, [location.search]);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const active = isMidnightHour();
+      setMidnightActive((prev) => {
+        if (!prev && active) {
+          setMysteryStation(randomMidnightStation());
+        }
+        return active;
+      });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const filters = useMemo(
     () => ({
@@ -128,9 +318,13 @@ const Radio = () => {
     if (!presetStationOverride) {
       return null;
     }
-    const existsInFavorites = favorites.some((station) => station.id === presetStationOverride.id);
-    const existsInDirectory = displayStations.some((station) => station.id === presetStationOverride.id);
-    return existsInFavorites || existsInDirectory ? presetStationOverride : null;
+    const { station, allowUnknown } = presetStationOverride;
+    if (allowUnknown) {
+      return station;
+    }
+    const existsInFavorites = favorites.some((favorite) => favorite.id === station.id);
+    const existsInDirectory = displayStations.some((candidate) => candidate.id === station.id);
+    return existsInFavorites || existsInDirectory ? station : null;
   }, [presetStationOverride, favorites, displayStations]);
 
   const activeDirectoryStation = displayStations[boundedSelectedIndex] ?? fallbackStation;
@@ -142,10 +336,34 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const shareLink = useMemo(() => {
+    if (typeof window === "undefined" || typeof window.btoa !== "function") {
+      return null;
+    }
+    if (!activeStation.id || !activeStation.streamUrl) {
+      return null;
+    }
+    try {
+      const encodedStation = serializeStationForShare(activeStation);
+      return `${window.location.origin}/radio?${SHARE_QUERY_PARAM}=${encodeURIComponent(encodedStation)}`;
+    } catch (error) {
+      logger.warn("share.link_build_failed", {
+        stationId: activeStation.id,
+        error,
+      });
+      return null;
+    }
+  }, [activeStation]);
 
   useEffect(() => {
     let cancelled = false;
     async function resolveStreamUrl() {
+      if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
+        if (!cancelled) {
+          setResolvedStreamUrl(null);
+        }
+        return;
+      }
       if (!activeStation.id || !activeStation.streamUrl) {
         if (!cancelled) {
           setResolvedStreamUrl(null);
@@ -234,6 +452,96 @@ const Radio = () => {
     );
   }, [displayStations, firstMeta?.genres]);
 
+  const copyShareLink = useCallback(
+    async (reason: "auto" | "manual") => {
+      if (!shareLink) {
+        return;
+      }
+      if (typeof navigator === "undefined" || !navigator.clipboard) {
+        toast({
+          title: "Copy unavailable",
+          description: "Clipboard access is blocked in this browser.",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(shareLink);
+        toast({
+          title: "Copied to clipboard",
+          description: reason === "auto" ? "Share link ready to paste." : "Share link copied again.",
+        });
+      } catch (error) {
+        toast({
+          title: "Copy failed",
+          description: error instanceof Error ? error.message : "Unable to copy the share link.",
+          variant: "destructive",
+        });
+      }
+    },
+    [shareLink],
+  );
+
+  useEffect(() => {
+    if (!shareParam) {
+      if (lastShareParamRef.current) {
+        lastShareParamRef.current = null;
+      }
+      return;
+    }
+    if (lastShareParamRef.current === shareParam) {
+      return;
+    }
+    lastShareParamRef.current = shareParam;
+    const sharedStation = deserializeSharedStation(shareParam);
+    if (!sharedStation) {
+      toast({
+        title: "Invalid share link",
+        description: "We couldn't load the station that was shared.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing share links requires overriding the current station.
+    setPresetStationOverride({ station: sharedStation, allowUnknown: true });
+    setSelectedIndex(0);
+  }, [shareParam]);
+
+  useEffect(() => {
+    if (!shareDialogOpen) {
+      return;
+    }
+    void copyShareLink("auto");
+  }, [shareDialogOpen, copyShareLink]);
+
+  useEffect(() => {
+    if (!shareDialogOpen) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "d" && !event.shiftKey) {
+        event.preventDefault();
+        setShareDialogOpen(false);
+        return;
+      }
+      if (key === "c" && event.shiftKey) {
+        event.preventDefault();
+        void copyShareLink("manual");
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleShortcut);
+    };
+  }, [shareDialogOpen, copyShareLink]);
+
   const handleStationChange = (index: number) => {
     if (index < 0 || index >= displayStations.length) {
       return;
@@ -282,7 +590,37 @@ const Radio = () => {
       return;
     }
 
-    setPresetStationOverride(presetStation);
+    setPresetStationOverride({ station: presetStation });
+  };
+
+  const handleShareButtonClick = () => {
+    if (!shareLink) {
+      toast({
+        title: "Share unavailable",
+        description: "Pick a station with a playable stream before sharing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    shareButtonRef.current?.blur();
+    setShareDialogOpen(true);
+  };
+
+  const handleShareDialogCopy = () => {
+    void copyShareLink("manual");
+  };
+
+  const handleShareDialogClose = () => {
+    setShareDialogOpen(false);
+  };
+
+  const handleMidnightPresetSelect = () => {
+    setPresetStationOverride({ station: mysteryStation, allowUnknown: true });
+    const secretVideo = SECRET_BROADCAST_VIDEOS[mysteryStation.id ?? ""];
+    toast({
+      title: "Secret broadcast tuned",
+      description: "Enjoy the midnight signal.",
+    });
   };
 
   const handleFavoriteToggle = async (station: RadioStation) => {
@@ -341,7 +679,7 @@ const Radio = () => {
     }
   };
 
-  const handleDirectoryKeyDown = (event: KeyboardEvent<HTMLDivElement>, index: number) => {
+  const handleDirectoryKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>, index: number) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       handleStationChange(index);
@@ -407,7 +745,11 @@ const Radio = () => {
 
       const state = reconnectStateRef.current;
       if (state.attempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.warn(`Playback reconnect limit reached (${reason}).`);
+        logger.warn("playback.reconnect_limit_reached", {
+          reason,
+          attempts: state.attempts,
+          maxAttempts: MAX_RECONNECT_ATTEMPTS,
+        });
         return;
       }
 
@@ -568,12 +910,14 @@ const Radio = () => {
           }
 
           destroyHls();
-          console.warn("HLS playback is not supported in this browser.");
+          logger.warn("playback.hls_unsupported", {
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          });
           element.pause();
           element.removeAttribute("src");
           element.load();
         } catch (error) {
-          console.error("Failed to load HLS module", error);
+          logger.error("playback.hls_module_failed", { error });
         }
       };
 
@@ -609,6 +953,9 @@ const Radio = () => {
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
+      return;
+    }
+    if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
       return;
     }
 
@@ -676,7 +1023,29 @@ const Radio = () => {
               <StationInfoPanel
                 station={activeStation}
                 frequencyLabel={frequencyLabel}
+                onShare={handleShareButtonClick}
+                shareDisabled={!shareLink}
+                shareButtonRef={shareButtonRef}
               />
+              {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""] ? (
+                <div className="border border-terminal-green/40 rounded-md bg-black/80 p-3 space-y-2">
+                  <p className="text-terminal-cyan text-xs uppercase tracking-[0.3em]">
+                    Secret Broadcast
+                  </p>
+                  <div className="relative w-full pt-[56.25%]">
+                    <iframe
+                      title="Secret Broadcast Feed"
+                      src={SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].embed}
+                      allow="autoplay; encrypted-media"
+                      allowFullScreen
+                      className="absolute inset-0 h-full w-full border border-terminal-green/30"
+                    />
+                  </div>
+                  <p className="text-terminal-white/60 text-[0.65rem]">
+                    {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].label}
+                  </p>
+                </div>
+              ) : null}
 
               <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
               <ScannerControl
@@ -697,6 +1066,26 @@ const Radio = () => {
                 maxSlots={maxFavoriteSlots}
                 isLoading={favoritesLoading}
               />
+              {midnightActive ? (
+                <>
+                  <TerminalPrompt path="~/radio" command="radio midnight --tune" />
+                  <div className="border border-terminal-green/50 rounded-md bg-black/80 p-4 space-y-2">
+                    <p className="text-terminal-cyan text-xs uppercase tracking-[0.3em]">
+                      Secret Broadcast
+                    </p>
+                    <p className="text-terminal-white/80 text-sm">
+                      A mysterious preset labeled {mysteryStation.name} is available until the clock strikes 01:00.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleMidnightPresetSelect}
+                      className="w-full border border-terminal-yellow/60 px-3 py-2 font-mono text-xs uppercase tracking-[0.2em] text-terminal-yellow hover:bg-terminal-yellow/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
+                    >
+                      Summon Broadcast
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </div>
 
             <div className="space-y-4">
@@ -816,6 +1205,58 @@ const Radio = () => {
         </div>
       </TerminalWindow>
       <audio ref={audioRef} hidden autoPlay controls />
+      <AlertDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <AlertDialogContent
+          className="border border-terminal-green/50 bg-[#050505] text-terminal-white"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            copyButtonRef.current?.focus();
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            shareButtonRef.current?.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-terminal-yellow text-base uppercase tracking-[0.2em]">
+              Share Station
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-terminal-white/70">
+              The link below opens radio and starts playing this station immediately. It was copied to your clipboard.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded border border-terminal-green/40 bg-black/70 p-3 font-mono text-xs text-terminal-green break-all">
+            {shareLink ?? "No station selected."}
+          </div>
+          <div className="flex flex-wrap gap-3 text-[0.7rem] text-terminal-cyan">
+            <button
+              type="button"
+              ref={copyButtonRef}
+              onClick={handleShareDialogCopy}
+              disabled={!shareLink}
+              className={`inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-cyan/60 px-3 py-1.5 uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+                shareLink ? "hover:bg-terminal-cyan/10" : "cursor-not-allowed opacity-50"
+              }`}
+            >
+              <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
+                Ctrl + Shift + C
+              </span>
+              Copy
+            </button>
+            <button
+              type="button"
+              data-dialog-focus-scope="true"
+              onClick={handleShareDialogClose}
+              className="inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-red/60 px-3 py-1.5 uppercase tracking-[0.2em] text-terminal-white transition hover:bg-terminal-red/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
+            >
+              <span className="rounded border border-terminal-red/60 bg-terminal-red/10 px-1 py-0.5 font-mono text-[0.65rem]">
+                Ctrl + D
+              </span>
+              Close
+            </button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

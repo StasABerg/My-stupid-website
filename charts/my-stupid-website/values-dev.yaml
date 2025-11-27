@@ -8,11 +8,24 @@ gateway:
       namespace: contour
       sectionName: https
   hostnames:
-    - dev.gitgud.qzz.io
+    - dev.gitgud.zip
   paths:
     - value: /
       type: PathPrefix
   middlewareRefs: []
+  wwwRedirect:
+    enabled: false
+    sourceHostname: www.dev.gitgud.zip
+    targetHostname: dev.gitgud.zip
+    scheme: https
+    statusCode: 301
+    parentRefs: []
+  redirects:
+    - name: legacy-dev-gitgud
+      sourceHostname: dev.gitgud.qzz.io
+      targetHostname: dev.gitgud.zip
+      scheme: https
+      statusCode: 301
 autoscaling:
   enabled: false
 replicaCount: 1
@@ -23,3 +36,5 @@ env:
     value: /api/terminal
   - name: VITE_RADIO_DEFAULT_LIMIT
     value: "200"
+
+logLevel: debug

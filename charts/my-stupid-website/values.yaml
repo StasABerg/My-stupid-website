@@ -53,11 +53,24 @@ gateway:
       namespace: contour
       sectionName: https
   hostnames:
-    - gitgud.qzz.io
+    - gitgud.zip
   paths:
     - value: /
       type: PathPrefix
   middlewareRefs: []
+  wwwRedirect:
+    enabled: true
+    sourceHostname: www.gitgud.zip
+    targetHostname: gitgud.zip
+    scheme: https
+    statusCode: 301
+    parentRefs: []
+  redirects:
+    - name: legacy-gitgud
+      sourceHostname: gitgud.qzz.io
+      targetHostname: gitgud.zip
+      scheme: https
+      statusCode: 301
 
 resources:
   limits:
@@ -79,6 +92,8 @@ readinessProbe:
     port: http
   initialDelaySeconds: 3
   periodSeconds: 5
+
+logLevel: info
 
 autoscaling:
   enabled: true

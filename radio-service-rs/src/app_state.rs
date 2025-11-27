@@ -9,12 +9,13 @@ use chrono::{DateTime, Utc};
 use deadpool_redis::{redis::AsyncCommands, Pool as RedisPool};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use sysinfo::System;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{info, warn};
 
+use crate::logging::logger;
 use crate::{
     cache::create_redis_pool,
     config::Config,
@@ -82,6 +83,25 @@ impl RateLimiter {
     async fn check(&self, key: &str) -> RateLimitDecision {
         let mut guard = self.buckets.lock().await;
         let now = Instant::now();
+
+        // Drop stale timestamps and empty buckets so the map does not grow without bound.
+        let mut empty_keys = Vec::new();
+        for (bucket_key, entries) in guard.iter_mut() {
+            while let Some(front) = entries.front() {
+                if now.duration_since(*front) > self.window {
+                    entries.pop_front();
+                } else {
+                    break;
+                }
+            }
+            if entries.is_empty() {
+                empty_keys.push(bucket_key.clone());
+            }
+        }
+        for bucket_key in empty_keys {
+            guard.remove(&bucket_key);
+        }
+
         let entries = guard.entry(key.to_string()).or_insert_with(VecDeque::new);
         while let Some(front) = entries.front() {
             if now.duration_since(*front) > self.window {
@@ -207,6 +227,20 @@ impl AppState {
             .await
             .context("failed to connect to postgres")?;
         let redis = create_redis_pool(&config.redis_url).context("failed to create redis pool")?;
+        sqlx::query("SELECT 1")
+            .execute(&postgres)
+            .await
+            .context("failed to validate postgres connectivity")?;
+        {
+            let mut conn = redis
+                .get()
+                .await
+                .context("failed to get redis connection")?;
+            let _: () = conn
+                .ping()
+                .await
+                .context("failed to ping redis during startup")?;
+        }
 
         let stations = StationStorage::new(postgres.clone());
         let favorites = FavoritesStore::new(redis.clone());
@@ -320,7 +354,12 @@ impl AppState {
                         .ensure_fingerprint()
                         .context("failed to compute cache fingerprint")?;
                     if sanitized.upgraded {
-                        info!(source = "redis", "cache.upgraded");
+                        logger().info(
+                            "cache.upgraded",
+                            json!({
+                                "source": "redis"
+                            }),
+                        );
                         self.write_stations_to_cache(&payload).await?;
                     }
                     self.cache_in_memory(payload.clone(), "cache").await;
@@ -334,7 +373,12 @@ impl AppState {
                         cache_source: "cache".into(),
                     });
                 } else {
-                    info!(source = "redis", "cache.invalid");
+                    logger().info(
+                        "cache.invalid",
+                        json!({
+                            "source": "redis"
+                        }),
+                    );
                 }
             }
 
@@ -345,7 +389,12 @@ impl AppState {
                         .ensure_fingerprint()
                         .context("failed to compute database fingerprint")?;
                     if sanitized.upgraded {
-                        info!(source = "database", "cache.upgraded");
+                        logger().info(
+                            "cache.upgraded",
+                            json!({
+                                "source": "database"
+                            }),
+                        );
                     }
                     self.write_stations_to_cache(&payload).await?;
                     self.cache_in_memory(payload.clone(), "database").await;
@@ -360,7 +409,12 @@ impl AppState {
                         cache_source: "database".into(),
                     });
                 } else {
-                    info!(source = "database", "stations.payload_invalid");
+                    logger().info(
+                        "stations.payload_invalid",
+                        json!({
+                            "source": "database"
+                        }),
+                    );
                 }
             }
         }
@@ -440,11 +494,21 @@ impl AppState {
                 Ok(cached) => match StationsPayload::try_from(cached) {
                     Ok(payload) => return Ok(Some(payload)),
                     Err(error) => {
-                        warn!(error = ?error, "cache.payload_invalid");
+                        logger().warn(
+                            "cache.payload_invalid",
+                            json!({
+                                "error": format!("{:?}", error)
+                            }),
+                        );
                     }
                 },
                 Err(error) => {
-                    warn!(error = ?error, "cache.parse_error");
+                    logger().warn(
+                        "cache.parse_error",
+                        json!({
+                            "error": format!("{:?}", error)
+                        }),
+                    );
                 }
             }
         }
@@ -481,11 +545,13 @@ impl AppState {
         } else {
             conn.set::<_, _, ()>(&self.config.cache_key, body).await?;
         }
-        info!(
-            event = "stations.cache.write",
-            redis_key = %self.config.cache_key,
-            ttl_seconds = ttl,
-            count = station_count
+        logger().info(
+            "stations.cache.write",
+            json!({
+                "redisKey": self.config.cache_key,
+                "ttlSeconds": ttl,
+                "count": station_count,
+            }),
         );
 
         Ok(())
@@ -495,7 +561,12 @@ impl AppState {
         let state = self.clone();
         tokio::spawn(async move {
             if let Err(error) = state.refresh_and_cache().await {
-                warn!(error = ?error, "stations.background_refresh_error");
+                logger().warn(
+                    "stations.background_refresh_error",
+                    json!({
+                        "error": format!("{:?}", error)
+                    }),
+                );
             }
         });
     }

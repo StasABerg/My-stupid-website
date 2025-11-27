@@ -11,6 +11,21 @@ use tokio::signal;
 async fn main() -> Result<()> {
     let logger = Logger::new("api-gateway-service");
     let config = Arc::new(Config::load(&logger)?);
+
+    if matches!(std::env::args().nth(1).as_deref(), Some("check-config")) {
+        logger.info(
+            "config.check_passed",
+            json!({
+                "port": config.port,
+                "radioServiceUrl": config.radio_service_url,
+                "terminalServiceUrl": config.terminal_service_url,
+                "allowedHosts": config.allowed_service_hostnames,
+                "cacheTtlSeconds": config.cache.ttl.as_secs(),
+            }),
+        );
+        return Ok(());
+    }
+
     let router = build_router(config.clone(), logger.clone()).await?;
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port)).await?;

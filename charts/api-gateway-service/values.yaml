@@ -45,7 +45,8 @@ terminalService:
   name: my-stupid-website-terminal
   port: 80
 
-allowOrigins: []
+allowOrigins:
+  - https://gitgud.zip
 trustProxy: true
 
 session:
@@ -54,7 +55,7 @@ session:
   secretValue: ""
   secretRef: "radio-service-env"
   secretRefKey: SESSION_SECRET
-  secretOptional: true
+  secretOptional: false
 
 cache:
   ttlSeconds: 60
@@ -65,6 +66,8 @@ cache:
     secretName: radio-service-env
     secretKey: REDIS_URL
     optional: true
+
+logLevel: info
 
 resources:
   requests:
