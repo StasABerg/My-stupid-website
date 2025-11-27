@@ -35,7 +35,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/cache@v4
@@ -68,7 +68,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/cache@v4
@@ -99,7 +99,7 @@ jobs:
     outputs:
       sha: ${{ steps.out.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: docker/setup-buildx-action@v3
@@ -159,7 +159,7 @@ jobs:
     if: needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: development
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: azure/setup-helm@v4
@@ -182,7 +182,7 @@ jobs:
     if: needs.deploy-dev.result == 'success' && needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: production
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: azure/setup-helm@v4
