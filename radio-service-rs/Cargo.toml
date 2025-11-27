@@ -3,14 +3,9 @@ name = "radio-service-rs"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = []
-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
-
 [dependencies]
 anyhow = "1.0"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal"] }
-tokio-stream = { version = "0.1.17", features = ["sync"] }
 url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_with = { version = "3.16", features = ["macros"] }
@@ -32,12 +27,8 @@ serde_json = "1.0"
 sha2 = "0.10"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "stream"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
 futures-util = "0.3"
 sysinfo = "0.37.2"
 hostname = "0.4"
 uuid = { version = "1.18", features = ["v4"] }
-gstreamer = { version = "0.24", optional = true, default-features = false }
-gstreamer-app = { version = "0.24", optional = true, default-features = false }
-bytes = "1.11"
-base64 = "0.22"

@@ -20,7 +20,6 @@ pub struct Config {
     pub allow_insecure_transports: bool,
     pub radio_browser: RadioBrowserConfig,
     pub stream_proxy: StreamProxyConfig,
-    pub stream_pipeline: StreamPipelineConfig,
     pub stream_validation: StreamValidationConfig,
     pub cache_key: String,
     pub cache_ttl_seconds: u64,
@@ -66,37 +65,6 @@ pub struct RadioBrowserConfig {
 #[derive(Debug, Clone, Serialize)]
 pub struct StreamProxyConfig {
     pub timeout_ms: u64,
-    pub max_retries: usize,
-    pub buffer_seconds: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct StreamPipelineConfig {
-    pub enabled: bool,
-    pub engine: StreamPipelineEngine,
-    pub max_concurrency: usize,
-    pub buffer_seconds: u64,
-    pub timeout_ms: u64,
-    pub user_agent: String,
-    pub reconnect_max: u32,
-    pub failure_cache_ttl_seconds: u64,
-    pub hls: StreamPipelineHlsConfig,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub enum StreamPipelineEngine {
-    GStreamer,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct StreamPipelineHlsConfig {
-    pub enabled: bool,
-    pub segment_seconds: u64,
-    pub segment_count: usize,
-    pub idle_timeout_seconds: u64,
-    pub redis_prefix: String,
-    pub redis_segment_ttl_seconds: u64,
-    pub redis_playlist_ttl_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,7 +89,6 @@ impl Config {
             .unwrap_or(false);
         let radio_browser = RadioBrowserConfig::from_env(allow_insecure_transports)?;
         let stream_proxy = StreamProxyConfig::from_env()?;
-        let stream_pipeline = StreamPipelineConfig::from_env()?;
         let stream_validation = StreamValidationConfig::from_env()?;
         let cache_key =
             env::var("STATIONS_CACHE_KEY").unwrap_or_else(|_| "radio:stations:all".into());
@@ -137,7 +104,6 @@ impl Config {
             allow_insecure_transports,
             radio_browser,
             stream_proxy,
-            stream_pipeline,
             stream_validation,
             cache_key,
             cache_ttl_seconds,
@@ -404,82 +370,8 @@ impl RadioBrowserConfig {
 
 impl StreamProxyConfig {
     fn from_env() -> Result<Self, ConfigError> {
-        let timeout_ms = env_u64("STREAM_PROXY_TIMEOUT_MS", 15_000)?;
-        let max_retries = env_usize("STREAM_PROXY_MAX_RETRIES", 3)?.max(1);
-        let buffer_seconds = env_u64("STREAM_PROXY_BUFFER_SECONDS", 3)?;
-        Ok(Self {
-            timeout_ms,
-            max_retries,
-            buffer_seconds,
-        })
-    }
-}
-
-impl StreamPipelineConfig {
-    fn from_env() -> Result<Self, ConfigError> {
-        let enabled = env_bool("STREAM_PIPELINE_ENABLED").unwrap_or(false);
-        let engine = match env::var("STREAM_PIPELINE_ENGINE")
-            .unwrap_or_else(|_| "gstreamer".into())
-            .to_lowercase()
-            .as_str()
-        {
-            "gstreamer" => StreamPipelineEngine::GStreamer,
-            other => {
-                return Err(ConfigError::Message(format!(
-                    "Unsupported STREAM_PIPELINE_ENGINE: {other}"
-                )))
-            }
-        };
-        let max_concurrency = env_usize("STREAM_PIPELINE_MAX_CONCURRENCY", 4)?;
-        let buffer_seconds = env_u64("STREAM_PIPELINE_BUFFER_SECONDS", 5)?;
-        let timeout_ms = env_u64("STREAM_PIPELINE_TIMEOUT_MS", 10_000)?;
-        let user_agent = env::var("STREAM_PIPELINE_USER_AGENT")
-            .unwrap_or_else(|_| "radio-service/stream-pipeline".into());
-        let reconnect_max = env_u32("STREAM_PIPELINE_RECONNECT_MAX", 3)?;
-        let failure_cache_ttl_seconds = env_u64("STREAM_PIPELINE_FAILURE_CACHE_TTL", 300)?;
-        let hls = StreamPipelineHlsConfig::from_env()?;
-        Ok(Self {
-            enabled,
-            engine,
-            max_concurrency,
-            buffer_seconds,
-            timeout_ms,
-            user_agent,
-            reconnect_max,
-            failure_cache_ttl_seconds,
-            hls,
-        })
-    }
-}
-
-impl StreamPipelineHlsConfig {
-    fn from_env() -> Result<Self, ConfigError> {
-        let enabled = env_bool("STREAM_PIPELINE_HLS_ENABLED").unwrap_or(false);
-        let segment_seconds = env_u64("STREAM_PIPELINE_HLS_SEGMENT_SECONDS", 6)?;
-        let segment_count = env_usize("STREAM_PIPELINE_HLS_SEGMENT_COUNT", 5)?.max(1);
-        let idle_timeout_seconds = env_u64("STREAM_PIPELINE_HLS_IDLE_TIMEOUT_SECONDS", 60)?;
-        let redis_prefix =
-            env::var("STREAM_PIPELINE_HLS_REDIS_PREFIX").unwrap_or_else(|_| "radio:hls".into());
-        let retention_window = segment_count as u64 + 2u64;
-        let default_segment_ttl = segment_seconds.saturating_mul(retention_window);
-        let redis_segment_ttl_seconds = env_u64(
-            "STREAM_PIPELINE_HLS_SEGMENT_TTL_SECONDS",
-            default_segment_ttl,
-        )?;
-        let redis_playlist_ttl_seconds = env_u64(
-            "STREAM_PIPELINE_HLS_PLAYLIST_TTL_SECONDS",
-            idle_timeout_seconds.max(redis_segment_ttl_seconds),
-        )?;
-
-        Ok(Self {
-            enabled,
-            segment_seconds,
-            segment_count,
-            idle_timeout_seconds,
-            redis_prefix,
-            redis_segment_ttl_seconds,
-            redis_playlist_ttl_seconds,
-        })
+        let timeout_ms = env_u64("STREAM_PROXY_TIMEOUT_MS", 5000)?;
+        Ok(Self { timeout_ms })
     }
 }
 
@@ -540,69 +432,7 @@ impl Config {
                 "STREAM_PROXY_TIMEOUT_MS must be greater than zero".into(),
             ));
         }
-        if self.stream_proxy.buffer_seconds == 0 {
-            return Err(ConfigError::Message(
-                "STREAM_PROXY_BUFFER_SECONDS must be greater than zero".into(),
-            ));
-        }
-        if self.stream_pipeline.enabled {
-            if self.stream_pipeline.max_concurrency == 0 {
-                return Err(ConfigError::Message(
-                    "STREAM_PIPELINE_MAX_CONCURRENCY must be greater than zero".into(),
-                ));
-            }
-            if self.stream_pipeline.buffer_seconds == 0 {
-                return Err(ConfigError::Message(
-                    "STREAM_PIPELINE_BUFFER_SECONDS must be greater than zero".into(),
-                ));
-            }
-            if self.stream_pipeline.timeout_ms == 0 {
-                return Err(ConfigError::Message(
-                    "STREAM_PIPELINE_TIMEOUT_MS must be greater than zero".into(),
-                ));
-            }
-            if self.stream_pipeline.user_agent.trim().is_empty() {
-                return Err(ConfigError::Message(
-                    "STREAM_PIPELINE_USER_AGENT must be provided when enabled".into(),
-                ));
-            }
-            if self.stream_pipeline.hls.enabled {
-                if self.stream_pipeline.hls.segment_seconds == 0 {
-                    return Err(ConfigError::Message(
-                        "STREAM_PIPELINE_HLS_SEGMENT_SECONDS must be greater than zero".into(),
-                    ));
-                }
-                if self.stream_pipeline.hls.segment_count == 0 {
-                    return Err(ConfigError::Message(
-                        "STREAM_PIPELINE_HLS_SEGMENT_COUNT must be greater than zero".into(),
-                    ));
-                }
-                if self.stream_pipeline.hls.idle_timeout_seconds == 0 {
-                    return Err(ConfigError::Message(
-                        "STREAM_PIPELINE_HLS_IDLE_TIMEOUT_SECONDS must be greater than zero".into(),
-                    ));
-                }
-                if self.stream_pipeline.hls.redis_segment_ttl_seconds == 0
-                    || self.stream_pipeline.hls.redis_playlist_ttl_seconds == 0
-                {
-                    return Err(ConfigError::Message(
-                        "STREAM_PIPELINE_HLS_*_TTL_SECONDS must be greater than zero".into(),
-                    ));
-                }
-                if self.stream_pipeline.hls.redis_prefix.trim().is_empty() {
-                    return Err(ConfigError::Message(
-                        "STREAM_PIPELINE_HLS_REDIS_PREFIX must be provided".into(),
-                    ));
-                }
-            }
-        }
-        if self.stream_pipeline.hls.enabled && !self.stream_pipeline.enabled {
-            return Err(ConfigError::Message(
-                "STREAM_PIPELINE_HLS_ENABLED requires STREAM_PIPELINE_ENABLED".into(),
-            ));
-        }
-        self.radio_browser
-            .validate(self.allow_insecure_transports)?;
+        self.radio_browser.validate(self.allow_insecure_transports)?;
         Ok(())
     }
 }

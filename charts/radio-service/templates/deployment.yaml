@@ -63,9 +63,6 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          volumeMounts:
-            - name: fontconfig-cache
-              mountPath: /tmp/fontconfig-cache
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -90,6 +87,3 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      volumes:
-        - name: fontconfig-cache
-          emptyDir: {}

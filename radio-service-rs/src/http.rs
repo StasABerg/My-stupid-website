@@ -14,19 +14,15 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use bytes::Bytes;
 use chrono::Utc;
-use futures_util::StreamExt;
+use futures_util::TryStreamExt;
 use reqwest::header::{HeaderMap as ReqwestHeaderMap, HeaderName};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use tokio::{
     net::TcpListener,
-    sync::mpsc,
-    time::{sleep, timeout, Duration},
+    time::{timeout, Duration},
 };
-use tokio_stream::wrappers::ReceiverStream;
 use url::Url;
 use uuid::Uuid;
 
@@ -37,12 +33,8 @@ use crate::{
         build_favorites_key, dedupe_entries, is_valid_favorites_session, is_valid_session_token,
         sanitize_station_id, FavoriteEntry, FavoriteStation, MAX_FAVORITES,
     },
-    hls::PlaylistSnapshot,
     stations::{intersect_lists, ProcessedStations, Station, StationsPayload},
-    stream_format::{detect_stream_format, FormatDetection},
-    stream_pipeline::PipelineDecision,
 };
-use deadpool_redis::redis::AsyncCommands;
 
 const OPENAPI_SPEC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/openapi.json"));
 const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
@@ -172,22 +164,6 @@ where
     (status, Json(payload)).into_response()
 }
 
-fn classify_reqwest_error(err: &reqwest::Error) -> (&'static str, String) {
-    if err.is_timeout() {
-        ("timeout", err.to_string())
-    } else if err.is_connect() {
-        ("connect", err.to_string())
-    } else if err.is_decode() {
-        ("decode", err.to_string())
-    } else if err.is_request() {
-        ("request", err.to_string())
-    } else if err.is_body() {
-        ("body", err.to_string())
-    } else {
-        ("other", err.to_string())
-    }
-}
-
 #[derive(Debug)]
 enum ApiError {
     ServiceUnavailable(&'static str),
@@ -220,29 +196,6 @@ struct ErrorResponse<'a> {
 
 fn upstream_error_response(status: StatusCode, message: String) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
-}
-
-fn pipeline_failure_cache_key(url: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(url.as_bytes());
-    let hash = hex::encode(hasher.finalize());
-    format!("radio:pipeline:failure:{hash}")
-}
-
-fn parse_truthy(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
-fn is_playlist_candidate(url: &str) -> bool {
-    if let Ok(parsed) = Url::parse(url) {
-        let path = parsed.path().to_lowercase();
-        return path.ends_with(".m3u8") || path.ends_with(".m3u") || path.ends_with(".pls");
-    }
-    let lower = url.to_lowercase();
-    lower.ends_with(".m3u8") || lower.ends_with(".m3u") || lower.ends_with(".pls")
 }
 
 impl IntoResponse for ApiError {
@@ -899,7 +852,7 @@ async fn load_station(state: &AppState, station_id: &str) -> Result<Station, Api
         .ok_or(ApiError::NotFound("Station not found"))
 }
 
-fn forward_stream_response(response: reqwest::Response, buffer_delay: Duration) -> Response {
+fn forward_stream_response(response: reqwest::Response) -> Response {
     let status = response.status();
     let mut builder = Response::builder().status(status);
     for (key, value) in response.headers().iter() {
@@ -908,55 +861,7 @@ fn forward_stream_response(response: reqwest::Response, buffer_delay: Duration) 
         }
         builder = builder.header(key, value.clone());
     }
-    builder = builder
-        .header("Cache-Control", "no-store")
-        .header("Alt-Svc", "clear");
-
-    let (tx_samples, mut rx_samples) = mpsc::unbounded_channel::<Result<Bytes, std::io::Error>>();
-    let (body_tx, body_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(256);
-    let source_url = response.url().to_string();
-    let upstream_label = source_url.clone();
-
-    tokio::spawn(async move {
-        let mut upstream = response.bytes_stream();
-        while let Some(chunk) = upstream.next().await {
-            match chunk {
-                Ok(bytes) => {
-                    if tx_samples.send(Ok(bytes)).is_err() {
-                        logger().debug(
-                            "stream.proxy.buffer_closed",
-                            json!({ "url": upstream_label }),
-                        );
-                        break;
-                    }
-                }
-                Err(err) => {
-                    let _ = tx_samples.send(Err(io::Error::other(err)));
-                    break;
-                }
-            }
-        }
-    });
-
-    let buffer_label = source_url;
-    tokio::spawn(async move {
-        let start = Instant::now();
-        while let Some(item) = rx_samples.recv().await {
-            if !buffer_delay.is_zero() {
-                let elapsed = Instant::now().saturating_duration_since(start);
-                if elapsed < buffer_delay {
-                    tokio::time::sleep(buffer_delay - elapsed).await;
-                }
-            }
-            if body_tx.send(item).await.is_err() {
-                logger().debug("stream.proxy.body_closed", json!({ "url": buffer_label }));
-                break;
-            }
-        }
-    });
-
-    let stream = ReceiverStream::new(body_rx);
-    let body = Body::from_stream(stream);
+    let body = Body::from_stream(response.bytes_stream().map_err(io::Error::other));
     builder
         .header("Cache-Control", "no-store")
         .body(body)
@@ -1039,43 +944,6 @@ fn rewrite_playlist(
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn rewrite_local_hls_playlist(station_id: &str, playlist: &str, csrf: &CsrfParams) -> String {
-    playlist
-        .lines()
-        .map(|line| {
-            let trimmed = line.trim();
-            if trimmed.starts_with("segment?") {
-                let mut rewritten = format!("/stations/{station_id}/stream/{trimmed}");
-                append_csrf_params(&mut rewritten, csrf);
-                rewritten
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn append_csrf_params(target: &mut String, csrf: &CsrfParams) {
-    if let Some(token) = &csrf.token {
-        append_query_param(target, "csrfToken", token);
-    }
-    if let Some(proof) = &csrf.proof {
-        append_query_param(target, "csrfProof", proof);
-    }
-}
-
-fn append_query_param(target: &mut String, key: &str, value: &str) {
-    if target.contains('?') {
-        target.push('&');
-    } else {
-        target.push('?');
-    }
-    target.push_str(key);
-    target.push('=');
-    target.push_str(&urlencoding::encode(value));
 }
 
 fn parse_bool(value: Option<String>) -> bool {
@@ -1193,10 +1061,7 @@ struct UpsertFavoriteBody {
 
 #[derive(Deserialize)]
 struct StreamSegmentQuery {
-    #[serde(default)]
-    source: Option<String>,
-    #[serde(rename = "n")]
-    sequence: Option<String>,
+    source: String,
     #[serde(rename = "csrfToken")]
     csrf_token: Option<String>,
     #[serde(rename = "csrfProof")]
@@ -1365,403 +1230,21 @@ async fn stream_station(
     let rate = enforce_rate_limit(&state, &headers).await?;
 
     let station = load_station(&state, station_id).await?;
-    let mut is_playlist = is_playlist_candidate(&station.stream_url);
-    let cached_format = state.get_cached_format_hint(&station.stream_url).await;
-    let format_detection = if let Some(format) = cached_format {
-        FormatDetection::from_cache(format)
-    } else {
-        let detection = detect_stream_format(
-            &state.http_client,
-            &station.stream_url,
-            Duration::from_secs(3),
-        )
-        .await;
-        state
-            .store_format_hint(&station.stream_url, detection.format)
-            .await;
-        detection
-    };
-    if format_detection.format.is_playlist_like() {
-        is_playlist = true;
-    }
-    let csrf_params = resolve_csrf_params(&headers, &params);
-    let mut cached_playlist: Option<String> = None;
-    if is_playlist {
-        if let Some(raw) = state.get_cached_hls_playlist(&station.stream_url).await {
-            logger().info(
-                "stream.proxy.hls_cache_hit",
-                json!({
-                    "stationId": station_id,
-                    "url": station.stream_url,
-                }),
-            );
-            cached_playlist = Some(raw);
-        }
-    }
-    logger().info(
-        "stream.format.detected",
-        json!({
-            "stationId": station_id,
-            "url": station.stream_url,
-            "format": format_detection.format,
-            "indicators": format_detection.indicators,
-            "treatedAsPlaylist": is_playlist,
-        }),
-    );
-    let mut pipeline_attempted = false;
-    let mut pipeline_enabled = state.stream_pipeline.is_enabled();
-    let mut pipeline_block_reason = if pipeline_enabled {
-        None
-    } else {
-        Some("engine_disabled")
-    };
-    let pipeline_overridden = params
-        .get("pipeline")
-        .map(|value| value.eq_ignore_ascii_case("off"))
-        .unwrap_or(false);
-    let probe_requested = params
-        .get("probe")
-        .map(|value| parse_truthy(value))
-        .unwrap_or(false);
-    if pipeline_overridden && pipeline_enabled {
-        pipeline_enabled = false;
-        pipeline_block_reason = Some("client_override");
-        logger().info(
-            "stream.pipeline.client_override",
-            json!({
-                "stationId": station_id,
-                "url": station.stream_url,
-            }),
-        );
-    }
+    let request = state
+        .http_client
+        .get(&station.stream_url)
+        .headers(pick_forward_headers(&headers, &["user-agent", "accept"]));
 
-    if pipeline_enabled && state.config.stream_pipeline.failure_cache_ttl_seconds > 0 {
-        let key = pipeline_failure_cache_key(&station.stream_url);
-        if let Ok(mut conn) = state.redis.get().await {
-            match conn.exists(&key).await {
-                Ok(true) => {
-                    logger().info(
-                        "stream.pipeline.skip_recent_failure",
-                        json!({
-                            "stationId": station_id,
-                            "url": station.stream_url,
-                        }),
-                    );
-                    pipeline_enabled = false;
-                    pipeline_block_reason = Some("recent_failure");
-                }
-                Ok(false) => {}
-                Err(err) => {
-                    logger().warn(
-                        "stream.pipeline.cache_check_failed",
-                        json!({
-                            "stationId": station_id,
-                            "url": station.stream_url,
-                            "error": format!("{:?}", err),
-                        }),
-                    );
-                }
-            }
-        }
-    }
-
-    let mut hls_snapshot: Option<PlaylistSnapshot> = None;
-    let mut hls_warming = false;
-    if pipeline_enabled && !is_playlist && state.config.stream_pipeline.hls.enabled {
-        match state
-            .stream_pipeline
-            .request_hls_playlist(station_id, &station.stream_url, format_detection.format)
-            .await
-        {
-            Ok(Some(snapshot)) => {
-                hls_snapshot = Some(snapshot);
-            }
-            Ok(None) => {
-                hls_warming = true;
-                pipeline_block_reason = Some("hls_warming");
-            }
-            Err(err) => {
-                logger().warn(
-                    "stream.pipeline.hls_request_failed",
-                    json!({
-                        "stationId": station_id,
-                        "url": station.stream_url,
-                        "error": format!("{:?}", err),
-                    }),
-                );
-            }
-        }
-    }
-
-    logger().info(
-        "stream.pipeline.decision",
-        json!({
-            "stationId": station_id,
-            "url": station.stream_url,
-            "isPlaylist": is_playlist,
-            "pipelineEnabled": pipeline_enabled,
-            "hlsEnabled": state.config.stream_pipeline.hls.enabled,
-        }),
-    );
-    if probe_requested {
-        let mut payload = json!({
-            "stationId": station_id,
-            "pipelineEnabled": pipeline_enabled,
-            "isPlaylist": is_playlist,
-        });
-        if let Some(reason) = pipeline_block_reason {
-            payload["reason"] = json!(reason);
-        }
-        let mut status = StatusCode::OK;
-        if pipeline_block_reason.is_some() && !is_playlist {
-            status = StatusCode::SERVICE_UNAVAILABLE;
-            if pipeline_block_reason == Some("recent_failure")
-                && state.config.stream_pipeline.failure_cache_ttl_seconds > 0
-            {
-                payload["retryAfterMs"] =
-                    json!(state.config.stream_pipeline.failure_cache_ttl_seconds * 1000);
-            }
-            if pipeline_block_reason == Some("hls_warming") {
-                payload["retryAfterMs"] =
-                    json!(state.config.stream_pipeline.hls.segment_seconds.max(1) * 1000);
-            }
-        }
-        let mut builder = Response::builder()
-            .status(status)
-            .header("Content-Type", "application/json")
-            .header("Cache-Control", "no-store");
-        if hls_snapshot.is_some() {
-            builder = builder.header("X-Stream-Pipeline", "hls");
-        }
-        let response = builder
-            .body(Body::from(payload.to_string()))
-            .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
-        return Ok(with_rate_limit(response, &rate));
-    }
-    if let Some(snapshot) = hls_snapshot {
-        let playlist_body = rewrite_local_hls_playlist(station_id, &snapshot.body, &csrf_params);
-        logger().info(
-            "stream.pipeline.hls_playlist_served",
-            json!({
-                "stationId": station_id,
-                "url": station.stream_url,
-            }),
-        );
-        let response = Response::builder()
-            .status(StatusCode::OK)
-            .header("Content-Type", "application/vnd.apple.mpegurl")
-            .header("Cache-Control", "no-store")
-            .header("Alt-Svc", "clear")
-            .body(Body::from(playlist_body))
-            .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
-        return Ok(with_rate_limit(response, &rate));
-    }
-    if hls_warming {
-        let retry_after = state.config.stream_pipeline.hls.segment_seconds.max(1) * 1000;
-        let payload = json!({
-            "stationId": station_id,
-            "pipelineEnabled": pipeline_enabled,
-            "reason": "hls_warming",
-            "retryAfterMs": retry_after,
-        });
-        let response = Response::builder()
-            .status(StatusCode::SERVICE_UNAVAILABLE)
-            .header("Content-Type", "application/json")
-            .header("Cache-Control", "no-store")
-            .body(Body::from(payload.to_string()))
-            .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
-        return Ok(with_rate_limit(response, &rate));
-    }
-    if pipeline_enabled && !is_playlist {
-        match state
-            .stream_pipeline
-            .attempt(&station.stream_url, format_detection.format, station_id)
-            .await
-        {
-            Ok(PipelineDecision::Skip) => {}
-            Ok(PipelineDecision::Stream { body, content_type }) => {
-                let mut builder = Response::builder()
-                    .status(StatusCode::OK)
-                    .header("Cache-Control", "no-store")
-                    .header("Alt-Svc", "clear");
-                if let Some(ct) = content_type {
-                    builder = builder.header("Content-Type", ct);
-                }
-                let response = builder
-                    .body(body)
-                    .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
-                return Ok(with_rate_limit(response, &rate));
-            }
-            Err(error) => {
-                pipeline_attempted = true;
-                logger().info(
-                    "stream.pipeline.fallback",
-                    json!({
-                        "stationId": station_id,
-                        "error": format!("{:?}", error),
-                    }),
-                );
-                if state.config.stream_pipeline.failure_cache_ttl_seconds > 0 {
-                    let key = pipeline_failure_cache_key(&station.stream_url);
-                    if let Ok(mut conn) = state.redis.get().await {
-                        let set_result: Result<(), deadpool_redis::redis::RedisError> = conn
-                            .set_ex(
-                                &key,
-                                "failed",
-                                state.config.stream_pipeline.failure_cache_ttl_seconds,
-                            )
-                            .await;
-                        if let Err(err) = set_result {
-                            logger().warn(
-                                "stream.pipeline.cache_set_failed",
-                                json!({
-                                    "stationId": station_id,
-                                    "url": station.stream_url,
-                                    "error": format!("{:?}", err),
-                                }),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    } else if is_playlist {
-        logger().info(
-            "stream.pipeline.skipped_playlist",
-            json!({
-                "stationId": station_id,
-                "url": station.stream_url,
-            }),
-        );
-        if let Some(raw_playlist) = cached_playlist.take() {
-            let rewritten = rewrite_playlist(
-                &station.stream_url,
-                &raw_playlist,
-                &csrf_params,
-                "stream/segment",
-            );
-            let builder = Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "application/vnd.apple.mpegurl")
-                .header("Cache-Control", "no-store")
-                .header("Alt-Svc", "clear")
-                .header("X-Stream-Pipeline", "hls");
-            let body = Body::from(rewritten);
-            let response = builder
-                .body(body)
-                .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
-            return Ok(with_rate_limit(response, &rate));
-        }
-    } else {
-        logger().info(
-            "stream.pipeline.disabled",
-            json!({
-                "stationId": station_id,
-                "url": station.stream_url,
-            }),
-        );
-    }
-    let mut response = None;
-    let mut last_error: Option<String> = None;
-    let max_retries = state.config.stream_proxy.max_retries.max(1);
-    let forward_headers = pick_forward_headers(&headers, &["user-agent", "accept"]);
-    for attempt in 1..=max_retries {
-        let mut request = state.http_client.get(&station.stream_url);
-        for (key, value) in forward_headers.iter() {
-            request = request.header(key, value);
-        }
-
-        match timeout(
-            Duration::from_millis(state.config.stream_proxy.timeout_ms),
-            request.send(),
-        )
-        .await
-        {
-            Ok(Ok(resp)) => {
-                response = Some(resp);
-                break;
-            }
-            Ok(Err(err)) => {
-                let (reason, detail) = classify_reqwest_error(&err);
-                last_error = Some(format!("{reason}: {detail}"));
-                logger().warn(
-                    "stream.proxy.request_failed",
-                    json!({
-                        "stationId": station_id,
-                        "url": station.stream_url,
-                        "attempt": attempt,
-                        "maxRetries": max_retries,
-                        "reason": reason,
-                        "error": detail,
-                    }),
-                );
-            }
-            Err(_) => {
-                last_error = Some("timeout".into());
-                logger().warn(
-                    "stream.proxy.request_timeout",
-                    json!({
-                        "stationId": station_id,
-                        "url": station.stream_url,
-                        "attempt": attempt,
-                        "maxRetries": max_retries,
-                    }),
-                );
-            }
-        }
-
-        if response.is_none() && attempt < max_retries {
-            let backoff_ms = (250 * attempt * attempt) as u64;
-            let backoff = Duration::from_millis(backoff_ms).min(Duration::from_secs(3));
-            logger().debug(
-                "stream.proxy.backoff",
-                json!({
-                    "stationId": station_id,
-                    "url": station.stream_url,
-                    "attempt": attempt,
-                    "delayMs": backoff.as_millis(),
-                }),
-            );
-            sleep(backoff).await;
-        }
-    }
-
-    let response = if let Some(resp) = response {
-        resp
-    } else {
-        logger().warn(
-            "stream.proxy.exhausted_retries",
-            json!({
-                "stationId": station_id,
-                "url": station.stream_url,
-                "attempts": max_retries,
-                "error": last_error,
-            }),
-        );
-        return Err(ApiError::ServiceUnavailable("Failed to reach stream URL."));
-    };
-
-    if pipeline_attempted {
-        logger().info(
-            "stream.pipeline.fallback_proxy",
-            json!({
-                "stationId": station_id,
-                "url": station.stream_url,
-                "status": response.status().as_u16(),
-            }),
-        );
-    }
+    let response = timeout(
+        Duration::from_millis(state.config.stream_proxy.timeout_ms),
+        request.send(),
+    )
+    .await
+    .map_err(|_| ApiError::ServiceUnavailable("Stream request timed out"))?
+    .map_err(|_| ApiError::ServiceUnavailable("Failed to reach stream URL."))?;
 
     if !response.status().is_success() {
         let status = response.status();
-        logger().warn(
-            "stream.proxy.upstream_status",
-            json!({
-                "stationId": station_id,
-                "url": station.stream_url,
-                "status": status.as_u16(),
-            }),
-        );
         let message = format!("Upstream returned {}", status.as_u16());
         return Ok(with_rate_limit(
             upstream_error_response(status, message),
@@ -1775,28 +1258,16 @@ async fn stream_station(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
 
+    let csrf_params = resolve_csrf_params(&headers, &params);
+
     if !should_treat_as_playlist(&station.stream_url, content_type) {
-        let buffer_delay = Duration::from_secs(state.config.stream_proxy.buffer_seconds);
-        return Ok(with_rate_limit(
-            forward_stream_response(response, buffer_delay),
-            &rate,
-        ));
+        return Ok(with_rate_limit(forward_stream_response(response), &rate));
     }
 
     let playlist = response
         .text()
         .await
         .map_err(|_| ApiError::ServiceUnavailable("Failed to read playlist from upstream."))?;
-    state
-        .store_hls_playlist(&station.stream_url, playlist.clone())
-        .await;
-    logger().info(
-        "stream.proxy.hls_cache_store",
-        json!({
-            "stationId": station_id,
-            "url": station.stream_url,
-        }),
-    );
     let rewritten = rewrite_playlist(
         &station.stream_url,
         &playlist,
@@ -1825,42 +1296,14 @@ async fn stream_segment(
     if station_id.is_empty() {
         return Err(ApiError::BadRequest("Station identifier is required."));
     }
-    let parsed_sequence = query
-        .sequence
-        .as_deref()
-        .and_then(|value| value.trim().parse::<u64>().ok());
-    let source = query
-        .source
-        .as_deref()
-        .map(|value| value.trim())
-        .unwrap_or("");
-    if parsed_sequence.is_none() && source.is_empty() {
+    if query.source.trim().is_empty() {
         return Err(ApiError::BadRequest(
-            "A source or sequence query parameter is required.",
+            "A source query parameter is required.",
         ));
     }
     let rate = enforce_rate_limit(&state, &headers).await?;
 
-    if let Some(sequence) = parsed_sequence {
-        let payload = state
-            .stream_pipeline
-            .load_hls_segment(station_id, sequence)
-            .await
-            .map_err(|_| ApiError::ServiceUnavailable("Stream segment unavailable."))?;
-        if let Some((content_type, bytes)) = payload {
-            let response = Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", content_type)
-                .header("Cache-Control", "no-store")
-                .header("Alt-Svc", "clear")
-                .body(Body::from(bytes))
-                .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?;
-            return Ok(with_rate_limit(response, &rate));
-        }
-        return Err(ApiError::NotFound("Stream segment not found."));
-    }
-
-    let decoded = urlencoding::decode(source)
+    let decoded = urlencoding::decode(&query.source)
         .map_err(|_| ApiError::BadRequest("Invalid segment URL provided."))?;
     let target = Url::parse(decoded.as_ref())
         .map_err(|_| ApiError::BadRequest("Invalid segment URL provided."))?;
@@ -1918,11 +1361,7 @@ async fn stream_segment(
     let csrf_params = resolve_csrf_params(&headers, &query_map);
 
     if !should_treat_as_playlist(target.as_str(), content_type) {
-        let buffer_delay = Duration::from_secs(state.config.stream_proxy.buffer_seconds);
-        return Ok(with_rate_limit(
-            forward_stream_response(response, buffer_delay),
-            &rate,
-        ));
+        return Ok(with_rate_limit(forward_stream_response(response), &rate));
     }
 
     let playlist = response
@@ -1938,7 +1377,6 @@ async fn stream_segment(
             .status(StatusCode::OK)
             .header("Content-Type", "application/vnd.apple.mpegurl")
             .header("Cache-Control", "no-store")
-            .header("Alt-Svc", "clear")
             .body(Body::from(rewritten))
             .map_err(|err| ApiError::internal(anyhow::anyhow!(err)))?,
         &rate,
