@@ -46,7 +46,7 @@ terminalService:
   port: 80
 
 allowOrigins:
-  - https://gitgud.qzz.io
+  - https://gitgud.zip
 trustProxy: true
 
 session:

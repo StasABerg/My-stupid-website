@@ -82,7 +82,7 @@ const resolveDisplayCwd = (virtualPath: string, candidate?: string | null): stri
   return toDisplayPath(virtualPath);
 };
 
-const buildPromptLabel = (displayPath: string): string => `sandbox@gitgud.qzz.io:${displayPath}`;
+const buildPromptLabel = (displayPath: string): string => `sandbox@gitgud.zip:${displayPath}`;
 const buildHeaderLabel = (displayPath: string): string => `${buildPromptLabel(displayPath)} — isolated pod`;
 
 export function useTerminal() {

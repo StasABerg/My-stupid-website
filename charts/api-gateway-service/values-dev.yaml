@@ -6,7 +6,7 @@ replicaCount: 1
 trustProxy: true
 
 allowOrigins:
-  - https://dev.gitgud.qzz.io
+  - https://dev.gitgud.zip
 
 radioService:
   name: my-stupid-website-radio

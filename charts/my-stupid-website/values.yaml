@@ -53,15 +53,15 @@ gateway:
       namespace: contour
       sectionName: https
   hostnames:
-    - gitgud.qzz.io
+    - gitgud.zip
   paths:
     - value: /
       type: PathPrefix
   middlewareRefs: []
   wwwRedirect:
     enabled: true
-    sourceHostname: www.gitgud.qzz.io
-    targetHostname: gitgud.qzz.io
+    sourceHostname: www.gitgud.zip
+    targetHostname: gitgud.zip
     scheme: https
     statusCode: 301
     parentRefs: []

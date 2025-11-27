@@ -104,7 +104,7 @@ env:
   - name: RADIO_BROWSER_MAX_PAGES
     value: "200"
   - name: RADIO_BROWSER_USER_AGENT
-    value: "gitgud.qzz.io blog"
+    value: "gitgud.zip blog"
   - name: STREAM_VALIDATION_CONCURRENCY
     value: "64"
   - name: TRUST_PROXY

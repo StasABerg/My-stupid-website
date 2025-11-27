@@ -8,4 +8,4 @@ env:
   COMMAND_TIMEOUT_MS: "4000"
   MAX_PAYLOAD_BYTES: "2048"
   MAX_OUTPUT_BYTES: "16384"
-  CORS_ALLOW_ORIGIN: "https://dev.gitgud.qzz.io"
+  CORS_ALLOW_ORIGIN: "https://dev.gitgud.zip"

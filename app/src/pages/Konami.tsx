@@ -10,7 +10,7 @@ const Konami = () => {
   const embedUrl = useMemo(() => {
     const base = "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ";
     const origin =
-      typeof window !== "undefined" ? window.location.origin : "https://gitgud.qzz.io";
+      typeof window !== "undefined" ? window.location.origin : "https://gitgud.zip";
     const params = new URLSearchParams({
       autoplay: "1",
       loop: "1",

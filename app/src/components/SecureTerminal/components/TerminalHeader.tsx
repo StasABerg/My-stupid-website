@@ -3,7 +3,7 @@ interface TerminalHeaderProps {
   label?: string;
 }
 
-const DEFAULT_PREFIX = "sandbox@gitgud.qzz.io";
+const DEFAULT_PREFIX = "sandbox@gitgud.zip";
 
 function TerminalHeader({ displayCwd, label }: TerminalHeaderProps) {
   const renderedLabel = label ?? `${DEFAULT_PREFIX}:${displayCwd} — isolated pod`;

@@ -7,7 +7,7 @@ const GatewayDocs = () => (
     <div className="mx-auto mb-4 max-w-5xl font-mono text-xs sm:text-sm">
       <TerminalPrompt
         user="sandbox"
-        host="gitgud.qzz.io"
+        host="gitgud.zip"
         path="~/swagger"
         command={(
           <Link

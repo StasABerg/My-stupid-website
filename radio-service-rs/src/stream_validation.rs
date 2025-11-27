@@ -56,7 +56,7 @@ impl StreamValidator {
         let cache = Arc::new(self.load_cache(redis).await?);
         let now = current_timestamp();
         let validation_user_agent = std::env::var("RADIO_BROWSER_USER_AGENT")
-            .unwrap_or_else(|_| "gitgud.qzz.io blog".to_string());
+            .unwrap_or_else(|_| "gitgud.zip blog".to_string());
 
         let outcomes = stream::iter(stations.into_iter().enumerate())
             .map(|(idx, station)| {
