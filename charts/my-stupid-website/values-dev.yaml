@@ -20,6 +20,12 @@ gateway:
     scheme: https
     statusCode: 301
     parentRefs: []
+  redirects:
+    - name: legacy-dev-gitgud
+      sourceHostname: dev.gitgud.qzz.io
+      targetHostname: dev.gitgud.zip
+      scheme: https
+      statusCode: 301
 autoscaling:
   enabled: false
 replicaCount: 1

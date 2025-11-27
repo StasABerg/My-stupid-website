@@ -65,6 +65,12 @@ gateway:
     scheme: https
     statusCode: 301
     parentRefs: []
+  redirects:
+    - name: legacy-gitgud
+      sourceHostname: gitgud.qzz.io
+      targetHostname: gitgud.zip
+      scheme: https
+      statusCode: 301
 
 resources:
   limits:
