@@ -130,22 +130,6 @@ const SECRET_BROADCAST_VIDEOS: Record<
   },
 };
 
-const buildSecretEmbedUrl = (stationId?: string | null) => {
-  if (!stationId) return null;
-  const secret = SECRET_BROADCAST_VIDEOS[stationId];
-  if (!secret) return null;
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const separator = secret.embed.includes("?") ? "&" : "?";
-  const params = new URLSearchParams();
-  if (origin) {
-    params.set("origin", origin);
-  }
-  params.set("playsinline", "1");
-  // preserve existing query params on the embed
-  const glue = params.toString();
-  return glue ? `${secret.embed}${separator}${glue}` : secret.embed;
-};
-
 type StationOverride = {
   station: RadioStation;
   allowUnknown?: boolean;
@@ -182,8 +166,6 @@ const PAGE_SIZE = 40;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 15000;
-const PROBE_DEFAULT_DELAY_MS = 2000;
-const STALL_RECOVERY_THRESHOLD_MS = 8000;
 
 const serializeStationForShare = (station: RadioStation): string => {
   const payload: SharedStationPayload = {
@@ -266,7 +248,6 @@ const Radio = () => {
     attempts: 0,
     timer: null,
   });
-  const manualReloadRef = useRef(false);
   const unmountedRef = useRef(false);
   const shareButtonRef = useRef<HTMLButtonElement | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -355,41 +336,6 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
-  const [resolvedIsHls, setResolvedIsHls] = useState(false);
-  const secretVideo = SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""];
-  const secretEmbedUrl = useMemo(
-    () => buildSecretEmbedUrl(activeStation.id),
-    [activeStation.id],
-  );
-  const [probeNonce, setProbeNonce] = useState(0);
-  const [pipelineOverrideState, setPipelineOverrideState] = useState<{
-    stationId: string | null;
-    override: "auto" | "off";
-  }>({ stationId: null, override: "auto" });
-  const pipelineOverride =
-    pipelineOverrideState.stationId === activeStation.id
-      ? pipelineOverrideState.override
-      : "auto";
-  const probeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const forcePipelineOff = useCallback(
-    (reason: string) => {
-      if (!activeStation.id || pipelineOverride === "off") {
-        return;
-      }
-      setPipelineOverrideState({ stationId: activeStation.id, override: "off" });
-      if (probeRetryTimerRef.current) {
-        clearTimeout(probeRetryTimerRef.current);
-        probeRetryTimerRef.current = null;
-      }
-      logger.warn("playback.pipeline_forced_off", {
-        stationId: activeStation.id,
-        reason,
-      });
-    },
-    [activeStation.id, pipelineOverride],
-  );
-
   const shareLink = useMemo(() => {
     if (typeof window === "undefined" || typeof window.btoa !== "function") {
       return null;
@@ -409,134 +355,47 @@ const Radio = () => {
     }
   }, [activeStation]);
 
-  const scheduleProbeRetry = useCallback(
-    (reason: string, delayMs?: number) => {
-      const boundedDelay = Math.min(
-        RECONNECT_MAX_DELAY_MS,
-        Math.max(PROBE_DEFAULT_DELAY_MS, delayMs ?? PROBE_DEFAULT_DELAY_MS),
-      );
-      if (probeRetryTimerRef.current) {
-        clearTimeout(probeRetryTimerRef.current);
-      }
-      logger.warn("playback.probe_retry_scheduled", {
-        stationId: activeStation.id,
-        reason,
-        delayMs: boundedDelay,
-      });
-      probeRetryTimerRef.current = setTimeout(() => {
-        probeRetryTimerRef.current = null;
-        setProbeNonce((value) => value + 1);
-      }, boundedDelay);
-    },
-    [activeStation.id],
-  );
-
   useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
-    if (probeRetryTimerRef.current) {
-      clearTimeout(probeRetryTimerRef.current);
-      probeRetryTimerRef.current = null;
-    }
-
     async function resolveStreamUrl() {
-      if (secretVideo || !activeStation.id || !activeStation.streamUrl) {
+      if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
         if (!cancelled) {
           setResolvedStreamUrl(null);
-          setResolvedIsHls(false);
+        }
+        return;
+      }
+      if (!activeStation.id || !activeStation.streamUrl) {
+        if (!cancelled) {
+          setResolvedStreamUrl(null);
+        }
+        return;
+      }
+
+      if (!activeStation.hls) {
+        if (!cancelled) {
+          setResolvedStreamUrl(activeStation.streamUrl);
         }
         return;
       }
 
       const encodedId = encodeURIComponent(activeStation.id);
       let streamPath = `${RADIO_API_BASE}/stations/${encodedId}/stream`;
-      const queryParams = new URLSearchParams();
 
       try {
         const session = await ensureGatewaySession();
         if (session.token && session.token.length > 0) {
-          queryParams.set("csrfToken", session.token);
+          const params = new URLSearchParams();
+          params.set("csrfToken", session.token);
           if (session.proof && session.proof.length > 0) {
-            queryParams.set("csrfProof", session.proof);
+            params.set("csrfProof", session.proof);
           }
+          streamPath = `${streamPath}?${params.toString()}`;
         }
       } catch {
         // ignore token resolution errors; fall back to unsigned streamPath
       }
-      if (pipelineOverride === "off") {
-        queryParams.set("pipeline", "off");
-      }
-      const queryString = queryParams.toString();
-      if (queryString) {
-        streamPath = `${streamPath}?${queryString}`;
-      }
 
-      const probeUrl = `${streamPath}${streamPath.includes("?") ? "&" : "?"}probe=1`;
-      let probeResponse: Response | null = null;
-      try {
-        probeResponse = await fetch(probeUrl, {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          signal: controller.signal,
-          headers: {
-            Accept: "application/json",
-          },
-        });
-        if (!probeResponse.ok) {
-          if (probeResponse.status === 503) {
-            let payload: { reason?: string; retryAfterMs?: number } | null = null;
-            try {
-              payload = await probeResponse.json();
-            } catch {
-              // ignore JSON probe errors
-            }
-            const reason = typeof payload?.reason === "string" ? payload.reason : "probe-unavailable";
-            if (reason === "client_override") {
-              if (!cancelled) {
-                setResolvedIsHls(activeStation.hls);
-                setResolvedStreamUrl(streamPath);
-              }
-              return;
-            }
-            if (reason === "engine_disabled" || reason === "recent_failure") {
-              logger.warn("playback.pipeline_degraded", {
-                stationId: activeStation.id,
-                reason,
-              });
-              forcePipelineOff(reason);
-              return;
-            }
-            if (!cancelled) {
-              scheduleProbeRetry(
-                reason,
-                typeof payload?.retryAfterMs === "number" ? payload.retryAfterMs : undefined,
-              );
-            }
-            return;
-          }
-          logger.warn("playback.probe_unexpected_status", {
-            stationId: activeStation.id,
-            status: probeResponse.status,
-          });
-        }
-      } catch (error) {
-        if (!controller.signal.aborted && !cancelled) {
-          logger.warn("playback.probe_failed", {
-            stationId: activeStation.id,
-            error,
-          });
-          scheduleProbeRetry("probe-error");
-        }
-        return;
-      }
-
-      if (!cancelled && probeResponse) {
-        const contentType = probeResponse.headers.get("content-type") ?? "";
-        const isHls =
-          contentType.toLowerCase().includes("application/vnd.apple.mpegurl") ||
-          probeResponse.headers.get("x-stream-pipeline") === "hls";
-        setResolvedIsHls(isHls || activeStation.hls);
+      if (!cancelled) {
         setResolvedStreamUrl(streamPath);
       }
     }
@@ -545,19 +404,8 @@ const Radio = () => {
 
     return () => {
       cancelled = true;
-      controller.abort();
     };
-  }, [
-    activeStation.hls,
-    activeStation.id,
-    activeStation.streamUrl,
-    forcePipelineOff,
-    pipelineOverride,
-    playbackKey,
-    probeNonce,
-    scheduleProbeRetry,
-    secretVideo,
-  ]);
+  }, [activeStation.hls, activeStation.id, activeStation.streamUrl]);
 
   const uniqueCountries = useMemo(() => {
     const fromMeta = firstMeta?.countries;
@@ -902,12 +750,6 @@ const Radio = () => {
           attempts: state.attempts,
           maxAttempts: MAX_RECONNECT_ATTEMPTS,
         });
-        forcePipelineOff(`reconnect-limit-${reason}`);
-        state.attempts = 0;
-        clearReconnectTimer();
-        resetReconnectAttempts();
-        manualReloadRef.current = true;
-        setPlaybackKey((value) => value + 1);
         return;
       }
 
@@ -925,13 +767,11 @@ const Radio = () => {
         if (unmountedRef.current) {
           return;
         }
-        manualReloadRef.current = true;
         setPlaybackKey((value) => value + 1);
       }, delay);
     },
-    [clearReconnectTimer, forcePipelineOff, resetReconnectAttempts, resolvedStreamUrl],
+    [clearReconnectTimer, resolvedStreamUrl],
   );
-
 
   useEffect(() => {
     return () => {
@@ -939,15 +779,6 @@ const Radio = () => {
       clearReconnectTimer();
     };
   }, [clearReconnectTimer]);
-
-  useEffect(() => {
-    return () => {
-      if (probeRetryTimerRef.current) {
-        clearTimeout(probeRetryTimerRef.current);
-        probeRetryTimerRef.current = null;
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!resolvedStreamUrl) {
@@ -974,18 +805,11 @@ const Radio = () => {
     const resumeEvents: Array<keyof HTMLMediaElementEventMap> = ["playing", "canplay"];
 
     const handleRecoverable = (event: Event) => {
-      if (
-        manualReloadRef.current &&
-        (event.type === "emptied" || event.type === "abort")
-      ) {
-        return;
-      }
       schedulePlaybackRetry(event.type, { immediate: event.type === "error" });
     };
 
     const handleResume = () => {
       resetReconnectAttempts();
-      manualReloadRef.current = false;
     };
 
     for (const eventType of recoverableEvents) {
@@ -1026,9 +850,7 @@ const Radio = () => {
       return () => {};
     }
 
-    const shouldUseHls = resolvedIsHls || activeStation.hls;
-
-    if (shouldUseHls) {
+    if (activeStation.hls) {
       let cancelled = false;
       let cleanup: (() => void) | undefined;
 
@@ -1127,13 +949,13 @@ const Radio = () => {
       element.removeAttribute("src");
       element.load();
     };
-  }, [activeStation.hls, playbackKey, resolvedIsHls, resolvedStreamUrl, schedulePlaybackRetry]);
+  }, [activeStation.hls, playbackKey, resolvedStreamUrl, schedulePlaybackRetry]);
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
       return;
     }
-    if (secretVideo) {
+    if (SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""]) {
       return;
     }
 
@@ -1147,7 +969,7 @@ const Radio = () => {
     return () => {
       controller.abort();
     };
-  }, [activeStation.id, activeStation.streamUrl, secretVideo]);
+  }, [activeStation.id, activeStation.streamUrl]);
 
   const maxFrequencyLabel =
     displayStations.length > 0
@@ -1205,7 +1027,7 @@ const Radio = () => {
                 shareDisabled={!shareLink}
                 shareButtonRef={shareButtonRef}
               />
-              {secretVideo ? (
+              {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""] ? (
                 <div className="border border-terminal-green/40 rounded-md bg-black/80 p-3 space-y-2">
                   <p className="text-terminal-cyan text-xs uppercase tracking-[0.3em]">
                     Secret Broadcast
@@ -1213,14 +1035,14 @@ const Radio = () => {
                   <div className="relative w-full pt-[56.25%]">
                     <iframe
                       title="Secret Broadcast Feed"
-                      src={secretEmbedUrl ?? secretVideo.embed}
+                      src={SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].embed}
                       allow="autoplay; encrypted-media"
                       allowFullScreen
                       className="absolute inset-0 h-full w-full border border-terminal-green/30"
                     />
                   </div>
                   <p className="text-terminal-white/60 text-[0.65rem]">
-                    {secretVideo.label}
+                    {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].label}
                   </p>
                 </div>
               ) : null}

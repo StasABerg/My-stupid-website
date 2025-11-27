@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use deadpool_redis::{redis::AsyncCommands, Pool as RedisPool};
-use reqwest::{header, Client};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
@@ -24,13 +24,8 @@ use crate::{
     radio_browser::RadioBrowserClient,
     refresh,
     stations::{sanitize_persisted_payload, ProcessedStations, StationStorage, StationsPayload},
-    stream_format::StreamFormat,
-    stream_pipeline::StreamPipeline,
     stream_validation::StreamValidator,
 };
-
-const FORMAT_HINT_TTL: Duration = Duration::from_secs(300);
-const HLS_CACHE_TTL: Duration = Duration::from_secs(5);
 
 #[allow(dead_code)]
 #[derive(Clone)]
@@ -44,10 +39,7 @@ pub struct AppState {
     pub http_client: Client,
     processed_cache: Arc<RwLock<Option<ProcessedCache>>>,
     pub stream_validator: StreamValidator,
-    pub stream_pipeline: StreamPipeline,
     memory_cache: Arc<RwLock<Option<MemoryEntry>>>,
-    format_hints: Arc<RwLock<HashMap<String, FormatHintEntry>>>,
-    hls_cache: Arc<RwLock<HashMap<String, HlsCacheEntry>>>,
     refresh_mutex: Arc<Mutex<()>>,
     rate_limiter: Arc<RateLimiter>,
     status_monitor: Arc<EventLoopMonitor>,
@@ -66,18 +58,6 @@ struct MemoryEntry {
     payload: StationsPayload,
     cache_source: String,
     expires_at: Instant,
-}
-
-#[derive(Clone)]
-struct FormatHintEntry {
-    format: StreamFormat,
-    detected_at: Instant,
-}
-
-#[derive(Clone)]
-struct HlsCacheEntry {
-    content: String,
-    detected_at: Instant,
 }
 
 struct SanitizedPayload {
@@ -264,20 +244,7 @@ impl AppState {
 
         let stations = StationStorage::new(postgres.clone());
         let favorites = FavoritesStore::new(redis.clone());
-        let mut default_headers = header::HeaderMap::new();
-        default_headers.insert(
-            header::HeaderName::from_static("icy-metadata"),
-            header::HeaderValue::from_static("1"),
-        );
-        default_headers.insert(
-            header::CONNECTION,
-            header::HeaderValue::from_static("keep-alive"),
-        );
         let http_client = Client::builder()
-            .default_headers(default_headers)
-            .http1_only()
-            .pool_idle_timeout(Some(Duration::from_secs(30)))
-            .tcp_nodelay(true)
             .build()
             .context("failed to build http client")?;
         let radio_browser = RadioBrowserClient::new(
@@ -286,7 +253,6 @@ impl AppState {
         )?;
         let stream_validator =
             StreamValidator::new(config.stream_validation.clone(), http_client.clone());
-        let stream_pipeline = StreamPipeline::new(config.stream_pipeline.clone(), redis.clone());
         let processed_cache = Arc::new(RwLock::new(None));
         let memory_cache = Arc::new(RwLock::new(None));
         let refresh_mutex = Arc::new(Mutex::new(()));
@@ -295,8 +261,6 @@ impl AppState {
         EventLoopMonitor::spawn(status_monitor.clone());
         let system = Arc::new(Mutex::new(System::new_all()));
         let started_at = Instant::now();
-        let format_hints = Arc::new(RwLock::new(HashMap::new()));
-        let hls_cache = Arc::new(RwLock::new(HashMap::new()));
 
         Ok(Self {
             config,
@@ -308,81 +272,13 @@ impl AppState {
             http_client,
             processed_cache,
             stream_validator,
-            stream_pipeline,
             memory_cache,
-            format_hints,
-            hls_cache,
             refresh_mutex,
             rate_limiter,
             status_monitor,
             system,
             started_at,
         })
-    }
-
-    pub async fn get_cached_format_hint(&self, url: &str) -> Option<StreamFormat> {
-        let mut should_purge = false;
-        let mut result = None;
-        {
-            let guard = self.format_hints.read().await;
-            if let Some(entry) = guard.get(url) {
-                if Instant::now().saturating_duration_since(entry.detected_at) <= FORMAT_HINT_TTL {
-                    result = Some(entry.format);
-                } else {
-                    should_purge = true;
-                }
-            }
-        }
-        if should_purge {
-            let mut guard = self.format_hints.write().await;
-            guard.remove(url);
-        }
-        result
-    }
-
-    pub async fn store_format_hint(&self, url: &str, format: StreamFormat) {
-        if matches!(format, StreamFormat::Unknown) {
-            return;
-        }
-        let mut guard = self.format_hints.write().await;
-        guard.insert(
-            url.to_string(),
-            FormatHintEntry {
-                format,
-                detected_at: Instant::now(),
-            },
-        );
-    }
-
-    pub async fn get_cached_hls_playlist(&self, url: &str) -> Option<String> {
-        let mut should_purge = false;
-        let mut result = None;
-        {
-            let guard = self.hls_cache.read().await;
-            if let Some(entry) = guard.get(url) {
-                if Instant::now().saturating_duration_since(entry.detected_at) <= HLS_CACHE_TTL {
-                    result = Some(entry.content.clone());
-                } else {
-                    should_purge = true;
-                }
-            }
-        }
-        if should_purge {
-            let mut guard = self.hls_cache.write().await;
-            guard.remove(url);
-        }
-        result
-    }
-
-    pub async fn store_hls_playlist(&self, url: &str, content: String) {
-        let mut guard = self.hls_cache.write().await;
-        guard.insert(
-            url.to_string(),
-            HlsCacheEntry {
-                content,
-                detected_at: Instant::now(),
-            },
-        );
     }
 }
 

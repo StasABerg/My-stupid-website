@@ -99,32 +99,6 @@ env:
     value: "true"
   - name: STREAM_VALIDATION_CONCURRENCY
     value: "64"
-  - name: STREAM_PIPELINE_ENABLED
-    value: "false"
-  - name: STREAM_PIPELINE_ENGINE
-    value: "gstreamer"
-  - name: STREAM_PIPELINE_MAX_CONCURRENCY
-    value: "4"
-  - name: STREAM_PIPELINE_BUFFER_SECONDS
-    value: "5"
-  - name: STREAM_PIPELINE_TIMEOUT_MS
-    value: "10000"
-  - name: STREAM_PIPELINE_USER_AGENT
-    value: "my-stupid-website/radio-pipeline"
-  - name: STREAM_PIPELINE_RECONNECT_MAX
-    value: "3"
-  - name: STREAM_PIPELINE_FAILURE_CACHE_TTL
-    value: "300"
-  - name: STREAM_PROXY_TIMEOUT_MS
-    value: "5000"
-  - name: STREAM_PROXY_MAX_RETRIES
-    value: "2"
-  - name: STREAM_PROXY_BUFFER_SECONDS
-    value: "3"
-  - name: FC_CACHEDIR
-    value: "/tmp/fontconfig-cache"
-  - name: XDG_CACHE_HOME
-    value: "/tmp/fontconfig-cache"
   - name: TRUST_PROXY
     value: loopback,linklocal,uniquelocal
 

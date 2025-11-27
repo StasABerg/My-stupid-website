@@ -3,15 +3,12 @@ mod cache;
 mod config;
 mod database;
 mod favorites;
-mod hls;
 mod http;
 mod logging;
 mod migrations;
 mod radio_browser;
 mod refresh;
 mod stations;
-mod stream_format;
-mod stream_pipeline;
 mod stream_validation;
 
 use anyhow::Context;
