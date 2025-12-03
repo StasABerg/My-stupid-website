@@ -45,10 +45,16 @@ gateway:
   parentRefs:
     - name: kong
       namespace: kong
-      sectionName: proxy-http
+      sectionName: proxy-http-root
     - name: kong
       namespace: kong
-      sectionName: proxy-https
+      sectionName: proxy-http-wildcard
+    - name: kong
+      namespace: kong
+      sectionName: proxy-https-root
+    - name: kong
+      namespace: kong
+      sectionName: proxy-https-wildcard
   hostnames: []
   paths:
     - value: /radio
