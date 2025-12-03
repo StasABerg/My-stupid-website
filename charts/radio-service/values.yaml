@@ -43,12 +43,12 @@ containerPort: 4010
 gateway:
   enabled: false
   parentRefs:
-    - name: contour-gateway
-      namespace: contour
-      sectionName: http
-    - name: contour-gateway
-      namespace: contour
-      sectionName: https
+    - name: kong
+      namespace: kong
+      sectionName: proxy-http
+    - name: kong
+      namespace: kong
+      sectionName: proxy-https
   hostnames: []
   paths:
     - value: /radio

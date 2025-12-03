@@ -24,8 +24,8 @@ async-trait = "0.1"
 time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal", "process"] }
 tower = { version = "0.5", features = ["util", "timeout"] }
-uuid = { version = "1.18", features = ["v4"] }
+uuid = { version = "1.19", features = ["v4"] }
 url = "2.5"
 urlencoding = "2.1"
 base64 = "0.22"
-hostname = "0.4"
+hostname = "0.4.2"

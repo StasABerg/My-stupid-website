@@ -1,12 +1,12 @@
 gateway:
   enabled: true
   parentRefs:
-    - name: contour-gateway
-      namespace: contour
-      sectionName: http
-    - name: contour-gateway
-      namespace: contour
-      sectionName: https
+    - name: kong
+      namespace: kong
+      sectionName: proxy-http
+    - name: kong
+      namespace: kong
+      sectionName: proxy-https
   hostnames:
     - dev.gitgud.zip
   paths:

@@ -41,8 +41,8 @@ spec:
         {{- range . }}
         - type: ExtensionRef
           extensionRef:
-            group: {{ .group | default "projectcontour.io" }}
-            kind: {{ .kind | default "Policy" }}
+            group: {{ .group | default "configuration.konghq.com" }}
+            kind: {{ .kind | default "KongPlugin" }}
             name: {{ .name }}
             {{- if .namespace }}
             namespace: {{ .namespace }}

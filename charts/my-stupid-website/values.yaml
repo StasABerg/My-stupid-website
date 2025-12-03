@@ -46,12 +46,12 @@ containerPort: 8080
 gateway:
   enabled: true
   parentRefs:
-    - name: contour-gateway
-      namespace: contour
-      sectionName: http
-    - name: contour-gateway
-      namespace: contour
-      sectionName: https
+    - name: kong
+      namespace: kong
+      sectionName: proxy-http
+    - name: kong
+      namespace: kong
+      sectionName: proxy-https
   hostnames:
     - gitgud.zip
   paths:

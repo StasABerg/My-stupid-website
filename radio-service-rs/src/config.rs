@@ -432,7 +432,8 @@ impl Config {
                 "STREAM_PROXY_TIMEOUT_MS must be greater than zero".into(),
             ));
         }
-        self.radio_browser.validate(self.allow_insecure_transports)?;
+        self.radio_browser
+            .validate(self.allow_insecure_transports)?;
         Ok(())
     }
 }

@@ -106,12 +106,7 @@ impl RadioBrowserClient {
             query.append_pair("ssl_error", "0");
         }
 
-        let total_limit: usize = self
-            .config
-            .limit
-            .max(1)
-            .try_into()
-            .unwrap_or(usize::MAX);
+        let total_limit: usize = self.config.limit.max(1).try_into().unwrap_or(usize::MAX);
         let page_size: usize = self
             .config
             .page_size
