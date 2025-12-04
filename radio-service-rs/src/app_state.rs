@@ -6,7 +6,11 @@ use std::{
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use deadpool_redis::{redis::AsyncCommands, Pool as RedisPool};
+use deadpool_redis::{
+    redis::{self, AsyncCommands},
+    Pool as RedisPool,
+};
+use hostname::get as get_hostname;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -14,6 +18,7 @@ use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use sysinfo::System;
 use tokio::sync::{Mutex, RwLock};
+use uuid::Uuid;
 
 use crate::logging::logger;
 use crate::{
@@ -40,11 +45,13 @@ pub struct AppState {
     processed_cache: Arc<RwLock<Option<ProcessedCache>>>,
     pub stream_validator: StreamValidator,
     memory_cache: Arc<RwLock<Option<MemoryEntry>>>,
+    cache_version: Arc<RwLock<Option<String>>>,
     refresh_mutex: Arc<Mutex<()>>,
     rate_limiter: Arc<RateLimiter>,
     status_monitor: Arc<EventLoopMonitor>,
     system: Arc<Mutex<System>>,
     started_at: Instant,
+    refresh_lock_value: String,
 }
 
 #[derive(Clone)]
@@ -255,12 +262,17 @@ impl AppState {
             StreamValidator::new(config.stream_validation.clone(), http_client.clone());
         let processed_cache = Arc::new(RwLock::new(None));
         let memory_cache = Arc::new(RwLock::new(None));
+        let cache_version = Arc::new(RwLock::new(None));
         let refresh_mutex = Arc::new(Mutex::new(()));
         let rate_limiter = Arc::new(RateLimiter::new(100, Duration::from_secs(60)));
         let status_monitor = Arc::new(EventLoopMonitor::new());
         EventLoopMonitor::spawn(status_monitor.clone());
         let system = Arc::new(Mutex::new(System::new_all()));
         let started_at = Instant::now();
+        let hostname = get_hostname()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "unknown-host".into());
+        let refresh_lock_value = format!("{}-{}", hostname, Uuid::new_v4());
 
         Ok(Self {
             config,
@@ -273,11 +285,13 @@ impl AppState {
             processed_cache,
             stream_validator,
             memory_cache,
+            cache_version,
             refresh_mutex,
             rate_limiter,
             status_monitor,
             system,
             started_at,
+            refresh_lock_value,
         })
     }
 }
@@ -342,6 +356,7 @@ impl AppState {
     }
 
     pub async fn load_stations(&self, force_refresh: bool) -> anyhow::Result<LoadStationsResult> {
+        self.ensure_cache_version_sync().await?;
         if !force_refresh {
             if let Some(entry) = self.get_memory_cache_entry().await {
                 return Ok(entry);
@@ -435,7 +450,26 @@ impl AppState {
     }
 
     async fn refresh_and_cache(&self) -> anyhow::Result<StationsPayload> {
-        let _guard = self.refresh_mutex.lock().await;
+        let process_guard = self.refresh_mutex.lock().await;
+        let lock = self.try_acquire_refresh_lock().await?;
+        drop(process_guard);
+        if let Some(refresh_lock) = lock {
+            return self.perform_refresh_with_lock(refresh_lock).await;
+        }
+        logger().info(
+            "stations.refresh.waiting",
+            json!({
+                "lockKey": self.config.refresh_lock_key,
+                "ttlSeconds": self.config.refresh_lock_ttl_seconds
+            }),
+        );
+        self.wait_for_external_refresh().await
+    }
+
+    async fn perform_refresh_with_lock(
+        &self,
+        _lock: RefreshLockGuard,
+    ) -> anyhow::Result<StationsPayload> {
         let mut result = refresh::run_refresh(self).await?;
         result
             .payload
@@ -467,6 +501,35 @@ impl AppState {
             cache_source: cache_source.to_string(),
             expires_at,
         });
+    }
+
+    async fn ensure_cache_version_sync(&self) -> anyhow::Result<()> {
+        let key = self.config.cache_version_key.trim();
+        if key.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.redis.get().await?;
+        let current: Option<String> = conn.get(key).await?;
+        let mut stored = self.cache_version.write().await;
+        let changed = current != *stored;
+        if changed {
+            if stored.is_some() || current.is_some() {
+                logger().info(
+                    "cache.version.changed",
+                    json!({
+                        "previous": stored.clone(),
+                        "next": current.clone()
+                    }),
+                );
+            }
+            *stored = current;
+        }
+        drop(stored);
+        if changed {
+            *self.memory_cache.write().await = None;
+            *self.processed_cache.write().await = None;
+        }
+        Ok(())
     }
 
     async fn get_memory_cache_entry(&self) -> Option<LoadStationsResult> {
@@ -553,8 +616,90 @@ impl AppState {
                 "count": station_count,
             }),
         );
+        self.update_cache_version(payload).await?;
 
         Ok(())
+    }
+
+    async fn update_cache_version(&self, payload: &StationsPayload) -> anyhow::Result<()> {
+        let key = self.config.cache_version_key.trim();
+        if key.is_empty() {
+            return Ok(());
+        }
+        let version = payload
+            .fingerprint
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let mut conn = self.redis.get().await?;
+        let _: () = conn.set(key, &version).await?;
+        {
+            let mut stored = self.cache_version.write().await;
+            *stored = Some(version.clone());
+        }
+        logger().info(
+            "stations.cache.version",
+            json!({
+                "version": version
+            }),
+        );
+        Ok(())
+    }
+
+    async fn try_acquire_refresh_lock(&self) -> anyhow::Result<Option<RefreshLockGuard>> {
+        let key = self.config.refresh_lock_key.trim();
+        if key.is_empty() {
+            return Ok(Some(RefreshLockGuard::noop()));
+        }
+        let mut conn = self.redis.get().await?;
+        let ttl = self.config.refresh_lock_ttl_seconds.max(1) as usize;
+        let response: Option<String> = redis::cmd("SET")
+            .arg(key)
+            .arg(&self.refresh_lock_value)
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl)
+            .query_async(&mut conn)
+            .await?;
+        if response.is_some() {
+            Ok(Some(RefreshLockGuard::new(
+                self.redis.clone(),
+                key.to_string(),
+                self.refresh_lock_value.clone(),
+            )))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn wait_for_external_refresh(&self) -> anyhow::Result<StationsPayload> {
+        for attempt in 0..self.config.refresh_lock_retry_attempts {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if let Some(payload) = self.read_stations_from_cache().await? {
+                if let Some(sanitized) = self.sanitize_payload(payload) {
+                    let mut payload = sanitized.payload;
+                    payload
+                        .ensure_fingerprint()
+                        .context("failed to compute cache fingerprint")?;
+                    self.ensure_cache_version_sync().await?;
+                    self.cache_in_memory(payload.clone(), "cache").await;
+                    self.ensure_processed(
+                        payload.fingerprint.as_deref().unwrap_or("cache"),
+                        &payload.stations,
+                    )
+                    .await;
+                    logger().info(
+                        "stations.refresh.wait_success",
+                        json!({
+                            "attempt": attempt + 1
+                        }),
+                    );
+                    return Ok(payload);
+                }
+            }
+        }
+        Err(anyhow::anyhow!(
+            "timed out waiting for another refresh task to complete"
+        ))
     }
 
     fn schedule_background_refresh(&self) {
@@ -643,4 +788,58 @@ fn instant_to_epoch(target: Instant) -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+struct RefreshLockGuard {
+    pool: Option<RedisPool>,
+    key: String,
+    value: String,
+    released: bool,
+}
+
+impl RefreshLockGuard {
+    fn new(pool: RedisPool, key: String, value: String) -> Self {
+        Self {
+            pool: Some(pool),
+            key,
+            value,
+            released: false,
+        }
+    }
+
+    fn noop() -> Self {
+        Self {
+            pool: None,
+            key: String::new(),
+            value: String::new(),
+            released: true,
+        }
+    }
+}
+
+impl Drop for RefreshLockGuard {
+    fn drop(&mut self) {
+        if self.released || self.key.is_empty() {
+            return;
+        }
+        let Some(pool) = self.pool.clone() else {
+            return;
+        };
+        let key = self.key.clone();
+        let value = self.value.clone();
+        self.released = true;
+        tokio::spawn(async move {
+            if let Ok(mut conn) = pool.get().await {
+                let _: Result<i64, _> = redis::cmd("EVAL")
+                    .arg(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                    )
+                    .arg(1)
+                    .arg(&key)
+                    .arg(&value)
+                    .query_async(&mut conn)
+                    .await;
+            }
+        });
+    }
 }

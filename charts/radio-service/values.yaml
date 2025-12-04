@@ -95,12 +95,20 @@ env:
         name: radio-service-env
         key: STATIONS_CACHE_KEY
         optional: true
+  - name: STATIONS_CACHE_VERSION_KEY
+    value: "radio:stations:version"
   - name: STATIONS_REFRESH_TOKEN
     valueFrom:
       secretKeyRef:
         name: radio-service-env
         key: STATIONS_REFRESH_TOKEN
         optional: false
+  - name: STATIONS_REFRESH_LOCK_KEY
+    value: "radio:stations:refresh-lock"
+  - name: STATIONS_REFRESH_LOCK_TTL
+    value: "180"
+  - name: STATIONS_REFRESH_LOCK_RETRY_ATTEMPTS
+    value: "10"
   - name: ALLOW_INSECURE_TRANSPORT
     value: "true"
   - name: RADIO_BROWSER_LIMIT

@@ -22,8 +22,12 @@ pub struct Config {
     pub stream_proxy: StreamProxyConfig,
     pub stream_validation: StreamValidationConfig,
     pub cache_key: String,
+    pub cache_version_key: String,
     pub cache_ttl_seconds: u64,
     pub memory_cache_ttl_seconds: u64,
+    pub refresh_lock_key: String,
+    pub refresh_lock_ttl_seconds: u64,
+    pub refresh_lock_retry_attempts: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,8 +96,14 @@ impl Config {
         let stream_validation = StreamValidationConfig::from_env()?;
         let cache_key =
             env::var("STATIONS_CACHE_KEY").unwrap_or_else(|_| "radio:stations:all".into());
+        let cache_version_key = env::var("STATIONS_CACHE_VERSION_KEY")
+            .unwrap_or_else(|_| "radio:stations:version".into());
         let cache_ttl_seconds = env_u64("STATIONS_CACHE_TTL", 3600)?;
         let memory_cache_ttl_seconds = env_u64("STATIONS_MEMORY_CACHE_TTL", 5)?;
+        let refresh_lock_key = env::var("STATIONS_REFRESH_LOCK_KEY")
+            .unwrap_or_else(|_| "radio:stations:refresh-lock".into());
+        let refresh_lock_ttl_seconds = env_u64("STATIONS_REFRESH_LOCK_TTL", 180)?;
+        let refresh_lock_retry_attempts = env_u64("STATIONS_REFRESH_LOCK_RETRY_ATTEMPTS", 10)?;
 
         let config = Self {
             port,
@@ -106,8 +116,12 @@ impl Config {
             stream_proxy,
             stream_validation,
             cache_key,
+            cache_version_key,
             cache_ttl_seconds,
             memory_cache_ttl_seconds,
+            refresh_lock_key,
+            refresh_lock_ttl_seconds,
+            refresh_lock_retry_attempts,
         };
 
         config.validate()?;
@@ -415,6 +429,26 @@ impl Config {
         if self.cache_key.trim().is_empty() {
             return Err(ConfigError::Message(
                 "STATIONS_CACHE_KEY must be provided".into(),
+            ));
+        }
+        if self.cache_version_key.trim().is_empty() {
+            return Err(ConfigError::Message(
+                "STATIONS_CACHE_VERSION_KEY must be provided".into(),
+            ));
+        }
+        if self.refresh_lock_key.trim().is_empty() {
+            return Err(ConfigError::Message(
+                "STATIONS_REFRESH_LOCK_KEY must be provided".into(),
+            ));
+        }
+        if self.refresh_lock_ttl_seconds == 0 {
+            return Err(ConfigError::Message(
+                "STATIONS_REFRESH_LOCK_TTL must be greater than zero".into(),
+            ));
+        }
+        if self.refresh_lock_retry_attempts == 0 {
+            return Err(ConfigError::Message(
+                "STATIONS_REFRESH_LOCK_RETRY_ATTEMPTS must be greater than zero".into(),
             ));
         }
         if self.stream_validation.concurrency == 0 {
