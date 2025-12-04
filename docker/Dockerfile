@@ -1,10 +1,9 @@
 FROM node:25-alpine AS build
 WORKDIR /app
-COPY app/package.json ./
-RUN --mount=type=cache,target=/root/.npm npm install --package-lock-only --no-audit --no-fund --legacy-peer-deps
+COPY app/package.json app/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund --legacy-peer-deps
 COPY app/ .
-RUN npm run build
+RUN npm run lint && npm run typecheck && npm run build
 #test
 FROM nginx:stable-alpine
 RUN apk add --no-cache nginx-mod-http-js
