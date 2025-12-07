@@ -25,11 +25,15 @@ concurrency:
 
 env:
   CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+  REGISTRY_HOST: forgejo.gitgud.zip
+  REGISTRY_NAMESPACE: stasaberg
+  REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+  REGISTRY_PASSWORD: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
 
 jobs:
   trivy-dockerfile:
     name: Trivy Dockerfile
-    runs-on: self-hosted
+    runs-on: docker
     permissions:
       contents: read
       security-events: write
@@ -53,15 +57,16 @@ jobs:
           severity: 'HIGH,CRITICAL'
           format: 'sarif'
           output: trivy-radio-dockerfile.sarif
-      - name: Upload SARIF
+      - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-radio-dockerfile.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-radio-dockerfile.sarif
+          name: trivy-radio-dockerfile
+          path: trivy-radio-dockerfile.sarif
 
   trivy-helm:
     name: Trivy Helm/K8s Config
-    runs-on: self-hosted
+    runs-on: docker
     needs: trivy-dockerfile
     permissions:
       contents: read
@@ -86,14 +91,15 @@ jobs:
           severity: 'HIGH,CRITICAL'
           format: 'sarif'
           output: trivy-radio-helm.sarif
-      - name: Upload SARIF
+      - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-radio-helm.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-radio-helm.sarif
+          name: trivy-radio-helm
+          path: trivy-radio-helm.sarif
 
   build:
-    runs-on: self-hosted
+    runs-on: docker
     needs: trivy-dockerfile
     outputs:
       sha: ${{ steps.out.outputs.sha }}
@@ -104,9 +110,9 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.REGISTRY_HOST }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
       - id: out
         run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
@@ -115,15 +121,15 @@ jobs:
           file: docker/radio-service.Dockerfile
           push: true
           tags: |
-            ghcr.io/stasaberg/radio-service:${{ steps.out.outputs.sha }}
-            ghcr.io/stasaberg/radio-service:latest
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:${{ steps.out.outputs.sha }}
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:latest
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   trivy-image:
     name: Trivy Image
-    runs-on: self-hosted
+    runs-on: docker
     needs: build
     permissions:
       contents: read
@@ -140,20 +146,21 @@ jobs:
         uses: aquasecurity/trivy-action@0.33.1
         with:
           version: v0.67.2
-          image-ref: ghcr.io/stasaberg/radio-service:${{ needs.build.outputs.sha }}
+          image-ref: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:${{ needs.build.outputs.sha }}
           vuln-type: 'os,library'
           ignore-unfixed: true
           severity: 'HIGH,CRITICAL'
           format: 'sarif'
           output: trivy-radio-image.sarif
-      - name: Upload SARIF
+      - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-radio-image.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-radio-image.sarif
+          name: trivy-radio-image
+          path: trivy-radio-image.sarif
 
   deploy-dev:
-    runs-on: self-hosted
+    runs-on: docker
     needs: [build, trivy-image, trivy-helm]
     if: needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: development

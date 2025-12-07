@@ -15,7 +15,7 @@ permissions:
 jobs:
   trivy:
     name: Trivy Repository Scan
-    runs-on: ubuntu-latest
+    runs-on: docker
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -39,8 +39,9 @@ jobs:
           format: "sarif"
           output: "trivy-results.sarif"
 
-      - name: Upload results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+      - name: Upload results artifact
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-results.sarif
+          name: trivy-repository
+          path: trivy-results.sarif

@@ -4,14 +4,13 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-  actions: read
-
 jobs:
   delete-old-images:
-    runs-on: self-hosted
+    runs-on: docker
+    env:
+      FORGEJO_URL: https://forgejo.gitgud.zip
+      OWNER: stasaberg
+      KEEP: 7
     strategy:
       matrix:
         package:
@@ -20,9 +19,35 @@ jobs:
           - radio-service
           - api-gateway-service
     steps:
-      - name: Delete old container versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ matrix.package }}
-          package-type: container
-          min-versions-to-keep: 7
+      - name: Install jq
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+      - name: Prune old tags
+        env:
+          PACKAGE: ${{ matrix.package }}
+          TOKEN: ${{ secrets.FORGEJO_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "FORGEJO_API_TOKEN secret is not set" >&2
+            exit 1
+          fi
+          api="${FORGEJO_URL}/api/v1/packages/${OWNER}/container/${PACKAGE}"
+          tags=$(curl -fsSL -H "Authorization: token ${TOKEN}" "${api}/tags?limit=200" | jq -r 'sort_by(.created_at) | reverse | .[].name')
+          if [ -z "${tags}" ]; then
+            echo "No tags found for ${PACKAGE}"
+            exit 0
+          fi
+          kept=0
+          for tag in ${tags}; do
+            kept=$((kept+1))
+            if [ "${kept}" -le "${KEEP}" ]; then
+              echo "Keeping ${PACKAGE}:${tag}"
+              continue
+            fi
+            echo "Deleting ${PACKAGE}:${tag}"
+            curl -fsSL -X DELETE -H "Authorization: token ${TOKEN}" "${api}/tags/${tag}"
+          done

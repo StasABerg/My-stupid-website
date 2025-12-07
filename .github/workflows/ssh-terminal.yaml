@@ -25,11 +25,15 @@ concurrency:
 
 env:
   CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+  REGISTRY_HOST: forgejo.gitgud.zip
+  REGISTRY_NAMESPACE: stasaberg
+  REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+  REGISTRY_PASSWORD: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
 
 jobs:
   trivy-dockerfile:
     name: Trivy Dockerfile (terminal)
-    runs-on: self-hosted
+    runs-on: docker
     permissions:
       contents: read
       security-events: write
@@ -54,15 +58,16 @@ jobs:
           severity: 'HIGH,CRITICAL'
           format: "sarif"
           output: "trivy-terminal-dockerfile.sarif"
-      - name: Upload SARIF
+      - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-terminal-dockerfile.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-terminal-dockerfile.sarif
+          name: trivy-terminal-dockerfile
+          path: trivy-terminal-dockerfile.sarif
 
   trivy-helm:
     name: Trivy Helm/K8s Config (terminal)
-    runs-on: self-hosted
+    runs-on: docker
     needs: trivy-dockerfile
     permissions:
       contents: read
@@ -87,15 +92,16 @@ jobs:
           severity: 'HIGH,CRITICAL'
           format: "sarif"
           output: "trivy-terminal-helm.sarif"
-      - name: Upload SARIF
+      - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-terminal-helm.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-terminal-helm.sarif
+          name: trivy-terminal-helm
+          path: trivy-terminal-helm.sarif
 
 
   build:
-    runs-on: self-hosted
+    runs-on: docker
     needs: trivy-dockerfile
     outputs:
       sha: ${{ steps.meta.outputs.sha }}
@@ -106,9 +112,9 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.REGISTRY_HOST }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
       - name: Record image tag
         id: meta
         run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
@@ -119,15 +125,15 @@ jobs:
           file: docker/terminal.Dockerfile
           push: true
           tags: |
-            ghcr.io/stasaberg/my-stupid-website-terminal:${{ steps.meta.outputs.sha }}
-            ghcr.io/stasaberg/my-stupid-website-terminal:latest
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website-terminal:${{ steps.meta.outputs.sha }}
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website-terminal:latest
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   trivy-image:
     name: Trivy Image (terminal)
-    runs-on: self-hosted
+    runs-on: docker
     needs: build
     permissions:
       contents: read
@@ -144,21 +150,22 @@ jobs:
         uses: aquasecurity/trivy-action@0.33.1
         with:
           version: v0.67.2
-          image-ref: ghcr.io/stasaberg/my-stupid-website-terminal:${{ needs.build.outputs.sha }}
+          image-ref: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website-terminal:${{ needs.build.outputs.sha }}
           vuln-type: "os,library"
           ignore-unfixed: true
           severity: 'HIGH,CRITICAL'
           format: "sarif"
           output: "trivy-terminal-image.sarif"
-      - name: Upload SARIF
+      - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-terminal-image.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-terminal-image.sarif
+          name: trivy-terminal-image
+          path: trivy-terminal-image.sarif
 
 
   deploy-dev:
-    runs-on: self-hosted
+    runs-on: docker
     needs: [build, trivy-image, trivy-helm]
     if: needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: development
