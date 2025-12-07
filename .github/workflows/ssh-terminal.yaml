@@ -65,7 +65,7 @@ jobs:
               /workspace/docker/terminal.Dockerfile
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-terminal-dockerfile.sarif') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-dockerfile
           path: trivy-terminal-dockerfile.sarif
@@ -97,7 +97,7 @@ jobs:
               /workspace/charts/terminal-service
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-terminal-helm.sarif') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-helm
           path: trivy-terminal-helm.sarif
@@ -160,7 +160,7 @@ jobs:
               "${IMAGE}"
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-terminal-image.sarif') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-image
           path: trivy-terminal-image.sarif

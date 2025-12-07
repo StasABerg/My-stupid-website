@@ -64,7 +64,7 @@ jobs:
               /workspace/docker/radio-service.Dockerfile
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-radio-dockerfile.sarif') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-dockerfile
           path: trivy-radio-dockerfile.sarif
@@ -96,7 +96,7 @@ jobs:
               /workspace/charts/radio-service
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-radio-helm.sarif') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-helm
           path: trivy-radio-helm.sarif
@@ -156,7 +156,7 @@ jobs:
               "${IMAGE}"
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-radio-image.sarif') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-image
           path: trivy-radio-image.sarif
