@@ -15,11 +15,6 @@ on:
         description: 'Branch or ref to deploy'
         required: true
         default: main
-      deploy_prod:
-        type: string
-        description: 'Type "yes" to deploy to production'
-        required: false
-        default: "no"
 
 permissions:
   contents: read
@@ -191,33 +186,5 @@ jobs:
           helm upgrade --install my-stupid-website-terminal charts/terminal-service \
             -f charts/terminal-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
-            --set-string image.tag=${{ needs.build.outputs.sha }} \
-            --rollback-on-failure --wait --kube-insecure-skip-tls-verify
-
-  deploy-prod:
-    runs-on: self-hosted
-    needs: [build, trivy-image, trivy-helm, deploy-dev]
-    if: >
-      github.event_name == 'workflow_dispatch'
-      && github.event.inputs.deploy_prod == 'yes'
-      && needs.deploy-dev.result == 'success'
-      && needs.build.result == 'success'
-      && needs.trivy-image.result == 'success'
-      && needs.trivy-helm.result == 'success'
-    environment: production
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ env.CHECKOUT_REF }}
-      - uses: azure/setup-helm@v4
-      - name: Kubeconfig
-        run: |
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
-          chmod 600 $HOME/kubeconfig
-          echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
-      - name: Helm upgrade (prod - terminal)
-        run: |
-          helm upgrade --install my-stupid-website-terminal charts/terminal-service \
-            --namespace my-stupid-website --create-namespace \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
             --rollback-on-failure --wait --kube-insecure-skip-tls-verify
