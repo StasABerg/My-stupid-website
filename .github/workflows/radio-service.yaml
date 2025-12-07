@@ -182,13 +182,15 @@ jobs:
             -f charts/radio-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
-            --atomic --wait --kube-insecure-skip-tls-verify
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
     needs: [build, trivy-image, trivy-helm, deploy-dev]
     if: >
-      needs.deploy-dev.result == 'success'
+      github.event_name == 'workflow_dispatch'
+      && github.event.inputs.deploy_prod == 'yes'
+      && needs.deploy-dev.result == 'success'
       && needs.build.result == 'success'
       && needs.trivy-image.result == 'success'
       && needs.trivy-helm.result == 'success'
@@ -208,4 +210,4 @@ jobs:
           helm upgrade --install my-stupid-website-radio charts/radio-service \
             --namespace my-stupid-website --create-namespace \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
-            --atomic --wait --kube-insecure-skip-tls-verify
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify

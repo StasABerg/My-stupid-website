@@ -17,6 +17,11 @@ on:
         description: 'Branch or ref to deploy'
         required: true
         default: main
+      deploy_prod:
+        type: string
+        description: 'Type "yes" to deploy to production'
+        required: false
+        default: "no"
 permissions:
   contents: read
   packages: write
@@ -189,13 +194,15 @@ jobs:
             -f charts/my-stupid-website/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
-            --atomic --wait --kube-insecure-skip-tls-verify
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
     needs: [trivy-dockerfile, build, trivy-image, trivy-helm, deploy-dev]
     if: >
-      needs.deploy-dev.result == 'success'
+      github.event_name == 'workflow_dispatch'
+      && github.event.inputs.deploy_prod == 'yes'
+      && needs.deploy-dev.result == 'success'
       && needs.trivy-dockerfile.result == 'success'
       && needs.build.result == 'success'
       && needs.trivy-image.result == 'success'
@@ -219,4 +226,4 @@ jobs:
           helm upgrade --install my-stupid-website charts/my-stupid-website \
             --namespace my-stupid-website --create-namespace \
             --set-string image.tag=${{ steps.tag.outputs.tag }} \
-            --atomic --wait --kube-insecure-skip-tls-verify
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify

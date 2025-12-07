@@ -15,6 +15,11 @@ on:
         description: 'Branch or ref to deploy'
         required: true
         default: main
+      deploy_prod:
+        type: string
+        description: 'Type "yes" to deploy to production'
+        required: false
+        default: "no"
 
 permissions:
   contents: read
@@ -187,12 +192,18 @@ jobs:
             -f charts/terminal-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
-            --atomic --wait --kube-insecure-skip-tls-verify
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
     runs-on: self-hosted
     needs: [build, trivy-image, trivy-helm, deploy-dev]
-    if: needs.deploy-dev.result == 'success' && needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
+    if: >
+      github.event_name == 'workflow_dispatch'
+      && github.event.inputs.deploy_prod == 'yes'
+      && needs.deploy-dev.result == 'success'
+      && needs.build.result == 'success'
+      && needs.trivy-image.result == 'success'
+      && needs.trivy-helm.result == 'success'
     environment: production
     steps:
       - uses: actions/checkout@v6
@@ -209,4 +220,4 @@ jobs:
           helm upgrade --install my-stupid-website-terminal charts/terminal-service \
             --namespace my-stupid-website --create-namespace \
             --set-string image.tag=${{ needs.build.outputs.sha }} \
-            --atomic --wait --kube-insecure-skip-tls-verify
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify

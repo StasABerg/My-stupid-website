@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  registry: ghcr.io
+  registry: forgejo.gitgud.zip
   repository: stasaberg/my-stupid-website-terminal
   tag: ""
   pullPolicy: IfNotPresent

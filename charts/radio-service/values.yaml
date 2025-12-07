@@ -1,7 +1,7 @@
 replicaCount: 2
 
 image:
-  registry: ghcr.io
+  registry: forgejo.gitgud.zip
   repository: stasaberg/radio-service
   tag: ""
   pullPolicy: IfNotPresent

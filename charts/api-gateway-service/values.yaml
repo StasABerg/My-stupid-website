@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  registry: ghcr.io
+  registry: forgejo.gitgud.zip
   repository: stasaberg/api-gateway-service
   tag: ""
   pullPolicy: IfNotPresent
