@@ -34,7 +34,7 @@ env:
 jobs:
   trivy-dockerfile:
     name: Trivy Dockerfile
-    runs-on: host
+    runs-on: self-hosted
     permissions:
       contents: read
       security-events: write
@@ -65,7 +65,7 @@ jobs:
 
 
   build:
-    runs-on: host
+    runs-on: self-hosted
     needs: trivy-dockerfile
     outputs:
       sha: ${{ steps.out.outputs.sha }}
@@ -95,7 +95,7 @@ jobs:
 
   trivy-image:
     name: Trivy Image
-    runs-on: host
+    runs-on: self-hosted
     needs: build
     permissions:
       contents: read
@@ -129,7 +129,7 @@ jobs:
 
   trivy-helm:
     name: Trivy Helm/K8s Config
-    runs-on: host
+    runs-on: self-hosted
     needs: trivy-dockerfile
     permissions:
       contents: read
@@ -161,7 +161,7 @@ jobs:
 
 
   deploy-dev:
-    runs-on: host
+    runs-on: self-hosted
     needs: [trivy-dockerfile, build, trivy-image, trivy-helm]
     if: >
       needs.trivy-dockerfile.result == 'success'
@@ -191,7 +191,7 @@ jobs:
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
-    runs-on: host
+    runs-on: self-hosted
     needs: [trivy-dockerfile, build, trivy-image, trivy-helm, deploy-dev]
     if: >
       needs.deploy-dev.result == 'success'
