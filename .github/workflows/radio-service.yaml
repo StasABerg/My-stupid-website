@@ -127,8 +127,8 @@ jobs:
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:${{ steps.out.outputs.sha }}
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:latest
           provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:buildcache,mode=max
 
   trivy-image:
     name: Trivy Image
