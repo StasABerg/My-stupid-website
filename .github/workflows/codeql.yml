@@ -11,7 +11,7 @@ on:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: docker
+    runs-on: host
     permissions:
       security-events: write
       contents: read

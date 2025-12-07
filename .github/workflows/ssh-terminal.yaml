@@ -32,9 +32,15 @@ env:
   TRIVY_CACHE_DIR: /tmp/trivy-cache
 
 jobs:
+  init:
+    runs-on: host
+    steps:
+      - run: echo "Initializing workflow"
+
   trivy-dockerfile:
     name: Trivy Dockerfile (terminal)
-    runs-on: docker
+    runs-on: host
+    needs: init
     permissions:
       contents: read
       security-events: write
@@ -66,7 +72,7 @@ jobs:
 
   trivy-helm:
     name: Trivy Helm/K8s Config (terminal)
-    runs-on: docker
+    runs-on: host
     needs: trivy-dockerfile
     permissions:
       contents: read
@@ -98,7 +104,7 @@ jobs:
 
 
   build:
-    runs-on: docker
+    runs-on: host
     needs: trivy-dockerfile
     outputs:
       sha: ${{ steps.meta.outputs.sha }}
@@ -130,7 +136,7 @@ jobs:
 
   trivy-image:
     name: Trivy Image (terminal)
-    runs-on: docker
+    runs-on: host
     needs: build
     permissions:
       contents: read
@@ -161,7 +167,7 @@ jobs:
 
 
   deploy-dev:
-    runs-on: docker
+    runs-on: host
     needs: [build, trivy-image, trivy-helm]
     if: needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: development
@@ -184,7 +190,7 @@ jobs:
             --atomic --wait --kube-insecure-skip-tls-verify
 
   deploy-prod:
-    runs-on: self-hosted
+    runs-on: host
     needs: [build, trivy-image, trivy-helm, deploy-dev]
     if: needs.deploy-dev.result == 'success' && needs.build.result == 'success' && needs.trivy-image.result == 'success' && needs.trivy-helm.result == 'success'
     environment: production

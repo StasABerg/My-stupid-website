@@ -6,7 +6,7 @@ on:
 
 jobs:
   delete-old-images:
-    runs-on: docker
+    runs-on: host
     env:
       FORGEJO_URL: https://forgejo.gitgud.zip
       OWNER: stasaberg
