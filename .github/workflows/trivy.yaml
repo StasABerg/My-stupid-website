@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
   security-events: write
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.50.1
+  TRIVY_CACHE_DIR: /tmp/trivy-cache
 
 jobs:
   trivy:
@@ -20,24 +23,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Cache Trivy DB
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            trivy-db-${{ runner.os }}-
-
       - name: Run Trivy on source code
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          version: v0.67.2
-          scan-type: fs
-          scanners: "vuln,misconfig,secret"
-          ignore-unfixed: true
-          severity: 'HIGH,CRITICAL'
-          format: "sarif"
-          output: "trivy-results.sarif"
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" fs \
+              --scanners vuln,misconfig,secret \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --format sarif \
+              --output /workspace/trivy-results.sarif \
+              /workspace
 
       - name: Upload results artifact
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}

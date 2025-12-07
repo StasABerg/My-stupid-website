@@ -22,17 +22,17 @@ jobs:
       - name: Install jq
         run: |
           if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y jq
+            apt-get update
+            apt-get install -y jq
           fi
       - name: Prune old tags
         env:
           PACKAGE: ${{ matrix.package }}
-          TOKEN: ${{ secrets.FORGEJO_API_TOKEN }}
+          TOKEN: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "${TOKEN:-}" ]; then
-            echo "FORGEJO_API_TOKEN secret is not set" >&2
+            echo "FORGEJO_REGISTRY_PASSWORD secret is not set" >&2
             exit 1
           fi
           api="${FORGEJO_URL}/api/v1/packages/${OWNER}/container/${PACKAGE}"

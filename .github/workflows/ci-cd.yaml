@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
+        type: string
         description: 'Branch or ref to deploy'
         required: true
         default: main
@@ -27,8 +28,8 @@ env:
   CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
   REGISTRY_HOST: forgejo.gitgud.zip
   REGISTRY_NAMESPACE: stasaberg
-  REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-  REGISTRY_PASSWORD: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
+  TRIVY_IMAGE: aquasec/trivy:0.50.1
+  TRIVY_CACHE_DIR: /tmp/trivy-cache
 
 jobs:
   trivy-dockerfile:
@@ -41,22 +42,20 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan Dockerfile misconfig
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          version: v0.67.2
-          scan-type: config
-          scan-ref: docker/Dockerfile
-          severity: 'HIGH,CRITICAL'
-          format: "sarif"
-          output: "trivy-dockerfile.sarif"
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" config \
+              --severity HIGH,CRITICAL \
+              --format sarif \
+              --output /workspace/trivy-dockerfile.sarif \
+              /workspace/docker/Dockerfile
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-dockerfile.sarif') != '' }}
         uses: actions/upload-artifact@v4
@@ -78,8 +77,8 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY_HOST }}
-          username: ${{ env.REGISTRY_USERNAME }}
-          password: ${{ env.REGISTRY_PASSWORD }}
+          username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          password: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
       - id: out
         run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
@@ -102,23 +101,22 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan built image
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          version: v0.67.2
-          image-ref: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:${{ needs.build.outputs.sha }}
-          vuln-type: "os,library"
-          ignore-unfixed: true
-          severity: 'HIGH,CRITICAL'
-          format: "sarif"
-          output: "trivy-image.sarif"
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          IMAGE="${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/my-stupid-website:${{ needs.build.outputs.sha }}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format sarif \
+              --output /workspace/trivy-image.sarif \
+              "${IMAGE}"
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-image.sarif') != '' }}
         uses: actions/upload-artifact@v4
@@ -140,22 +138,20 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: trivy-db-${{ runner.os }}-
       - name: Scan Helm charts
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          version: v0.67.2
-          scan-type: config
-          scan-ref: charts/my-stupid-website
-          severity: 'HIGH,CRITICAL'
-          format: "sarif"
-          output: "trivy-helm.sarif"
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" config \
+              --severity HIGH,CRITICAL \
+              --format sarif \
+              --output /workspace/trivy-helm.sarif \
+              /workspace/charts/my-stupid-website
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-helm.sarif') != '' }}
         uses: actions/upload-artifact@v4
