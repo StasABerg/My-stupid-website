@@ -28,7 +28,6 @@ env:
   CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
   REGISTRY_HOST: forgejo.gitgud.zip
   REGISTRY_NAMESPACE: stasaberg
-  CACHE_REF: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:buildcache
   TRIVY_IMAGE: aquasec/trivy:0.50.1
   TRIVY_CACHE_DIR: /tmp/trivy-cache
 
@@ -91,8 +90,8 @@ jobs:
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:${{ steps.out.outputs.sha }}
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:latest
           provenance: false
-          cache-from: type=registry,ref=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:buildcache,mode=max
+          cache-from: type=gha,scope=my-stupid-website
+          cache-to: type=gha,mode=max,scope=my-stupid-website
 
   trivy-image:
     name: Trivy Image

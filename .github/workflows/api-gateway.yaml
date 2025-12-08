@@ -122,8 +122,8 @@ jobs:
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/api-gateway-service:${{ steps.out.outputs.sha }}
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/api-gateway-service:latest
           provenance: false
-          cache-from: type=registry,ref=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/api-gateway-service:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/api-gateway-service:buildcache,mode=max
+          cache-from: type=gha,scope=api-gateway-service
+          cache-to: type=gha,mode=max,scope=api-gateway-service
 
   trivy-image:
     name: Trivy Image
