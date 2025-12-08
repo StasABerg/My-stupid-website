@@ -48,7 +48,7 @@ jobs:
           path: trivy-report.txt
 
       - name: Notify Discord
-        if: always()
+        if: ${{ always() && hashFiles('trivy-report.txt') != '' }}
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
           STATUS: ${{ job.status }}

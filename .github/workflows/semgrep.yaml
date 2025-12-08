@@ -1,0 +1,70 @@
+name: semgrep
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '18 7 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Semgrep
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade semgrep jq
+
+      - name: Run Semgrep
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          semgrep --config p/ci --error --json --output reports/semgrep.json
+          jq -r '
+            def headline($path): "## " + $path;
+            def finding($f): "- [" + ($f.severity|ascii_upcase) + "] " + $f.check_id +
+              " (line " + ($f.start.line|tostring) + ") " +
+              ($f.extra.message|gsub("\n"; " "));
+            .results
+            | group_by(.path)
+            | map(headline(.[0].path) + "\n" + (map(finding(.)) | join("\n")))
+            | join("\n\n")
+          ' reports/semgrep.json > reports/semgrep-report.txt
+
+      - name: Upload Semgrep results
+        if: ${{ always() && hashFiles('reports/semgrep.json') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: semgrep-results
+          path: reports/
+
+      - name: Notify Discord
+        if: ${{ always() && hashFiles('reports/semgrep-report.txt') != '' }}
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK}" ]; then
+            echo "DISCORD_WEBHOOK_URL secret not set; skipping Discord notification"
+            exit 0
+          fi
+          case "${STATUS}" in
+            success) COLOR=3066993 ;;
+            failure) COLOR=15158332 ;;
+            cancelled) COLOR=9807270 ;;
+            *) COLOR=3447003 ;;
+          esac
+          SUMMARY="Semgrep ${STATUS^} for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
+          LINK="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          REPORT=$(sed 's/"/\\"/g' reports/semgrep-report.txt | head -c 1900)
+          curl -fsSL -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"${SUMMARY}\",\"description\":\"Workflow run: ${LINK}\\n${REPORT}\",\"color\":${COLOR}}]}" \
+            "${DISCORD_WEBHOOK}"
