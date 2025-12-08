@@ -47,25 +47,18 @@ jobs:
           name: trivy-repository
           path: trivy-report.txt
 
-      - name: Notify Discord
+      - name: Notify Discord on findings
         if: ${{ always() && hashFiles('trivy-report.txt') != '' }}
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          STATUS: ${{ job.status }}
         run: |
           if [ -z "${DISCORD_WEBHOOK}" ]; then
-            echo "DISCORD_WEBHOOK_URL secret not set; skipping Discord notification"
+            echo "DISCORD_WEBHOOK_URL secret not set; skipping Discord alert"
             exit 0
           fi
-          case "${STATUS}" in
-            success) COLOR=3066993 ;;
-            failure) COLOR=15158332 ;;
-            cancelled) COLOR=9807270 ;;
-            *) COLOR=3447003 ;;
-          esac
-          SUMMARY="Trivy ${STATUS^} for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
-          DESCRIPTION="Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          REPORT="$(if [ -f trivy-report.txt ]; then sed 's/"/\\"/g' trivy-report.txt | head -c 1900; else echo 'No report generated.'; fi)"
+          SUMMARY="Trivy Findings for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
+          LINK="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          REPORT=$(sed 's/"/\\"/g' trivy-report.txt | head -c 1900)
           curl -fsSL -H "Content-Type: application/json" \
-            -d "{\"embeds\":[{\"title\":\"${SUMMARY}\",\"description\":\"${DESCRIPTION}\\n${REPORT}\",\"color\":${COLOR}}]}" \
+            -d "{\"embeds\":[{\"title\":\"${SUMMARY}\",\"description\":\"Workflow run: ${LINK}\\n${REPORT}\",\"color\":15158332}]}" \
             "${DISCORD_WEBHOOK}"

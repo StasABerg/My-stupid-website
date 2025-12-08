@@ -20,13 +20,16 @@ jobs:
 
       - name: Install Semgrep
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install --upgrade semgrep jq
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install --upgrade semgrep jq
 
       - name: Run Semgrep
         run: |
           set -euo pipefail
           mkdir -p reports
+          source venv/bin/activate
           semgrep --config p/ci --error --json --output reports/semgrep.json
           jq -r '
             def headline($path): "## " + $path;
