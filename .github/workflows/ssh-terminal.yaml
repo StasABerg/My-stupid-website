@@ -131,8 +131,8 @@ jobs:
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website-terminal:${{ steps.meta.outputs.sha }}
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website-terminal:latest
           provenance: false
-          cache-from: type=gha,scope=terminal-service
-          cache-to: type=gha,mode=max,scope=terminal-service
+          cache-from: type=local,src=/home/runner/.cache/buildx/terminal-service
+          cache-to: type=local,dest=/home/runner/.cache/buildx/terminal-service,mode=max
 
   trivy-image:
     name: Trivy Image (terminal)

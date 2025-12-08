@@ -90,8 +90,8 @@ jobs:
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:${{ steps.out.outputs.sha }}
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:latest
           provenance: false
-          cache-from: type=gha,scope=my-stupid-website
-          cache-to: type=gha,mode=max,scope=my-stupid-website
+          cache-from: type=local,src=/home/runner/.cache/buildx/my-stupid-website
+          cache-to: type=local,dest=/home/runner/.cache/buildx/my-stupid-website,mode=max
 
   trivy-image:
     name: Trivy Image
