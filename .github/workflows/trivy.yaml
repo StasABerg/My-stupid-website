@@ -24,6 +24,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Run Trivy on source code
+        id: scan
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -34,13 +35,37 @@ jobs:
               --scanners vuln,misconfig,secret \
               --ignore-unfixed \
               --severity HIGH,CRITICAL \
-              --format sarif \
-              --output /workspace/trivy-results.sarif \
+              --format template \
+              --template '{{- range .Results }}{{- if or .Vulnerabilities .Misconfigurations }}## {{ .Target }}\n{{- range .Vulnerabilities }}- {{ .Severity }} {{ .PkgName }} {{ .InstalledVersion }} -> {{ .FixedVersion }} ({{ .VulnerabilityID }})\n{{- end }}{{- range .Misconfigurations }}- {{ .Severity }} {{ .ID }}: {{ .Title }}\n{{- end }}{{- end }}{{- end }}' \
+              --output /workspace/trivy-report.txt \
               /workspace
 
-      - name: Upload results artifact
-        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-report.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-repository
-          path: trivy-results.sarif
+          path: trivy-report.txt
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK}" ]; then
+            echo "DISCORD_WEBHOOK_URL secret not set; skipping Discord notification"
+            exit 0
+          fi
+          case "${STATUS}" in
+            success) COLOR=3066993 ;;
+            failure) COLOR=15158332 ;;
+            cancelled) COLOR=9807270 ;;
+            *) COLOR=3447003 ;;
+          esac
+          SUMMARY="Trivy ${STATUS^} for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
+          DESCRIPTION="Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          REPORT="$(if [ -f trivy-report.txt ]; then sed 's/"/\\"/g' trivy-report.txt | head -c 1900; else echo 'No report generated.'; fi)"
+          curl -fsSL -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"${SUMMARY}\",\"description\":\"${DESCRIPTION}\\n${REPORT}\",\"color\":${COLOR}}]}" \
+            "${DISCORD_WEBHOOK}"
