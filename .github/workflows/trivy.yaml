@@ -36,7 +36,7 @@ jobs:
               --ignore-unfixed \
               --severity HIGH,CRITICAL \
               --format template \
-              --template '{{- range .Results }}{{- if or .Vulnerabilities .Misconfigurations }}## {{ .Target }}\n{{- range .Vulnerabilities }}- {{ .Severity }} {{ .PkgName }} {{ .InstalledVersion }} -> {{ .FixedVersion }} ({{ .VulnerabilityID }})\n{{- end }}{{- range .Misconfigurations }}- {{ .Severity }} {{ .ID }}: {{ .Title }}\n{{- end }}{{- end }}{{- end }}' \
+              --template '{{- range . }}{{- if or .Vulnerabilities .Misconfigurations }}## {{ .Target }}\n{{- range .Vulnerabilities }}- {{ .Severity }} {{ .PkgName }} {{ .InstalledVersion }} -> {{ .FixedVersion }} ({{ .VulnerabilityID }})\n{{- end }}{{- range .Misconfigurations }}- {{ .Severity }} {{ .ID }}: {{ .Title }}\n{{- end }}{{- end }}{{- end }}' \
               --output /workspace/trivy-report.txt \
               /workspace
 
