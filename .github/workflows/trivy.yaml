@@ -40,15 +40,26 @@ jobs:
               --output /workspace/trivy-report.txt \
               /workspace
 
+      - name: Check for findings
+        id: findings
+        run: |
+          if [ -s trivy-report.txt ]; then
+            echo "has_findings=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No HIGH/CRITICAL findings detected"
+            rm -f trivy-report.txt
+            echo "has_findings=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload report artifact
-        if: ${{ always() && hashFiles('trivy-report.txt') != '' }}
+        if: ${{ steps.findings.outputs.has_findings == 'true' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-repository
           path: trivy-report.txt
 
       - name: Notify Discord on findings
-        if: ${{ always() && hashFiles('trivy-report.txt') != '' }}
+        if: ${{ steps.findings.outputs.has_findings == 'true' }}
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |

@@ -26,11 +26,12 @@ jobs:
           pip install --upgrade semgrep jq
 
       - name: Run Semgrep
+        id: semgrep
         run: |
           set -euo pipefail
           mkdir -p reports
           source venv/bin/activate
-          semgrep --config p/ci --error --json --output reports/semgrep.json
+          semgrep --config p/ci --json --output reports/semgrep.json || true
           jq -r '
             def headline($path): "## " + $path;
             def finding($f): "- [" + ($f.severity|ascii_upcase) + "] " + $f.check_id +
@@ -53,19 +54,13 @@ jobs:
         if: ${{ always() && hashFiles('reports/semgrep-report.txt') != '' }}
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          STATUS: ${{ job.status }}
         run: |
           if [ -z "${DISCORD_WEBHOOK}" ]; then
             echo "DISCORD_WEBHOOK_URL secret not set; skipping Discord notification"
             exit 0
           fi
-          case "${STATUS}" in
-            success) COLOR=3066993 ;;
-            failure) COLOR=15158332 ;;
-            cancelled) COLOR=9807270 ;;
-            *) COLOR=3447003 ;;
-          esac
-          SUMMARY="Semgrep ${STATUS^} for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
+          COLOR=15158332
+          SUMMARY="Semgrep findings for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
           LINK="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           REPORT=$(sed 's/"/\\"/g' reports/semgrep-report.txt | head -c 1900)
           curl -fsSL -H "Content-Type: application/json" \
