@@ -59,7 +59,7 @@ jobs:
               /workspace/docker/api-gateway.Dockerfile
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-api-gateway-dockerfile.sarif') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: trivy-api-gateway-dockerfile
           path: trivy-api-gateway-dockerfile.sarif
@@ -91,7 +91,7 @@ jobs:
               /workspace/charts/api-gateway-service
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-api-gateway-helm.sarif') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: trivy-api-gateway-helm
           path: trivy-api-gateway-helm.sarif
@@ -151,7 +151,7 @@ jobs:
               "${IMAGE}"
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-api-gateway-image.sarif') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: trivy-api-gateway-image
           path: trivy-api-gateway-image.sarif

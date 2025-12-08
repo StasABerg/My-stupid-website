@@ -59,7 +59,7 @@ jobs:
               /workspace/docker/Dockerfile
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-dockerfile.sarif') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: trivy-dockerfile
           path: trivy-dockerfile.sarif
@@ -120,7 +120,7 @@ jobs:
               "${IMAGE}"
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-image.sarif') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: trivy-image
           path: trivy-image.sarif
@@ -155,7 +155,7 @@ jobs:
               /workspace/charts/my-stupid-website
       - name: Upload SARIF artifact
         if: ${{ always() && hashFiles('trivy-helm.sarif') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: trivy-helm
           path: trivy-helm.sarif

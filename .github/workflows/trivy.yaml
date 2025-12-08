@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload results artifact
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: trivy-repository
           path: trivy-results.sarif
