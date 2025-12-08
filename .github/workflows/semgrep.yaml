@@ -63,6 +63,9 @@ jobs:
           SUMMARY="Semgrep findings for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
           LINK="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           REPORT=$(sed 's/"/\\"/g' reports/semgrep-report.txt | head -c 1900)
+          if [ -z "${REPORT}" ]; then
+            REPORT="Issues found. See run logs/artifact for details."
+          fi
           curl -fsSL -H "Content-Type: application/json" \
             -d "{\"embeds\":[{\"title\":\"${SUMMARY}\",\"description\":\"Workflow run: ${LINK}\\n${REPORT}\",\"color\":${COLOR}}]}" \
             "${DISCORD_WEBHOOK}"
