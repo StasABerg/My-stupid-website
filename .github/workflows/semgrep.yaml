@@ -31,7 +31,10 @@ jobs:
           set -euo pipefail
           mkdir -p reports
           source venv/bin/activate
-          semgrep --config p/ci --json --output reports/semgrep.json || true
+          semgrep --config p/ci \
+           --exclude venv \
+           --exclude node_modules \
+           --json --output reports/semgrep.json || true
           jq -r '
             def headline($path): "## " + $path;
             def finding($f): "- [" + ($f.severity|ascii_upcase) + "] " + $f.check_id +
