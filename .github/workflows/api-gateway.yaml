@@ -45,7 +45,6 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Scan Dockerfile misconfig
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -54,15 +53,15 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${TRIVY_IMAGE}" config \
               --severity HIGH,CRITICAL \
-              --format sarif \
-              --output /workspace/trivy-api-gateway-dockerfile.sarif \
+              --format table \
+              --output /workspace/trivy-api-gateway-dockerfile.txt \
               /workspace/docker/api-gateway.Dockerfile
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-api-gateway-dockerfile.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-api-gateway-dockerfile.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-api-gateway-dockerfile
-          path: trivy-api-gateway-dockerfile.sarif
+          path: trivy-api-gateway-dockerfile.txt
 
   trivy-helm:
     name: Trivy Helm/K8s Config
@@ -77,7 +76,6 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Scan Helm charts
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -86,15 +84,15 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${TRIVY_IMAGE}" config \
               --severity HIGH,CRITICAL \
-              --format sarif \
-              --output /workspace/trivy-api-gateway-helm.sarif \
+              --format table \
+              --output /workspace/trivy-api-gateway-helm.txt \
               /workspace/charts/api-gateway-service
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-api-gateway-helm.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-api-gateway-helm.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-api-gateway-helm
-          path: trivy-api-gateway-helm.sarif
+          path: trivy-api-gateway-helm.txt
 
   build:
     runs-on: self-hosted
@@ -135,7 +133,6 @@ jobs:
     steps:
       - name: Scan built image
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -146,15 +143,15 @@ jobs:
             "${TRIVY_IMAGE}" image \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
-              --format sarif \
-              --output /workspace/trivy-api-gateway-image.sarif \
+              --format table \
+              --output /workspace/trivy-api-gateway-image.txt \
               "${IMAGE}"
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-api-gateway-image.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-api-gateway-image.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-api-gateway-image
-          path: trivy-api-gateway-image.sarif
+          path: trivy-api-gateway-image.txt
 
   deploy-dev:
     runs-on: self-hosted

@@ -50,7 +50,6 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Scan Dockerfile misconfig
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -59,15 +58,15 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${TRIVY_IMAGE}" config \
               --severity HIGH,CRITICAL \
-              --format sarif \
-              --output /workspace/trivy-radio-dockerfile.sarif \
+              --format table \
+              --output /workspace/trivy-radio-dockerfile.txt \
               /workspace/docker/radio-service.Dockerfile
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-radio-dockerfile.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-radio-dockerfile.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-dockerfile
-          path: trivy-radio-dockerfile.sarif
+          path: trivy-radio-dockerfile.txt
 
   trivy-helm:
     name: Trivy Helm/K8s Config
@@ -82,7 +81,6 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Scan Helm charts
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -91,15 +89,15 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${TRIVY_IMAGE}" config \
               --severity HIGH,CRITICAL \
-              --format sarif \
-              --output /workspace/trivy-radio-helm.sarif \
+              --format table \
+              --output /workspace/trivy-radio-helm.txt \
               /workspace/charts/radio-service
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-radio-helm.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-radio-helm.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-helm
-          path: trivy-radio-helm.sarif
+          path: trivy-radio-helm.txt
 
   build:
     runs-on: self-hosted
@@ -140,7 +138,6 @@ jobs:
     steps:
       - name: Scan built image
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -151,15 +148,15 @@ jobs:
             "${TRIVY_IMAGE}" image \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
-              --format sarif \
-              --output /workspace/trivy-radio-image.sarif \
+              --format table \
+              --output /workspace/trivy-radio-image.txt \
               "${IMAGE}"
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-radio-image.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-radio-image.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-image
-          path: trivy-radio-image.sarif
+          path: trivy-radio-image.txt
 
   deploy-dev:
     runs-on: self-hosted

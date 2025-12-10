@@ -51,7 +51,6 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Scan terminal Dockerfile
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -60,15 +59,15 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${TRIVY_IMAGE}" config \
               --severity HIGH,CRITICAL \
-              --format sarif \
-              --output /workspace/trivy-terminal-dockerfile.sarif \
+              --format table \
+              --output /workspace/trivy-terminal-dockerfile.txt \
               /workspace/docker/terminal.Dockerfile
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-terminal-dockerfile.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-terminal-dockerfile.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-dockerfile
-          path: trivy-terminal-dockerfile.sarif
+          path: trivy-terminal-dockerfile.txt
 
   trivy-helm:
     name: Trivy Helm/K8s Config (terminal)
@@ -83,7 +82,6 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Scan Helm charts
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -92,15 +90,15 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace" \
             "${TRIVY_IMAGE}" config \
               --severity HIGH,CRITICAL \
-              --format sarif \
-              --output /workspace/trivy-terminal-helm.sarif \
+              --format table \
+              --output /workspace/trivy-terminal-helm.txt \
               /workspace/charts/terminal-service
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-terminal-helm.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-terminal-helm.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-helm
-          path: trivy-terminal-helm.sarif
+          path: trivy-terminal-helm.txt
 
 
   build:
@@ -144,7 +142,6 @@ jobs:
     steps:
       - name: Scan built terminal image
         id: trivy
-        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
@@ -155,15 +152,15 @@ jobs:
             "${TRIVY_IMAGE}" image \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
-              --format sarif \
-              --output /workspace/trivy-terminal-image.sarif \
+              --format table \
+              --output /workspace/trivy-terminal-image.txt \
               "${IMAGE}"
-      - name: Upload SARIF artifact
-        if: ${{ always() && hashFiles('trivy-terminal-image.sarif') != '' }}
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-terminal-image.txt') != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-image
-          path: trivy-terminal-image.sarif
+          path: trivy-terminal-image.txt
 
 
   deploy-dev:
