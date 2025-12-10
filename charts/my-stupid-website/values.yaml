@@ -77,6 +77,19 @@ gateway:
       targetHostname: gitgud.zip
       scheme: https
       statusCode: 301
+      parentRefs:
+        - name: kong
+          namespace: kong
+          sectionName: proxy-http-qzz-root
+        - name: kong
+          namespace: kong
+          sectionName: proxy-http-qzz-wildcard
+        - name: kong
+          namespace: kong
+          sectionName: proxy-https-qzz-root
+        - name: kong
+          namespace: kong
+          sectionName: proxy-https-qzz-wildcard
 
 resources:
   limits:
