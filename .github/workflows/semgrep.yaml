@@ -56,15 +56,17 @@ jobs:
            reports/rendered . || true
           jq -r '
             def clean($v): ($v // "") | tostring;
-            def fmt($r): "- [" + (((($r.severity // "INFO") | tostring) | ascii_upcase)) + "] " +
-              clean($r.check_id) + " " + clean($r.path) + ":" +
-              (($r.start.line // 0) | tostring) + " - " +
-              (clean($r.extra.message) | gsub("\\s+"; " "));
+            def list_or_na($arr): (if ($arr|length) > 0 then ($arr|join(", ")) else "N/A" end);
+            def fmt($r):
+              "- [" + ((clean($r.severity)|ascii_upcase)) + "] " + clean($r.check_id) +
+              " (" + clean($r.path) + ":" + (($r.start.line // 0)|tostring) + ")\n" +
+              "  CWE: " + list_or_na($r.extra.metadata.cwe // []) + "\n" +
+              "  Message: " + (clean($r.extra.message) | gsub("\\s+"; " "));
             (.results // []) as $res |
             if ($res | length) == 0 then
               "No Semgrep findings"
             else
-              ($res | sort_by(.path,.start.line) | map(fmt(.)) | join("\n"))
+              ($res | sort_by(.path,.start.line) | map(fmt(.)) | join("\n\n"))
             end
           ' reports/semgrep.json > reports/semgrep-report.txt
 
@@ -87,10 +89,10 @@ jobs:
           COLOR=15158332
           SUMMARY="Semgrep findings for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
           LINK="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          REPORT=$(sed 's/"/\\"/g' reports/semgrep-report.txt | head -c 1900)
+          REPORT_RAW=$(cat reports/semgrep-report.txt)
+          REPORT=$(echo "${REPORT_RAW}" | head -c 1800)
           if [ -z "${REPORT}" ]; then
             REPORT="Issues found. See run logs/artifact for details."
           fi
-          curl -fsSL -H "Content-Type: application/json" \
-            -d "{\"embeds\":[{\"title\":\"${SUMMARY}\",\"description\":\"Workflow run: ${LINK}\\n${REPORT}\",\"color\":${COLOR}}]}" \
-            "${DISCORD_WEBHOOK}"
+          PAYLOAD=$(jq -n --arg summary "$SUMMARY" --arg link "$LINK" --arg report "$REPORT" --argjson color ${COLOR} '{embeds:[{title:$summary,description:("Workflow run: " + $link + "\n" + $report),color:$color}]}')
+          curl -fsSL -H "Content-Type: application/json" -d "$PAYLOAD" "${DISCORD_WEBHOOK}"
