@@ -35,8 +35,10 @@ jobs:
           chmod 600 $HOME/kubeconfig
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
       - name: Helm upgrade (prod - terminal)
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
         run: |
           helm upgrade --install my-stupid-website-terminal charts/terminal-service \
             --namespace my-stupid-website --create-namespace \
-            --set-string image.tag=${{ github.event.inputs.image_tag }} \
+            --set-string image.tag="$IMAGE_TAG" \
             --rollback-on-failure --wait --kube-insecure-skip-tls-verify
