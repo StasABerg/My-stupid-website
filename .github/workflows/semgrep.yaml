@@ -55,13 +55,16 @@ jobs:
            --json --output reports/semgrep.json \
            reports/rendered . || true
           jq -r '
-            def fmt($r): "- [" + ($r.severity|ascii_upcase) + "] " + $r.check_id +
-              " " + $r.path + ":" + ($r.start.line|tostring) + " - " +
-              ($r.extra.message|gsub("\\s+"; " ")); 
-            if (.results | length) == 0 then
+            def clean($v): ($v // "") | tostring;
+            def fmt($r): "- [" + (((($r.severity // "INFO") | tostring) | ascii_upcase)) + "] " +
+              clean($r.check_id) + " " + clean($r.path) + ":" +
+              (($r.start.line // 0) | tostring) + " - " +
+              (clean($r.extra.message) | gsub("\\s+"; " "));
+            (.results // []) as $res |
+            if ($res | length) == 0 then
               "No Semgrep findings"
             else
-              (.results | sort_by(.path,.start.line) | map(fmt(.)) | join("\n"))
+              ($res | sort_by(.path,.start.line) | map(fmt(.)) | join("\n"))
             end
           ' reports/semgrep.json > reports/semgrep-report.txt
 
