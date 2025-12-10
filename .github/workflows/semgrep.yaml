@@ -55,14 +55,14 @@ jobs:
            --json --output reports/semgrep.json \
            reports/rendered . || true
           jq -r '
-            def headline($path): "## " + $path;
-            def finding($f): "- [" + ($f.severity|ascii_upcase) + "] " + $f.check_id +
-              " (line " + ($f.start.line|tostring) + ") " +
-              ($f.extra.message|gsub("\n"; " "));
-            .results
-            | group_by(.path)
-            | map(headline(.[0].path) + "\n" + (map(finding(.)) | join("\n")))
-            | join("\n\n")
+            def fmt($r): "- [" + ($r.severity|ascii_upcase) + "] " + $r.check_id +
+              " " + $r.path + ":" + ($r.start.line|tostring) + " - " +
+              ($r.extra.message|gsub("\\s+"; " ")); 
+            if (.results | length) == 0 then
+              "No Semgrep findings"
+            else
+              (.results | sort_by(.path,.start.line) | map(fmt(.)) | join("\n"))
+            end
           ' reports/semgrep.json > reports/semgrep-report.txt
 
       - name: Upload Semgrep results
