@@ -28,11 +28,11 @@ jobs:
       - name: Authenticate Semgrep
         if: ${{ secrets.SEMGREP_TOKEN != '' }}
         env:
-          SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
           set -euo pipefail
           source venv/bin/activate
-          semgrep login --token "${SEMGREP_TOKEN}"
+          semgrep login
 
       - name: Run Semgrep
         id: semgrep
