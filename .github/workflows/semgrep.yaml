@@ -63,7 +63,14 @@ jobs:
            reports/rendered . || true
           jq -r '
             def clean($v): ($v // "") | tostring;
-            def list_or_na($arr): (if ($arr|length) > 0 then ($arr|join(", ")) else "N/A" end);
+            def ensure_array($v):
+              if $v == null then []
+              elif ($v | type) == "array" then $v
+              else [$v]
+              end;
+            def list_or_na($arr):
+              (ensure_array($arr)) as $a |
+              (if ($a|length) > 0 then ($a|map(tostring)|join(", ")) else "N/A" end);
             def fmt($r):
               "- **" + clean($r.check_id) + "** (" + ((clean($r.severity)|ascii_upcase)) + ", `" + clean($r.path) + ":" + (($r.start.line // 0)|tostring) + "`)" +
               "\n  • CWE: " + list_or_na($r.extra.metadata.cwe // []) +
