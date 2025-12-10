@@ -57,6 +57,7 @@ jobs:
             echo "No Helm charts found under charts/"
           fi
           source venv/bin/activate
+          # Filter out Pro-only rules that still emit warnings under --oss-only.
           semgrep --oss-only \
             --config p/ci \
             --config p/kubernetes \
@@ -64,12 +65,15 @@ jobs:
             --config p/javascript \
             --config p/typescript \
             --config p/rust \
-           --config p/dockerfile \
-           --metrics=off \
-           --exclude venv \
-           --exclude node_modules \
-           --json --output reports/semgrep.json \
-           reports/rendered . || true
+            --config p/dockerfile \
+            --exclude-rule javascript.crypto-js.cryptojs-weak-algorithm.cryptojs-weak-algorithm \
+            --exclude-rule javascript.express.web.cors-default-config-express.cors-default-config-express \
+            --exclude-rule javascript.koa.web.cors-default-config-koa.cors-default-config-koa \
+            --metrics=off \
+            --exclude venv \
+            --exclude node_modules \
+            --json --output reports/semgrep.json \
+            reports/rendered . || true
           jq -r '
             def clean($v): ($v // "") | tostring;
             def ensure_array($v):
