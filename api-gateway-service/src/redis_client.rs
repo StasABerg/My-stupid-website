@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, anyhow};
-use redis::{Client, ConnectionAddr, ConnectionInfo, ProtocolVersion, RedisConnectionInfo};
+use redis::{
+    Client, ConnectionAddr, IntoConnectionInfo, ProtocolVersion, RedisConnectionInfo,
+};
 use url::Url;
 
 pub fn build_redis_client(url: &str, tls_reject_unauthorized: bool) -> Result<Client> {
@@ -32,15 +34,26 @@ pub fn build_redis_client(url: &str, tls_reject_unauthorized: bool) -> Result<Cl
         other => return Err(anyhow!("unsupported redis scheme: {other}")),
     };
 
-    let info = ConnectionInfo {
-        addr,
-        redis: RedisConnectionInfo {
-            db,
-            username,
-            password,
-            protocol: ProtocolVersion::RESP2,
-        },
+    let redis_info = {
+        let mut info = RedisConnectionInfo::default()
+            .set_db(db)
+            .set_protocol(ProtocolVersion::RESP2);
+
+        if let Some(username) = username {
+            info = info.set_username(username);
+        }
+
+        if let Some(password) = password {
+            info = info.set_password(password);
+        }
+
+        info
     };
+
+    let info = addr
+        .into_connection_info()
+        .context("failed to convert redis address into connection info")?
+        .set_redis_settings(redis_info);
 
     Client::open(info).context("failed to open redis client")
 }

@@ -1,5 +1,5 @@
 use api_gateway_service::build_router_with_proxy;
-use api_gateway_service::config::Config;
+use api_gateway_service::config::{Config, EnvSource};
 use api_gateway_service::logger::Logger;
 use api_gateway_service::proxy::{GatewayProxy, ProxyOptions};
 use async_trait::async_trait;
@@ -11,6 +11,7 @@ use bytes::Bytes;
 use http::Response;
 use http_body_util::BodyExt;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -19,10 +20,10 @@ const ORIGIN: &str = "http://client.test";
 
 #[tokio::test]
 async fn session_and_docs_flow() {
-    set_env();
+    let env = TestEnv::new();
 
     let logger = Logger::new("gateway-test");
-    let config = Arc::new(Config::load(&logger).expect("config load"));
+    let config = Arc::new(Config::load_with_env(&logger, &env).expect("config load"));
     let proxy = Arc::new(MockProxy);
 
     let router = build_router_with_proxy(config.clone(), logger.clone(), proxy)
@@ -116,13 +117,35 @@ async fn call_proxy_route(
     body_string(resp.into_body()).await
 }
 
-fn set_env() {
-    unsafe {
-        std::env::set_var("PORT", "18080");
-        std::env::set_var("RADIO_SERVICE_URL", "http://radio.test");
-        std::env::set_var("TERMINAL_SERVICE_URL", "http://terminal.test");
-        std::env::set_var("CORS_ALLOW_ORIGINS", ORIGIN);
-        std::env::set_var("INSTANCE_SECRET_SEED", "tests-secret-seed");
+#[derive(Default)]
+struct TestEnv {
+    values: HashMap<String, String>,
+}
+
+impl TestEnv {
+    fn new() -> Self {
+        let mut values = HashMap::new();
+        values.insert(
+            "SESSION_SECRET".to_string(),
+            "integration_dummy_session_secret_value_that_is_long".to_string(),
+        );
+        values.insert("PORT".to_string(), "18080".to_string());
+        values.insert(
+            "RADIO_SERVICE_URL".to_string(),
+            "http://radio.test".to_string(),
+        );
+        values.insert(
+            "TERMINAL_SERVICE_URL".to_string(),
+            "http://terminal.test".to_string(),
+        );
+        values.insert("CORS_ALLOW_ORIGINS".to_string(), ORIGIN.to_string());
+        Self { values }
+    }
+}
+
+impl EnvSource for TestEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        self.values.get(key).cloned()
     }
 }
 

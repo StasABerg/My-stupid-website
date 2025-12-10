@@ -9,6 +9,19 @@ const DEFAULT_TERMINAL_BASE_URL: &str =
     "http://my-stupid-website-terminal.my-stupid-website.svc.cluster.local:80";
 const DEFAULT_CACHE_TTL_SECONDS: u64 = 60;
 
+pub trait EnvSource {
+    fn get(&self, key: &str) -> Option<String>;
+}
+
+#[derive(Default)]
+pub struct SystemEnv;
+
+impl EnvSource for SystemEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        env::var(key).ok()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub port: u16,
@@ -72,21 +85,21 @@ pub struct RedisCacheConfig {
 
 impl Config {
     pub fn load(logger: &Logger) -> Result<Self> {
-        let port = parse_port(env::var("PORT").ok(), DEFAULT_PORT);
-        let radio_service_url = trim_trailing_slash(
-            env::var("RADIO_SERVICE_URL")
-                .ok()
-                .as_deref()
-                .unwrap_or(DEFAULT_RADIO_BASE_URL),
-        );
-        let terminal_service_url = trim_trailing_slash(
-            env::var("TERMINAL_SERVICE_URL")
-                .ok()
-                .as_deref()
-                .unwrap_or(DEFAULT_TERMINAL_BASE_URL),
-        );
-        let allow_origins = split_list(env::var("CORS_ALLOW_ORIGINS").ok());
-        let explicit_hosts = split_list(env::var("ALLOWED_SERVICE_HOSTNAMES").ok());
+        Self::load_with_env(logger, &SystemEnv)
+    }
+
+    pub fn load_with_env(logger: &Logger, env: &impl EnvSource) -> Result<Self> {
+        let port = parse_port(env.get("PORT"), DEFAULT_PORT);
+        let radio_service_url = env
+            .get("RADIO_SERVICE_URL")
+            .map(|value| trim_trailing_slash(&value))
+            .unwrap_or_else(|| trim_trailing_slash(DEFAULT_RADIO_BASE_URL));
+        let terminal_service_url = env
+            .get("TERMINAL_SERVICE_URL")
+            .map(|value| trim_trailing_slash(&value))
+            .unwrap_or_else(|| trim_trailing_slash(DEFAULT_TERMINAL_BASE_URL));
+        let allow_origins = split_list(env.get("CORS_ALLOW_ORIGINS"));
+        let explicit_hosts = split_list(env.get("ALLOWED_SERVICE_HOSTNAMES"));
         let derived_hosts = vec![
             extract_hostname(&radio_service_url),
             extract_hostname(&terminal_service_url),
@@ -96,13 +109,14 @@ impl Config {
         let allowed_service_hostnames = merge_unique(explicit_hosts, derived_hosts);
 
         let request_timeout = Duration::from_millis(parse_positive_int(
-            env::var("UPSTREAM_TIMEOUT_MS").ok(),
+            env.get("UPSTREAM_TIMEOUT_MS"),
             10_000,
         ) as u64);
 
-        let session_secret = read_required_secret("SESSION_SECRET", logger)?;
+        let session_secret =
+            read_required_secret(env.get("SESSION_SECRET"), "SESSION_SECRET", logger)?;
         let session_secret_generated = false;
-        let csrf_secret = env::var("CSRF_PROOF_SECRET").ok();
+        let csrf_secret = env.get("CSRF_PROOF_SECRET");
         let (csrf_proof_secret, csrf_proof_secret_generated) =
             if let Some(secret) = read_optional_secret(csrf_secret, "CSRF_PROOF_SECRET", logger)? {
                 (secret, false)
@@ -110,46 +124,51 @@ impl Config {
                 (session_secret.clone(), true)
             };
 
-        let session_cookie_name = env::var("SESSION_COOKIE_NAME")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
+        let session_cookie_name = env
+            .get("SESSION_COOKIE_NAME")
+            .and_then(|value| {
+                let trimmed = value.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            })
             .unwrap_or_else(|| "gateway.sid".to_string());
         let session_max_age_seconds =
-            parse_positive_int(env::var("SESSION_MAX_AGE_SECONDS").ok(), 60 * 60 * 24 * 30);
+            parse_positive_int(env.get("SESSION_MAX_AGE_SECONDS"), 60 * 60 * 24 * 30);
         let session_max_age = Duration::from_secs(session_max_age_seconds as u64);
 
-        let redis_url = env::var("CACHE_REDIS_URL")
-            .ok()
-            .or_else(|| env::var("REDIS_URL").ok());
+        let redis_url = env.get("CACHE_REDIS_URL").or_else(|| env.get("REDIS_URL"));
         let cache_redis_enabled = redis_url
             .as_ref()
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false);
-        let cache_redis_config =
-            redis_url
-                .filter(|value| !value.is_empty())
-                .map(|url| RedisCacheConfig {
-                    url,
-                    key_prefix: env::var("CACHE_KEY_PREFIX")
-                        .ok()
-                        .filter(|value| !value.trim().is_empty())
-                        .unwrap_or_else(|| "gateway:cache:".to_string()),
-                    connect_timeout_ms: parse_positive_int(
-                        env::var("CACHE_REDIS_CONNECT_TIMEOUT_MS").ok(),
-                        5_000,
-                    ) as u64,
-                    tls_reject_unauthorized: parse_bool(
-                        env::var("CACHE_REDIS_TLS_REJECT_UNAUTHORIZED").ok(),
-                        true,
-                    ),
-                });
+        let cache_redis_config = redis_url
+            .as_ref()
+            .filter(|value| !value.is_empty())
+            .map(|url| RedisCacheConfig {
+                url: url.clone(),
+                key_prefix: env
+                    .get("CACHE_KEY_PREFIX")
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "gateway:cache:".to_string()),
+                connect_timeout_ms: parse_positive_int(
+                    env.get("CACHE_REDIS_CONNECT_TIMEOUT_MS"),
+                    5_000,
+                ) as u64,
+                tls_reject_unauthorized: parse_bool(
+                    env.get("CACHE_REDIS_TLS_REJECT_UNAUTHORIZED"),
+                    true,
+                ),
+            });
 
-        let memory_cache_enabled = parse_bool(env::var("CACHE_MEMORY_ENABLED").ok(), true);
+        let memory_cache_enabled = parse_bool(env.get("CACHE_MEMORY_ENABLED"), true);
         let memory_cache_max_entries =
-            parse_positive_int(env::var("CACHE_MEMORY_MAX_ENTRIES").ok(), 200).max(10) as usize;
+            parse_positive_int(env.get("CACHE_MEMORY_MAX_ENTRIES"), 200).max(10) as usize;
         let cache_config = CacheConfig {
             ttl: Duration::from_secs(parse_positive_int(
-                env::var("CACHE_TTL_SECONDS").ok(),
+                env.get("CACHE_TTL_SECONDS"),
                 DEFAULT_CACHE_TTL_SECONDS as i64,
             ) as u64),
             memory: MemoryCacheConfig {
@@ -163,7 +182,7 @@ impl Config {
             },
         };
 
-        let session_store = resolve_session_store(&session_secret, &cache_config, logger)?;
+        let session_store = resolve_session_store(env, &cache_config, logger)?;
 
         let session_config = SessionConfig {
             cookie_name: session_cookie_name,
@@ -172,6 +191,10 @@ impl Config {
             max_age: session_max_age,
             store: session_store,
         };
+
+        let app_env = env
+            .get("APP_ENV")
+            .unwrap_or_else(|| "development".to_string());
 
         let config = Self {
             port,
@@ -184,34 +207,35 @@ impl Config {
             cache: cache_config,
             csrf_proof_secret,
             csrf_proof_secret_generated,
-            trust_proxy: parse_bool(env::var("TRUST_PROXY").ok(), false),
+            trust_proxy: parse_bool(env.get("TRUST_PROXY"), false),
         };
 
-        config.validate()?;
+        config.validate(&app_env)?;
         Ok(config)
     }
 }
 
 fn resolve_session_store(
-    _session_secret: &str,
+    env: &impl EnvSource,
     cache_config: &CacheConfig,
     logger: &Logger,
 ) -> Result<SessionStoreConfig> {
-    if let Ok(url) = env::var("SESSION_REDIS_URL")
-        && !url.trim().is_empty()
+    if let Some(url) = env
+        .get("SESSION_REDIS_URL")
+        .filter(|value| !value.trim().is_empty())
     {
         return Ok(SessionStoreConfig::Redis(RedisSessionConfig {
             url,
-            key_prefix: env::var("SESSION_REDIS_KEY_PREFIX")
-                .ok()
+            key_prefix: env
+                .get("SESSION_REDIS_KEY_PREFIX")
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "gateway:session:".to_string()),
             connect_timeout_ms: parse_positive_int(
-                env::var("SESSION_REDIS_CONNECT_TIMEOUT_MS").ok(),
+                env.get("SESSION_REDIS_CONNECT_TIMEOUT_MS"),
                 5_000,
             ) as u64,
             tls_reject_unauthorized: parse_bool(
-                env::var("SESSION_REDIS_TLS_REJECT_UNAUTHORIZED").ok(),
+                env.get("SESSION_REDIS_TLS_REJECT_UNAUTHORIZED"),
                 true,
             ),
         }));
@@ -226,16 +250,16 @@ fn resolve_session_store(
         );
         return Ok(SessionStoreConfig::Redis(RedisSessionConfig {
             url: redis.url.clone(),
-            key_prefix: env::var("SESSION_REDIS_KEY_PREFIX")
-                .ok()
+            key_prefix: env
+                .get("SESSION_REDIS_KEY_PREFIX")
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "gateway:session:".to_string()),
             connect_timeout_ms: parse_positive_int(
-                env::var("SESSION_REDIS_CONNECT_TIMEOUT_MS").ok(),
+                env.get("SESSION_REDIS_CONNECT_TIMEOUT_MS"),
                 5_000,
             ) as u64,
             tls_reject_unauthorized: parse_bool(
-                env::var("SESSION_REDIS_TLS_REJECT_UNAUTHORIZED").ok(),
+                env.get("SESSION_REDIS_TLS_REJECT_UNAUTHORIZED"),
                 true,
             ),
         }));
@@ -304,9 +328,8 @@ fn merge_unique(left: Vec<String>, right: impl Iterator<Item = String>) -> Vec<S
     result
 }
 
-fn read_required_secret(env_var: &str, logger: &Logger) -> Result<String> {
-    let value = env::var(env_var)
-        .ok()
+fn read_required_secret(value: Option<String>, env_var: &str, logger: &Logger) -> Result<String> {
+    let value = value
         .map(|raw| raw.trim().to_string())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow!("{env_var} must be set and non-empty"))?;
@@ -351,7 +374,7 @@ fn read_optional_secret(
 }
 
 impl Config {
-    fn validate(&self) -> Result<()> {
+    fn validate(&self, app_env: &str) -> Result<()> {
         if self.request_timeout.as_millis() == 0 {
             return Err(anyhow!("UPSTREAM_TIMEOUT_MS must be greater than zero"));
         }
@@ -374,9 +397,7 @@ impl Config {
         }
 
         if matches!(self.session.store, SessionStoreConfig::Memory)
-            && env::var("APP_ENV")
-                .unwrap_or_else(|_| "development".into())
-                .eq_ignore_ascii_case("production")
+            && app_env.eq_ignore_ascii_case("production")
         {
             return Err(anyhow!(
                 "session store cannot fall back to memory when APP_ENV=production"
@@ -405,23 +426,33 @@ fn validate_url(value: &str, label: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::logger::Logger;
-    use std::sync::Mutex;
+    use std::collections::HashMap;
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    #[derive(Default)]
+    struct TestEnv {
+        values: HashMap<String, String>,
+    }
+
+    impl TestEnv {
+        fn with(mut self, key: &str, value: &str) -> Self {
+            self.values.insert(key.to_string(), value.to_string());
+            self
+        }
+    }
+
+    impl EnvSource for TestEnv {
+        fn get(&self, key: &str) -> Option<String> {
+            self.values.get(key).cloned()
+        }
+    }
 
     #[test]
     fn config_loads_with_dummy_env() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        unsafe {
-            env::set_var("SESSION_SECRET", "a_secure_dummy_secret_value_that_is_long");
-            env::remove_var("CACHE_REDIS_URL");
-            env::remove_var("SESSION_REDIS_URL");
-            env::remove_var("CORS_ALLOW_ORIGINS");
-            env::remove_var("ALLOWED_SERVICE_HOSTNAMES");
-            env::remove_var("APP_ENV");
-        }
+        let env = TestEnv::default()
+            .with("SESSION_SECRET", "a_secure_dummy_secret_value_that_is_long")
+            .with("PORT", "18080");
 
-        let config = Config::load(&Logger::new("test")).expect("config should load");
+        let config = Config::load_with_env(&Logger::new("test"), &env).expect("config should load");
         assert!(config.port > 0);
         assert_eq!(config.allowed_service_hostnames.len(), 2);
         assert!(config.cache.ttl.as_secs() > 0);

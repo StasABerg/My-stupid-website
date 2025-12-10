@@ -91,9 +91,9 @@ fn current_rss_bytes() -> u64 {
         && let Some(rss_pages_str) = contents.split_whitespace().nth(1)
         && let Ok(rss_pages) = rss_pages_str.parse::<u64>()
     {
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        let page_size = page_size::get() as u64;
         if page_size > 0 {
-            return rss_pages.saturating_mul(page_size as u64);
+            return rss_pages.saturating_mul(page_size);
         }
     }
     0

@@ -25,6 +25,15 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade semgrep jq
 
+      - name: Authenticate Semgrep
+        if: ${{ secrets.SEMGREP_TOKEN != '' }}
+        env:
+          SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+        run: |
+          set -euo pipefail
+          source venv/bin/activate
+          semgrep login --token "${SEMGREP_TOKEN}"
+
       - name: Run Semgrep
         id: semgrep
         run: |
