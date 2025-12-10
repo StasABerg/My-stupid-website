@@ -1,0 +1,7 @@
+# Semgrep ignores for non-source assets or files Semgrep cannot parse.
+# Helm templates use Go templating syntax which Semgrep's YAML parser can't handle.
+charts/**/templates/
+
+# Build outputs / local tooling directories.
+node_modules/
+venv/
