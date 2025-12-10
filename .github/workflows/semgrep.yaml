@@ -38,14 +38,12 @@ jobs:
           fi
           chart_files=$(find charts -mindepth 1 -maxdepth 2 -name Chart.yaml)
           if [ -n "${chart_files}" ]; then
-            while IFS= read -r chart; do
+            printf '%s\n' "${chart_files}" | while IFS= read -r chart; do
               chart_dir=$(dirname "$chart")
               chart_name=$(basename "$chart_dir")
               echo "Rendering Helm chart ${chart_name}"
               "${HELM_BIN}" template "${chart_name}" "${chart_dir}" > "reports/rendered/${chart_name}.yaml"
-            done <<EOF
-${chart_files}
-EOF
+            done
           else
             echo "No Helm charts found under charts/"
           fi
