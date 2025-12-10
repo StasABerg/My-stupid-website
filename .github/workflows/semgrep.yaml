@@ -57,13 +57,13 @@ jobs:
             echo "No Helm charts found under charts/"
           fi
           source venv/bin/activate
-          semgrep \
-           --config p/ci \
-           --config p/kubernetes \
-           --config p/react \
-           --config p/javascript \
-           --config p/typescript \
-           --config p/rust \
+          semgrep --oss-only \
+            --config p/ci \
+            --config p/kubernetes \
+            --config p/react \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/rust \
            --config p/dockerfile \
            --metrics=off \
            --exclude venv \
