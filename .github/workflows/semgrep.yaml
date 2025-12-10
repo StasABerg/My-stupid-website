@@ -26,7 +26,7 @@ jobs:
           pip install --upgrade semgrep jq
 
       - name: Authenticate Semgrep
-        if: ${{ secrets.SEMGREP_TOKEN != '' }}
+        if: ${{ secrets.SEMGREP_APP_TOKEN != '' }}
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
