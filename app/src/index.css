@@ -225,6 +225,45 @@ a:hover {
     "Courier New", monospace;
   margin-bottom: 4px;
 }
+
+.terminal {
+  background: radial-gradient(circle at 20% 20%, #0bff9622, transparent 60%), #050505;
+}
+
+.ascii {
+  color: #0bff96;
+  font-size: 10px;
+  line-height: 1.1;
+  margin: 0 0 8px;
+  white-space: pre;
+}
+
+.block {
+  margin: 8px 0;
+}
+
+.list-like {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.embed {
+  position: relative;
+  padding-top: 56.25%;
+  border: 1px solid #173121;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.embed iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
 .code {
   background: #0b0f0d;
   border: 1px dashed #1f9c66;

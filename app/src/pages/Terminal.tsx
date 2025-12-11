@@ -16,7 +16,8 @@ const Terminal = () => {
     if (!cmd.trim()) return;
     setBusy(true);
     try {
-      const resp = await fetch("/api/terminal", {
+      const { authorizedFetch } = await import("../lib/gateway-session");
+      const resp = await authorizedFetch("/api/terminal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cmd }),

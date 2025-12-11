@@ -62,7 +62,8 @@ export const useStations = (apiBase: string): StationsResult => {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(`${apiBase}/stations?limit=200&order=clickcount&reverse=true`, {
+      const { authorizedFetch } = await import("../lib/gateway-session");
+      const resp = await authorizedFetch(`${apiBase}/stations?limit=200&order=clickcount&reverse=true`, {
         headers: { accept: "application/json" },
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
