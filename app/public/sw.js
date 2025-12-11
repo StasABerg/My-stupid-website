@@ -1,5 +1,5 @@
-const CACHE_NAME = "gitgud-radio-shell-v8";
-const APP_SHELL = ["/app", "/app/radio", "/app/favicon.ico"];
+const CACHE_NAME = "gitgud-radio-shell-v7";
+const APP_SHELL = ["/", "/radio", "/favicon.ico"];
 const APP_SHELL_PATHS = new Set(APP_SHELL);
 
 self.addEventListener("install", (event) => {
@@ -61,7 +61,7 @@ self.addEventListener("fetch", (event) => {
         }
         if (isNavigation) {
           // fall back to shell for navigations when offline
-          const shell = await caches.match("/app/radio");
+          const shell = await caches.match("/radio");
           if (shell) return shell;
         }
         throw new Error("Network error and no cached response available");

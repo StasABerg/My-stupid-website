@@ -7,14 +7,24 @@ import { Buffer } from "node:buffer";
 
 const manifestEntry = path.resolve(__dirname, "src/pwa/manifest.ts");
 const pwaAssetsDir = path.resolve(__dirname, "src/assets/pwa");
-const basePath = "/";
-const outDir = "dist";
-// Keep vendor chunk splitting stable; trimmed to essentials.
+// Keep vendor chunk splitting stable as we migrate to Rolldown's advanced chunking.
 const chunkMatchers: Array<{ test: (value: string) => boolean; name: string }> = [
   { test: (value) => value.includes("react-dom") || value.includes("scheduler"), name: "react-dom" },
   { test: (value) => value.includes("/react/") || /react\/index\.js$/.test(value), name: "react" },
   { test: (value) => value.includes("react-router"), name: "router" },
+  { test: (value) => value.includes("@tanstack/react-query"), name: "tanstack" },
+  { test: (value) => value.includes("@radix-ui"), name: "radix" },
+  { test: (value) => value.includes("lucide-react"), name: "icons" },
+  { test: (value) => value.includes("sonner"), name: "sonner" },
+  { test: (value) => value.includes("cmdk"), name: "command" },
+  { test: (value) => value.includes("react-hook-form") || value.includes("@hookform"), name: "react-hook-form" },
+  { test: (value) => value.includes("react-day-picker"), name: "react-day-picker" },
+  { test: (value) => value.includes("date-fns"), name: "date-fns" },
+  { test: (value) => value.includes("zod"), name: "zod" },
   { test: (value) => value.includes("hls.js"), name: "hls" },
+  { test: (value) => value.includes("swagger-ui"), name: "swagger" },
+  { test: (value) => value.includes("embla-carousel"), name: "carousel" },
+  { test: (value) => value.includes("recharts"), name: "recharts" },
 ];
 const deriveVendorChunkName = (id: string): string => {
   const normalizedId = id.replace(/\\/g, "/");
@@ -59,11 +69,10 @@ const buildManifest = async (): Promise<ManifestBuild> => {
     platform: "node",
     loader: {
       ".png": "file",
-      ".webp": "file",
     },
     assetNames: "icons/[name]-[hash]",
-    publicPath: basePath,
-    outdir: outDir,
+    publicPath: "/",
+    outdir: "dist",
   });
 
   const jsChunk = result.outputFiles.find((file) => file.path.endsWith(".js"));
@@ -89,7 +98,7 @@ const buildManifest = async (): Promise<ManifestBuild> => {
   const assets = result.outputFiles
     .filter((file) => !file.path.endsWith(".js"))
     .map((file) => {
-      const segments = file.path.split(`${outDir}/`);
+      const segments = file.path.split("dist/");
       const fileName = segments.length > 1 ? segments[1] : path.basename(file.path);
       return { fileName, source: file.contents };
     });
@@ -162,27 +171,18 @@ const manifestPlugin = () => {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: basePath,
+  base: "/",
   server: {
     host: "::",
     port: 8080,
   },
   plugins: [react(), manifestPlugin(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
-    alias: [
-      { find: "@", replacement: path.resolve(__dirname, "./src") },
-      { find: "react-router-dom", replacement: path.resolve(__dirname, "./src/lite-router") },
-      { find: "react/jsx-runtime", replacement: "preact/jsx-runtime" },
-      { find: "react/jsx-dev-runtime", replacement: "preact/jsx-dev-runtime" },
-      { find: "react-dom/client", replacement: "preact/compat/client" },
-      { find: "react-dom", replacement: "preact/compat" },
-      { find: "react", replacement: path.resolve(__dirname, "./src/preact-compat-shim") },
-    ],
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
   },
   build: {
-    outDir,
-    assetsDir: "assets",
-    emptyOutDir: true,
     rolldownOptions: {
       output: {
         advancedChunks: {
