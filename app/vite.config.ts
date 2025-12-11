@@ -7,26 +7,14 @@ import { Buffer } from "node:buffer";
 
 const manifestEntry = path.resolve(__dirname, "src/pwa/manifest.ts");
 const pwaAssetsDir = path.resolve(__dirname, "src/assets/pwa");
-const basePath = "/app/";
-const outDir = "dist/app";
-// Keep vendor chunk splitting stable as we migrate to Rolldown's advanced chunking.
+const basePath = "/";
+const outDir = "dist";
+// Keep vendor chunk splitting stable; trimmed to essentials.
 const chunkMatchers: Array<{ test: (value: string) => boolean; name: string }> = [
   { test: (value) => value.includes("react-dom") || value.includes("scheduler"), name: "react-dom" },
   { test: (value) => value.includes("/react/") || /react\/index\.js$/.test(value), name: "react" },
   { test: (value) => value.includes("react-router"), name: "router" },
-  { test: (value) => value.includes("@tanstack/react-query"), name: "tanstack" },
-  { test: (value) => value.includes("@radix-ui"), name: "radix" },
-  { test: (value) => value.includes("lucide-react"), name: "icons" },
-  { test: (value) => value.includes("sonner"), name: "sonner" },
-  { test: (value) => value.includes("cmdk"), name: "command" },
-  { test: (value) => value.includes("react-hook-form") || value.includes("@hookform"), name: "react-hook-form" },
-  { test: (value) => value.includes("react-day-picker"), name: "react-day-picker" },
-  { test: (value) => value.includes("date-fns"), name: "date-fns" },
-  { test: (value) => value.includes("zod"), name: "zod" },
   { test: (value) => value.includes("hls.js"), name: "hls" },
-  { test: (value) => value.includes("swagger-ui"), name: "swagger" },
-  { test: (value) => value.includes("embla-carousel"), name: "carousel" },
-  { test: (value) => value.includes("recharts"), name: "recharts" },
 ];
 const deriveVendorChunkName = (id: string): string => {
   const normalizedId = id.replace(/\\/g, "/");
@@ -71,6 +59,7 @@ const buildManifest = async (): Promise<ManifestBuild> => {
     platform: "node",
     loader: {
       ".png": "file",
+      ".webp": "file",
     },
     assetNames: "icons/[name]-[hash]",
     publicPath: basePath,
@@ -182,6 +171,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: [
       { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: "react-router-dom", replacement: path.resolve(__dirname, "./src/lite-router") },
       { find: "react/jsx-runtime", replacement: "preact/jsx-runtime" },
       { find: "react/jsx-dev-runtime", replacement: "preact/jsx-dev-runtime" },
       { find: "react-dom/client", replacement: "preact/compat/client" },

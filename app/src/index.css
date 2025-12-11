@@ -1,161 +1,128 @@
-@import 'tailwindcss';
-
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
-@layer base {
-  :root {
-    --background: 0 0% 0%;
-    --foreground: 120 100% 50%;
-
-    --card: 0 0% 5%;
-    --card-foreground: 120 100% 50%;
-
-    --popover: 0 0% 5%;
-    --popover-foreground: 120 100% 50%;
-
-    --primary: 120 100% 50%;
-    --primary-foreground: 0 0% 0%;
-
-    --secondary: 180 100% 50%;
-    --secondary-foreground: 0 0% 0%;
-
-    --muted: 0 0% 20%;
-    --muted-foreground: 0 0% 60%;
-
-    --accent: 300 100% 50%;
-    --accent-foreground: 0 0% 0%;
-
-    --destructive: 0 100% 50%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 120 100% 25%;
-    --input: 120 100% 25%;
-    --ring: 120 100% 50%;
-
-    --radius: 0rem;
-
-    --terminal-green: 120 100% 50%;
-    --terminal-cyan: 180 100% 50%;
-    --terminal-magenta: 300 100% 50%;
-    --terminal-yellow: 60 100% 50%;
-    --terminal-red: 0 100% 50%;
-    --terminal-blue: 240 100% 50%;
-    --terminal-white: 0 0% 90%;
-
-    --glow-green: 0 0 20px hsl(120 100% 50% / 0.5);
-    --glow-cyan: 0 0 20px hsl(180 100% 50% / 0.5);
-    --glow-magenta: 0 0 20px hsl(300 100% 50% / 0.5);
-    --glow-yellow: 0 0 20px hsl(60 100% 50% / 0.5);
-    --glow-red: 0 0 20px hsl(0 100% 50% / 0.5);
-  }
+* {
+  box-sizing: border-box;
 }
 
-@layer utilities {
-  .text-terminal-green {
-    color: hsl(var(--terminal-green));
-    text-shadow: var(--glow-green);
-  }
-
-  .text-terminal-cyan {
-    color: hsl(var(--terminal-cyan));
-    text-shadow: var(--glow-cyan);
-  }
-
-  .text-terminal-magenta {
-    color: hsl(var(--terminal-magenta));
-    text-shadow: var(--glow-magenta);
-  }
-
-  .text-terminal-yellow {
-    color: hsl(var(--terminal-yellow));
-    text-shadow: var(--glow-yellow);
-  }
-
-  .text-terminal-red {
-    color: hsl(var(--terminal-red));
-    text-shadow: var(--glow-red);
-  }
-
-  .text-terminal-white {
-    color: hsl(var(--terminal-white));
-  }
+:root {
+  color-scheme: dark;
 }
 
-@layer base {
-  *,
-  *::before,
-  *::after {
-    box-sizing: border-box;
-    border-color: hsl(var(--border));
-  }
-
-  html,
-  body,
-  #root {
-    height: 100%;
-  }
-
-  body {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    overflow-x: hidden;
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-family: "SFMono-Regular", ui-monospace, "Segoe UI Mono", "Roboto Mono", "Menlo", "Monaco",
-      "Courier New", monospace;
-    letter-spacing: 0;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-  }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #050505;
+  color: #c8f7d1;
+  font-family: "SFMono-Regular", ui-monospace, "Segoe UI Mono", "Roboto Mono", "Menlo", "Monaco",
+    "Courier New", monospace;
+  display: flex;
+  justify-content: center;
+  padding: 16px;
 }
 
-@layer utilities {
-  @keyframes blink {
+a {
+  color: #76f7b0;
+  text-decoration: none;
+}
 
-    0%,
-    49% {
-      opacity: 1;
-    }
+a:hover {
+  text-decoration: underline;
+}
 
-    50%,
-    100% {
-      opacity: 0;
-    }
-  }
+.page {
+  width: min(720px, 100%);
+}
 
-  .cursor-blink {
-    animation: blink 1s infinite;
-  }
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #173121;
+  border-radius: 8px;
+  background: #090f0c;
+  margin-bottom: 12px;
+}
 
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
+.brand {
+  font-weight: 700;
+  color: #0bff96;
+}
 
-  .focus\:not-sr-only:focus {
-    position: static;
-    width: auto;
-    height: auto;
-    padding: inherit;
-    margin: inherit;
-    overflow: visible;
-    clip: auto;
-    white-space: normal;
-  }
+.nav {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
-  .font-mono {
-    letter-spacing: 0;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-  }
+.main {
+  display: grid;
+}
+
+.card {
+  border: 1px solid #173121;
+  background: #0a0d0b;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px #000;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+
+.list li {
+  margin-bottom: 6px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #1f9c66;
+  background: #0c120e;
+  color: #9df7c4;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:hover {
+  background: #0f1812;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+  color: #7fe3aa;
+}
+
+.field input {
+  padding: 8px;
+  background: #090f0c;
+  border: 1px solid #1f9c66;
+  border-radius: 6px;
+  color: #c8f7d1;
+}
+
+.audio {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.code {
+  background: #0b0f0d;
+  border: 1px dashed #1f9c66;
+  padding: 10px;
+  border-radius: 6px;
+  color: #b9f5cb;
+  overflow: auto;
+}
+
+.muted {
+  color: #7aa989;
 }
