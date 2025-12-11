@@ -104,7 +104,8 @@ All colors MUST be HSL.
     overflow-x: hidden;
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: "Fira Code", "Courier New", monospace;
+    font-family: "SFMono-Regular", ui-monospace, "Segoe UI Mono", "Roboto Mono", "Menlo", "Monaco",
+      "Courier New", monospace;
     letter-spacing: 0;
     white-space: pre-wrap;
     overflow-wrap: break-word;

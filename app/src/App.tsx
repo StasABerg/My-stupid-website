@@ -46,7 +46,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter basename="/app">
         <KonamiListener />
         <Suspense fallback={<RouteLoader />}>
           <Routes>

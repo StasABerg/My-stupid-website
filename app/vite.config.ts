@@ -7,6 +7,8 @@ import { Buffer } from "node:buffer";
 
 const manifestEntry = path.resolve(__dirname, "src/pwa/manifest.ts");
 const pwaAssetsDir = path.resolve(__dirname, "src/assets/pwa");
+const basePath = "/app/";
+const outDir = "dist/app";
 // Keep vendor chunk splitting stable as we migrate to Rolldown's advanced chunking.
 const chunkMatchers: Array<{ test: (value: string) => boolean; name: string }> = [
   { test: (value) => value.includes("react-dom") || value.includes("scheduler"), name: "react-dom" },
@@ -71,8 +73,8 @@ const buildManifest = async (): Promise<ManifestBuild> => {
       ".png": "file",
     },
     assetNames: "icons/[name]-[hash]",
-    publicPath: "/",
-    outdir: "dist",
+    publicPath: basePath,
+    outdir: outDir,
   });
 
   const jsChunk = result.outputFiles.find((file) => file.path.endsWith(".js"));
@@ -98,7 +100,7 @@ const buildManifest = async (): Promise<ManifestBuild> => {
   const assets = result.outputFiles
     .filter((file) => !file.path.endsWith(".js"))
     .map((file) => {
-      const segments = file.path.split("dist/");
+      const segments = file.path.split(`${outDir}/`);
       const fileName = segments.length > 1 ? segments[1] : path.basename(file.path);
       return { fileName, source: file.contents };
     });
@@ -171,18 +173,26 @@ const manifestPlugin = () => {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: "/",
+  base: basePath,
   server: {
     host: "::",
     port: 8080,
   },
   plugins: [react(), manifestPlugin(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: "react/jsx-runtime", replacement: "preact/jsx-runtime" },
+      { find: "react/jsx-dev-runtime", replacement: "preact/jsx-dev-runtime" },
+      { find: "react-dom/client", replacement: "preact/compat/client" },
+      { find: "react-dom", replacement: "preact/compat" },
+      { find: "react", replacement: path.resolve(__dirname, "./src/preact-compat-shim") },
+    ],
   },
   build: {
+    outDir,
+    assetsDir: "assets",
+    emptyOutDir: true,
     rolldownOptions: {
       output: {
         advancedChunks: {
