@@ -13,10 +13,7 @@ export function use<T>(value: T): T {
   return value;
 }
 
-export function useOptimistic<S, A = unknown>(
-  state: S,
-  _apply?: (currentState: S, action: A) => S,
-): [S, (action: A) => void] {
+export function useOptimistic<S>(state: S): [S, () => void] {
   const dispatcher = useMemo(() => () => undefined, []);
   return [state, dispatcher];
 }

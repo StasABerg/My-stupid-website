@@ -1,14 +1,7 @@
-import { FunctionalComponent, h } from "preact";
+import { FunctionalComponent } from "preact";
 import { createContext } from "preact";
-import { useContext, useMemo } from "preact/hooks";
-import {
-  Router as WouterRouter,
-  Route as WouterRoute,
-  Switch as WouterSwitch,
-  Link as WouterLink,
-  useLocation as useWouterLocation,
-  useRoute as useWouterRoute,
-} from "wouter-preact";
+import { useContext } from "preact/hooks";
+import { Router as WouterRouter, Switch as WouterSwitch, Link as WouterLink, useLocation as useWouterLocation, useRoute as useWouterRoute } from "wouter-preact";
 
 type PathParams = Record<string, string>;
 
