@@ -58,7 +58,7 @@ export const useStations = (apiBase: string): StationsResult => {
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Station[] | null>(null);
 
-  const fetchStations = async () => {
+  const fetchStations = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -77,19 +77,16 @@ export const useStations = (apiBase: string): StationsResult => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiBase]);
 
   useEffect(() => {
     void fetchStations();
-  }, []);
+  }, [fetchStations]);
 
-  return useMemo(
-    () => ({
-      stations,
-      loading,
-      error,
-      refresh: () => void fetchStations(),
-    }),
-    [stations, loading, error],
-  );
+  return {
+    stations,
+    loading,
+    error,
+    refresh: () => void fetchStations(),
+  };
 };

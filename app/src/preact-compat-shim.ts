@@ -1,12 +1,12 @@
-// Bridge React imports to preact/compat while filling gaps for React 19-only hooks.
-// use() and useOptimistic() are stubbed since this app doesn't rely on them.
-import preactCompat, { useMemo } from "preact/compat";
+// Bridge React imports to preact/compat and stub React 19-only hooks we don't use.
+import preactCompat from "preact/compat";
+import { useMemo } from "preact/hooks";
 
 export * from "preact/compat";
 export default preactCompat;
 
 export function use<T>(value: T): T {
-  // Pass through synchronous values; reject promises since suspense for data isn't wired here.
+  // Pass through synchronous values only.
   if (value && typeof (value as unknown as { then?: unknown }).then === "function") {
     throw new Error("Suspense data fetching via use() is not supported in this build.");
   }

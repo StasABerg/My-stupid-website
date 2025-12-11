@@ -1,5 +1,5 @@
-import icon192 from "../assets/pwa/icon-192.png";
-import icon512 from "../assets/pwa/icon-512.png";
+import icon192 from "../assets/pwa/icon-192.webp";
+import icon512 from "../assets/pwa/icon-512.webp";
 
 const manifest = {
   name: "Gitgud Radio",
@@ -15,13 +15,13 @@ const manifest = {
     {
       src: icon192,
       sizes: "192x192",
-      type: "image/png",
+      type: "image/webp",
       purpose: "any maskable",
     },
     {
       src: icon512,
       sizes: "512x512",
-      type: "image/png",
+      type: "image/webp",
       purpose: "any maskable",
     },
   ],

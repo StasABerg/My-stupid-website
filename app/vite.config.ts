@@ -69,6 +69,7 @@ const buildManifest = async (): Promise<ManifestBuild> => {
     platform: "node",
     loader: {
       ".png": "file",
+      ".webp": "file",
     },
     assetNames: "icons/[name]-[hash]",
     publicPath: "/",
@@ -169,6 +170,14 @@ const manifestPlugin = () => {
   };
 };
 
+const stripModulePreload = () => ({
+  name: "strip-modulepreload",
+  enforce: "post" as const,
+  transformIndexHtml(html: string) {
+    return html.replace(/<link rel="modulepreload"[^>]+>\s*/g, "");
+  },
+});
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   base: "/",
@@ -176,11 +185,18 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
-  plugins: [react(), manifestPlugin(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [react(), manifestPlugin(), stripModulePreload(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: "react/jsx-runtime", replacement: "preact/jsx-runtime" },
+      { find: "react/jsx-dev-runtime", replacement: "preact/jsx-dev-runtime" },
+      { find: "react-dom/test-utils", replacement: "preact/test-utils" },
+      { find: "react-dom/client", replacement: "preact/compat/client" },
+      { find: "react-dom", replacement: "preact/compat" },
+      { find: "react", replacement: path.resolve(__dirname, "./src/preact-compat-shim") },
+      { find: "react-router-dom", replacement: path.resolve(__dirname, "./src/lite-router") },
+    ],
   },
   build: {
     rolldownOptions: {

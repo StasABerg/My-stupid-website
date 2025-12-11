@@ -1,6 +1,4 @@
 import { Suspense, lazy } from "react";
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import RouteLoader from "@/components/route-loader";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -24,6 +22,8 @@ const GitGudPage = lazy(() => import("./pages/GitGud"));
 const MotivationPage = lazy(() => import("./pages/Motivation"));
 const HowToIndexPage = lazy(() => import("./pages/how-to/HowToIndex"));
 const HowToTopicPage = lazy(() => import("./pages/how-to/HowToTopic"));
+const Toaster = lazy(() => import("@/components/ui/toaster").then((m) => ({ default: m.Toaster })));
+const Sonner = lazy(() => import("@/components/ui/sonner").then((m) => ({ default: m.Toaster })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,8 +44,10 @@ const KonamiListener = () => {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
-      <Sonner />
+      <Suspense fallback={null}>
+        <Toaster />
+        <Sonner />
+      </Suspense>
       <BrowserRouter>
         <KonamiListener />
         <Suspense fallback={<RouteLoader />}>
