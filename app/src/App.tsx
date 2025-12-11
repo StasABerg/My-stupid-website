@@ -1,7 +1,5 @@
 import { Suspense, lazy } from "react";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import RouteLoader from "@/components/route-loader";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { useKonamiCode } from "@/hooks/useKonamiCode";
 
@@ -22,18 +20,6 @@ const GitGudPage = lazy(() => import("./pages/GitGud"));
 const MotivationPage = lazy(() => import("./pages/Motivation"));
 const HowToIndexPage = lazy(() => import("./pages/how-to/HowToIndex"));
 const HowToTopicPage = lazy(() => import("./pages/how-to/HowToTopic"));
-const Toaster = lazy(() => import("@/components/ui/toaster").then((m) => ({ default: m.Toaster })));
-const Sonner = lazy(() => import("@/components/ui/sonner").then((m) => ({ default: m.Toaster })));
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      gcTime: 1000 * 60 * 30,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
 
 const KonamiListener = () => {
   const navigate = useNavigate();
@@ -42,39 +28,31 @@ const KonamiListener = () => {
 };
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Suspense fallback={null}>
-        <Toaster />
-        <Sonner />
-      </Suspense>
-      <BrowserRouter>
-        <KonamiListener />
-        <Suspense fallback={<RouteLoader />}>
-          <Routes>
-            <Route path="/" element={<IndexPage />} />
-            <Route path="/documents" element={<DocumentsPage />} />
-            <Route path="/games" element={<GamesPage />} />
-            <Route path="/games/do-nothing" element={<DoNothingGamePage />} />
-            <Route path="/terminal" element={<TerminalPage />} />
-            <Route path="/terminal/docs" element={<TerminalDocsPage />} />
-            <Route path="/radio" element={<RadioPage />} />
-            <Route path="/radio/docs" element={<RadioDocsPage />} />
-            <Route path="/gateway/docs" element={<GatewayDocsPage />} />
-            <Route path="/swagger" element={<SwaggerDirectoryPage />} />
-            <Route path="/konami" element={<KonamiPage />} />
-            <Route path="/motivation" element={<MotivationPage />} />
-            <Route path="/begud" element={<BegudPage />} />
-            <Route path="/gitgud" element={<GitGudPage />} />
-            <Route path="/how-to" element={<HowToIndexPage />} />
-            <Route path="/how-to/:topic" element={<HowToTopicPage />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <BrowserRouter>
+    <KonamiListener />
+    <Suspense fallback={<RouteLoader />}>
+      <Routes>
+        <Route path="/" element={<IndexPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
+        <Route path="/games" element={<GamesPage />} />
+        <Route path="/games/do-nothing" element={<DoNothingGamePage />} />
+        <Route path="/terminal" element={<TerminalPage />} />
+        <Route path="/terminal/docs" element={<TerminalDocsPage />} />
+        <Route path="/radio" element={<RadioPage />} />
+        <Route path="/radio/docs" element={<RadioDocsPage />} />
+        <Route path="/gateway/docs" element={<GatewayDocsPage />} />
+        <Route path="/swagger" element={<SwaggerDirectoryPage />} />
+        <Route path="/konami" element={<KonamiPage />} />
+        <Route path="/motivation" element={<MotivationPage />} />
+        <Route path="/begud" element={<BegudPage />} />
+        <Route path="/gitgud" element={<GitGudPage />} />
+        <Route path="/how-to" element={<HowToIndexPage />} />
+        <Route path="/how-to/:topic" element={<HowToTopicPage />} />
+        {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
+  </BrowserRouter>
 );
 
 export default App;

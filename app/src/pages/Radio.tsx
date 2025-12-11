@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   FilterPanel,
   PresetButtons,
@@ -17,13 +18,23 @@ import {
   StatusFooter,
 } from "@/components/Radio";
 import { AlertDialogLite } from "@/components/ui/alert-dialog-lite";
-import { toast } from "@/components/ui/use-toast";
+import { Toaster, toast } from "sonner";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
 import { useRadioFavorites } from "@/hooks/useRadioFavorites";
 import { authorizedFetch, ensureGatewaySession } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { logger } from "@/lib/logger";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 30,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 type HlsModule = typeof import("hls.js/dist/hls.light.min.js");
 type HlsConstructor = HlsModule["default"];
@@ -1268,4 +1279,11 @@ const Radio = () => {
   );
 };
 
-export default Radio;
+const RadioPage = () => (
+  <QueryClientProvider client={queryClient}>
+    <Radio />
+    <Toaster />
+  </QueryClientProvider>
+);
+
+export default RadioPage;

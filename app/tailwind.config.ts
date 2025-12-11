@@ -1,6 +1,5 @@
 import type { Config } from "tailwindcss";
 import animate from "tailwindcss-animate";
-import plugin from "tailwindcss/plugin";
 
 const terminalColors = {
   green: "hsl(var(--terminal-green))",
@@ -64,16 +63,6 @@ export default {
         terminal: {
           ...terminalColors,
         },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
-        },
       },
       borderColor: {
         DEFAULT: "hsl(var(--border))",
@@ -97,7 +86,6 @@ export default {
         background: "hsl(var(--background))",
         popover: "hsl(var(--popover))",
         card: "hsl(var(--card))",
-        sidebar: "hsl(var(--sidebar-background))",
         ...Object.fromEntries(
           Object.entries(terminalColors).map(([key, value]) => [`terminal-${key}`, value]),
         ),
@@ -111,7 +99,6 @@ export default {
         "destructive-foreground": "hsl(var(--destructive-foreground))",
         "popover-foreground": "hsl(var(--popover-foreground))",
         "card-foreground": "hsl(var(--card-foreground))",
-        "sidebar-foreground": "hsl(var(--sidebar-foreground))",
         ...Object.fromEntries(
           Object.entries(terminalColors).map(([key, value]) => [`terminal-${key}`, value]),
         ),
@@ -160,21 +147,5 @@ export default {
       },
     },
   },
-  plugins: [
-    animate,
-    plugin(function ({ addUtilities }) {
-      const widthUtilities = Object.fromEntries(
-        Array.from({ length: 101 }, (_, i) => [`.w-pct-${i}`, { width: `${i}%` }]),
-      );
-      const translateUtilities = Object.fromEntries(
-        Array.from({ length: 101 }, (_, i) => [`.translate-pct-${i}`, { transform: `translateX(-${100 - i}%)` }]),
-      );
-      addUtilities(widthUtilities);
-      addUtilities(translateUtilities);
-    }),
-  ],
-  safelist: [
-    ...Array.from({ length: 101 }, (_, i) => `w-pct-${i}`),
-    ...Array.from({ length: 101 }, (_, i) => `translate-pct-${i}`),
-  ],
+  plugins: [animate],
 } satisfies Config;
