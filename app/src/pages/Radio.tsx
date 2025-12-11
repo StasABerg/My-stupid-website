@@ -266,6 +266,7 @@ const Radio = () => {
   const [presetStationOverride, setPresetStationOverride] = useState<StationOverride | null>(null);
   const [volume, setVolume] = useState(0.65);
   const [playbackKey, setPlaybackKey] = useState(0);
+  const [forceHls, setForceHls] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [midnightActive, setMidnightActive] = useState(() => isMidnightHour());
   const [mysteryStation, setMysteryStation] = useState<RadioStation>(() => randomMidnightStation());
@@ -365,6 +366,12 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const looksLikeHls = useMemo(() => {
+    if (!resolvedStreamUrl) return false;
+    const lower = resolvedStreamUrl.toLowerCase();
+    return lower.includes("m3u8") || lower.endsWith(".m3u8") || lower.includes("format=hls");
+  }, [resolvedStreamUrl]);
+  const shouldUseHls = activeStation.hls || looksLikeHls || forceHls;
   const secretEmbedUrl = useMemo(
     () => buildSecretEmbedUrl(activeStation.id),
     [activeStation.id],
@@ -579,6 +586,7 @@ const Radio = () => {
     if (index < 0 || index >= displayStations.length) {
       return;
     }
+    setForceHls(false);
     setPresetStationOverride(null);
     setSelectedIndex(index);
   };
@@ -616,6 +624,7 @@ const Radio = () => {
       return;
     }
 
+    setForceHls(false);
     const indexInDirectory = displayStations.findIndex((station) => station.id === stationId);
     if (indexInDirectory !== -1) {
       setPresetStationOverride(null);
@@ -698,6 +707,7 @@ const Radio = () => {
       await removeFavorite(stationId);
       if (sanitizedPresetStationOverride?.id === stationId) {
         setPresetStationOverride(null);
+        setForceHls(false);
       }
     } catch (error) {
       const message =
@@ -814,12 +824,6 @@ const Radio = () => {
   }, [clearReconnectTimer]);
 
   useEffect(() => {
-    if (!resolvedStreamUrl) {
-      resetReconnectAttempts();
-    }
-  }, [resolvedStreamUrl, resetReconnectAttempts]);
-
-  useEffect(() => {
     resetReconnectAttempts();
   }, [activeStation.id, resetReconnectAttempts]);
 
@@ -838,6 +842,9 @@ const Radio = () => {
     const resumeEvents: Array<keyof HTMLMediaElementEventMap> = ["playing", "canplay"];
 
     const handleRecoverable = (event: Event) => {
+      if (!shouldUseHls && !forceHls && event.type === "error") {
+        setForceHls(true);
+      }
       schedulePlaybackRetry(event.type, { immediate: event.type === "error" });
     };
 
@@ -860,7 +867,7 @@ const Radio = () => {
         element.removeEventListener(eventType, handleResume);
       }
     };
-  }, [schedulePlaybackRetry, resetReconnectAttempts]);
+  }, [forceHls, schedulePlaybackRetry, resetReconnectAttempts, shouldUseHls]);
 
   useEffect(() => {
     const element = audioRef.current;
@@ -883,7 +890,7 @@ const Radio = () => {
       return () => {};
     }
 
-    if (activeStation.hls) {
+    if (shouldUseHls) {
       let cancelled = false;
       let cleanup: (() => void) | undefined;
 
@@ -982,7 +989,7 @@ const Radio = () => {
       element.removeAttribute("src");
       element.load();
     };
-  }, [activeStation.hls, playbackKey, resolvedStreamUrl, schedulePlaybackRetry]);
+  }, [playbackKey, resolvedStreamUrl, schedulePlaybackRetry, shouldUseHls]);
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {

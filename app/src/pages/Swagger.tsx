@@ -26,10 +26,10 @@ const swaggerEntries = [
 const todayLabel = formatLsDate(new Date());
 
 const SwaggerDirectory = () => (
-  <div className="min-h-screen bg-black text-terminal-white">
-    <TerminalWindow>
+  <div className="h-screen bg-black text-terminal-white">
+    <TerminalWindow aria-label="Swagger directory">
       <TerminalHeader displayCwd="~/swagger" />
-      <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm">
+      <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm space-y-4">
         <TerminalPrompt
           user="sandbox"
           host="gitgud.zip"
@@ -37,7 +37,7 @@ const SwaggerDirectory = () => (
           command={(
             <Link
               to="/"
-              className="focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
             >
               cd ..
             </Link>
@@ -45,14 +45,14 @@ const SwaggerDirectory = () => (
         />
 
         <TerminalPrompt command="ls -la" />
-        <div className="mt-2 space-y-2 pl-2 sm:pl-4">
+        <div className="space-y-2 pl-2 sm:pl-4">
           {swaggerEntries.map((entry) => (
             <div key={entry.label} className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
-              <span className="hidden sm:inline text-terminal-cyan">-rw-r--r-- 1 user user 4096 {todayLabel}</span>
+              <span className="hidden sm:inline text-terminal-white">-rw-r--r-- 1 user user 4096 {todayLabel}</span>
               {entry.available ? (
                 <Link
                   to={entry.path}
-                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
                 >
                   {entry.label}
                 </Link>

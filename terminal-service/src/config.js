@@ -46,7 +46,7 @@ export const config = {
     "",
     "Commands run inside an isolated sandbox with no network access.",
   ],
-  motdVirtualPath: "/etc/motd",
+  motdVirtualPath: process.env.MOTD_PATH ?? "",
   lsAllowedFlags: ["-a", "-l", "-la", "-al", "-lh", "-hl", "-lah", "-hal"],
   unameAllowedFlags: ["-a", "-s", "-r", "-m"],
   allowedOrigins,
