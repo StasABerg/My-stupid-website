@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { FunctionalComponent, h } from "preact";
 import { createContext } from "preact";
 import { useContext } from "preact/hooks";

@@ -25,79 +25,57 @@ const GitGud = () => {
   }, []);
 
   const textBar = useMemo(() => {
-    const total = 50;
+    const total = 36;
     const pct = clampPercent(progress);
     const filled = Math.max(0, Math.min(total, Math.round((pct / 100) * total)));
-    return `[${"#".repeat(filled)}${".".repeat(total - filled)}]`;
+    return `[${"#".repeat(filled)}${".".repeat(total - filled)}] ${pct}%`;
   }, [progress]);
 
   return (
-    <TerminalWindow aria-label="GitGud training terminal" className="bg-black">
-      <TerminalHeader displayCwd="/git/gud" label="gitgud@ops:/git/gud — training sequence" />
-      <div className="flex-1 overflow-auto bg-gradient-to-b from-black via-[#050910] to-black p-4 sm:p-6 text-terminal-white font-mono">
-        <TerminalPrompt command="git gud --run --mode=montage" />
+    <div className="h-screen bg-black">
+      <TerminalWindow aria-label="GitGud training terminal">
+        <TerminalHeader displayCwd="~/gitgud" />
+        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm text-terminal-white flex-1 overflow-y-auto space-y-4">
+          <TerminalPrompt command="git gud --run --mode=montage" />
 
-        <div className="mt-3 space-y-3 text-xs sm:text-sm text-terminal-white/80">
-          <p className="text-terminal-cyan">Status feed:</p>
-          <div className="rounded-md border border-terminal-green/30 bg-black/70 p-4 shadow-[0_0_40px_rgba(0,255,132,0.15)]">
-            <div className="flex items-center justify-between text-terminal-white/80">
-              <span className="text-terminal-cyan">progress</span>
-              <span className="text-terminal-yellow tracking-[0.2em] text-[0.7rem] sm:text-xs">
-                {progress.toFixed(1)}%
-              </span>
-            </div>
-            <div className="mt-3 font-mono text-[0.75rem] sm:text-xs text-terminal-green bg-black/80 border border-terminal-green/40 px-2 py-1">
-              {textBar}
-            </div>
-            <p className="mt-3 text-[0.7rem] sm:text-xs text-terminal-white/65">
-              Compilation of life choices in progress… reaching 100% is intentionally impossible.
-            </p>
+          <div className="space-y-1">
+            <p className="text-terminal-cyan">status feed</p>
+            <p className="text-terminal-green">{textBar}</p>
+            <p className="text-terminal-white/70">Compilation of life choices in progress… reaching 100% is intentionally impossible.</p>
+            <p className="text-terminal-white/70">stage: training_loop · mood: resigned optimism · operator: you</p>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-3 text-[0.7rem] sm:text-xs">
-            <div className="rounded border border-terminal-green/30 bg-black/70 px-3 py-2">
-              <p className="text-terminal-cyan/90">stage</p>
-              <p className="text-terminal-yellow">training_loop</p>
-            </div>
-            <div className="rounded border border-terminal-green/30 bg-black/70 px-3 py-2">
-              <p className="text-terminal-cyan/90">mood</p>
-              <p className="text-terminal-green">resigned optimism</p>
-            </div>
-            <div className="rounded border border-terminal-green/30 bg-black/70 px-3 py-2">
-              <p className="text-terminal-cyan/90">operator</p>
-              <p className="text-terminal-magenta">you</p>
-            </div>
-          </div>
-
-          <TerminalPrompt command="tail -f /var/log/gitgud.log" className="mt-4" />
-          <div className="space-y-1 text-[0.7rem] sm:text-xs text-terminal-white/75">
+          <TerminalPrompt command="tail -f /var/log/gitgud.log" />
+          <div className="space-y-1 text-terminal-white/75">
             <p>[ok] linked caffeine to build pipeline</p>
             <p>[warn] impostor syndrome rising; ignoring for now</p>
             <p>[info] rerouting patience to /dev/null</p>
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-4 text-[0.7rem] sm:text-xs">
+          <div className="space-y-2">
+            <TerminalPrompt command="watch progress" />
+            <p className="text-terminal-white/60 text-[0.8rem]">
+              █ recalculating destiny <TerminalCursor className="ml-1" />
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-4 pt-2">
             <Link
               to="/begud"
-              className="rounded border border-terminal-green/50 px-3 py-2 text-terminal-cyan hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+              className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
             >
               cd /begud
             </Link>
             <Link
               to="/"
-              className="rounded border border-terminal-green/50 px-3 py-2 text-terminal-yellow hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
             >
               cd ..
             </Link>
           </div>
-
-          <div className="mt-6 text-terminal-white/60 text-[0.7rem] sm:text-xs">
-            <TerminalPrompt command="watch progress" className="mb-2" />
-            <span>█ recalculating destiny <TerminalCursor className="ml-1" /></span>
-          </div>
         </div>
-      </div>
-    </TerminalWindow>
+      </TerminalWindow>
+    </div>
   );
 };
 
