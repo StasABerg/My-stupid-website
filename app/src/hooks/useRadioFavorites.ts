@@ -1,5 +1,4 @@
-import { useCallback, useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { authorizedFetch } from "@/lib/gateway-session";
 import { getFavoritesSessionId } from "@/lib/favorites-session";
@@ -12,12 +11,10 @@ type FavoritesResponse = {
   };
 };
 
-type FavoritesQueryData = FavoritesResponse;
-
-const FAVORITES_QUERY_KEY = ["radio", "favorites"];
 const DEFAULT_MAX_SLOTS = 6;
 const FAVORITES_ENDPOINT = `${RADIO_API_BASE}/favorites`;
 const FAVORITES_SESSION_HEADER = "X-Favorites-Session";
+const STALE_TIME = 30 * 1000; // 30 seconds
 
 function withFavoritesSession(init: RequestInit = {}): RequestInit {
   const headers = new Headers(init.headers ?? {});
@@ -86,93 +83,134 @@ async function fetchFavorites(signal?: AbortSignal): Promise<FavoritesResponse> 
 }
 
 export function useRadioFavorites() {
-  const queryClient = useQueryClient();
+  const [data, setData] = useState<FavoritesResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [lastFetched, setLastFetched] = useState<number>(0);
 
-  const favoritesQuery = useQuery<FavoritesQueryData>({
-    queryKey: FAVORITES_QUERY_KEY,
-    queryFn: ({ signal }) => fetchFavorites(signal),
-    staleTime: 1000 * 30,
-  });
+  // Fetch favorites
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const result = await fetchFavorites(signal);
+      if (!signal?.aborted) {
+        setData(result);
+        setLastFetched(Date.now());
+        setError(null);
+      }
+    } catch (err) {
+      if (!signal?.aborted) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+  }, []);
 
-  const setFavoritesCache = useCallback(
-    (data: FavoritesResponse) => {
-      queryClient.setQueryData(FAVORITES_QUERY_KEY, data);
-    },
-    [queryClient],
-  );
+  // Initial fetch
+  useEffect(() => {
+    const controller = new AbortController();
 
-  const addFavoriteMutation = useMutation<
-    FavoritesResponse,
-    Error,
-    { stationId: string; slot?: number }
-  >({
-    mutationFn: async ({ stationId, slot }) => {
-      const url = `${FAVORITES_ENDPOINT}/${encodeURIComponent(stationId)}`;
-      const init: RequestInit =
-        typeof slot === "number"
-          ? {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ slot }),
-            }
-          : { method: "PUT" };
+    setIsLoading(true);
+    fetchData(controller.signal).finally(() => {
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+      }
+    });
 
-      const response = await authorizedFetch(url, withFavoritesSession(init));
-      return parseFavoritesResponse(response);
-    },
-    onSuccess: setFavoritesCache,
-  });
+    return () => controller.abort();
+  }, [fetchData]);
 
-  const removeFavoriteMutation = useMutation<FavoritesResponse, Error, { stationId: string }>({
-    mutationFn: async ({ stationId }) => {
-      const url = `${FAVORITES_ENDPOINT}/${encodeURIComponent(stationId)}`;
-      const response = await authorizedFetch(url, withFavoritesSession({ method: "DELETE" }));
-      return parseFavoritesResponse(response);
-    },
-    onSuccess: setFavoritesCache,
-  });
+  // Refetch function (for manual refresh)
+  const refetch = useCallback(async () => {
+    setIsFetching(true);
+    await fetchData();
+    setIsFetching(false);
+  }, [fetchData]);
 
-  const favorites = useMemo(
-    () => favoritesQuery.data?.items ?? [],
-    [favoritesQuery.data?.items],
-  );
-  const maxSlots = favoritesQuery.data?.meta.maxSlots ?? DEFAULT_MAX_SLOTS;
-
-  const favoriteIds = useMemo(() => new Set(favorites.map((station) => station.id)), [favorites]);
-
+  // Add favorite
   const addFavorite = useCallback(
-    async (stationId: string, slot?: number) => addFavoriteMutation.mutateAsync({ stationId, slot }),
-    [addFavoriteMutation],
-  );
+    async (stationId: string, slot?: number) => {
+      setIsSaving(true);
+      setError(null);
 
-  const removeFavorite = useCallback(
-    async (stationId: string) => removeFavoriteMutation.mutateAsync({ stationId }),
-    [removeFavoriteMutation],
-  );
+      try {
+        const url = `${FAVORITES_ENDPOINT}/${encodeURIComponent(stationId)}`;
+        const init: RequestInit =
+          typeof slot === "number"
+            ? {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ slot }),
+              }
+            : { method: "PUT" };
 
-  const toggleFavorite = useCallback(
-    async (stationId: string, options?: { slot?: number }) => {
-      if (favoriteIds.has(stationId)) {
-        await removeFavoriteMutation.mutateAsync({ stationId });
-      } else {
-        await addFavoriteMutation.mutateAsync({ stationId, slot: options?.slot });
+        const response = await authorizedFetch(url, withFavoritesSession(init));
+        const result = await parseFavoritesResponse(response);
+
+        setData(result);
+        setLastFetched(Date.now());
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        setError(error);
+        throw error;
+      } finally {
+        setIsSaving(false);
       }
     },
-    [addFavoriteMutation, favoriteIds, removeFavoriteMutation],
+    []
   );
 
-  const isSaving = addFavoriteMutation.isPending || removeFavoriteMutation.isPending;
-  const error = favoritesQuery.error ?? addFavoriteMutation.error ?? removeFavoriteMutation.error ?? null;
+  // Remove favorite
+  const removeFavorite = useCallback(
+    async (stationId: string) => {
+      setIsSaving(true);
+      setError(null);
+
+      try {
+        const url = `${FAVORITES_ENDPOINT}/${encodeURIComponent(stationId)}`;
+        const response = await authorizedFetch(url, withFavoritesSession({ method: "DELETE" }));
+        const result = await parseFavoritesResponse(response);
+
+        setData(result);
+        setLastFetched(Date.now());
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        setError(error);
+        throw error;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    []
+  );
+
+  // Toggle favorite
+  const toggleFavorite = useCallback(
+    async (stationId: string, options?: { slot?: number }) => {
+      const isFavorite = data?.items.some((station) => station.id === stationId);
+
+      if (isFavorite) {
+        await removeFavorite(stationId);
+      } else {
+        await addFavorite(stationId, options?.slot);
+      }
+    },
+    [data?.items, addFavorite, removeFavorite]
+  );
+
+  const favorites = useMemo(() => data?.items ?? [], [data?.items]);
+  const maxSlots = data?.meta.maxSlots ?? DEFAULT_MAX_SLOTS;
+  const favoriteIds = useMemo(() => new Set(favorites.map((station) => station.id)), [favorites]);
 
   return {
     favorites,
     favoriteIds,
     maxSlots,
-    isLoading: favoritesQuery.isLoading,
-    isFetching: favoritesQuery.isFetching,
+    isLoading,
+    isFetching,
     isSaving,
     error,
-    refetch: favoritesQuery.refetch,
+    refetch,
     addFavorite,
     removeFavorite,
     toggleFavorite,
