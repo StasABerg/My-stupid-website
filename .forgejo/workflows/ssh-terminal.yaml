@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles('trivy-terminal-dockerfile.txt') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-dockerfile
           path: trivy-terminal-dockerfile.txt
@@ -94,7 +94,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles('trivy-terminal-helm.txt') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-helm
           path: trivy-terminal-helm.txt
@@ -158,7 +158,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Upload provenance
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: provenance-terminal-service
           path: provenance.json
@@ -189,7 +189,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles('trivy-terminal-image.txt') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-terminal-image
           path: trivy-terminal-image.txt

@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload scan results
         if: ${{ always() && hashFiles('trivy-repo-scan.txt') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-repository-scan
           path: trivy-repo-scan.txt

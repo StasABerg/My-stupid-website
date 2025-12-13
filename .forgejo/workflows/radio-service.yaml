@@ -60,7 +60,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles('trivy-radio-dockerfile.txt') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-dockerfile
           path: trivy-radio-dockerfile.txt
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles('trivy-radio-helm.txt') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-helm
           path: trivy-radio-helm.txt
@@ -155,7 +155,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Upload provenance
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: provenance-radio-service
           path: provenance.json
@@ -186,7 +186,7 @@ jobs:
 
       - name: Upload report artifact
         if: ${{ always() && hashFiles('trivy-radio-image.txt') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: trivy-radio-image
           path: trivy-radio-image.txt
