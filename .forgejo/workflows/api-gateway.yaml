@@ -136,17 +136,24 @@ jobs:
 
       - name: Generate provenance attestation
         id: provenance
+        env:
+          IMAGE_SHA: ${{ steps.out.outputs.sha }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          COMMIT_SHA: ${{ github.sha }}
+          GIT_REF: ${{ github.ref }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           ATTESTATION=$(cat << EOF
           {
-            "image": "${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/api-gateway-service:${{ steps.out.outputs.sha }}",
-            "digest": "${{ steps.build.outputs.digest }}",
+            "image": "${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/api-gateway-service:${IMAGE_SHA}",
+            "digest": "${BUILD_DIGEST}",
             "builder": "forgejo-actions",
             "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "commit": "${{ github.sha }}",
-            "ref": "${{ github.ref }}",
-            "workflow": "${{ github.workflow }}",
-            "run_id": "${{ github.run_id }}"
+            "commit": "${COMMIT_SHA}",
+            "ref": "${GIT_REF}",
+            "workflow": "${WORKFLOW_NAME}",
+            "run_id": "${RUN_ID}"
           }
           EOF
           )
@@ -171,10 +178,12 @@ jobs:
     steps:
       - name: Scan built image
         id: trivy
+        env:
+          IMAGE_SHA: ${{ needs.build.outputs.sha }}
         run: |
           set -euo pipefail
           mkdir -p "${TRIVY_CACHE_DIR}"
-          IMAGE="${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/api-gateway-service:${{ needs.build.outputs.sha }}"
+          IMAGE="${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/api-gateway-service:${IMAGE_SHA}"
           docker run --rm \
             -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
             -v "${GITHUB_WORKSPACE}:/workspace" \
@@ -208,21 +217,27 @@ jobs:
       - uses: azure/setup-helm@v4
 
       - name: Configure Kubeconfig
+        env:
+          KUBECONFIG_BASE64: ${{ secrets.KUBECONFIG }}
         run: |
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
+          echo "$KUBECONFIG_BASE64" | base64 -d > $HOME/kubeconfig
           chmod 600 $HOME/kubeconfig
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
 
       - name: Helm upgrade (dev - api gateway)
+        env:
+          IMAGE_SHA: ${{ needs.build.outputs.sha }}
         run: |
           helm upgrade --install my-stupid-website-api charts/api-gateway-service \
             -f charts/api-gateway-service/values-dev.yaml \
             --namespace my-stupid-website-dev --create-namespace \
-            --set-string image.tag=${{ needs.build.outputs.sha }} \
+            --set-string image.tag="${IMAGE_SHA}" \
             --rollback-on-failure --wait --kube-insecure-skip-tls-verify
 
       - name: Output deployment info
+        env:
+          IMAGE_SHA: ${{ needs.build.outputs.sha }}
         run: |
           echo "✅ Deployed to development"
-          echo "📦 Image: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/api-gateway-service:${{ needs.build.outputs.sha }}"
-          echo "🏷️  Tag for production: ${{ needs.build.outputs.sha }}"
+          echo "📦 Image: ${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/api-gateway-service:${IMAGE_SHA}"
+          echo "🏷️  Tag for production: ${IMAGE_SHA}"

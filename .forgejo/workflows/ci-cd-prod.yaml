@@ -27,18 +27,19 @@ jobs:
     runs-on: self-hosted
     steps:
       - name: Validate image tag format
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
         run: |
-          TAG="${{ github.event.inputs.image_tag }}"
-          echo "Validating tag: ${TAG}"
+          echo "Validating tag: ${IMAGE_TAG}"
 
           # Prevent deploying dangerous tags
-          if [[ "$TAG" == "latest" ]] || [[ "$TAG" == "dev" ]]; then
+          if [[ "$IMAGE_TAG" == "latest" ]] || [[ "$IMAGE_TAG" == "dev" ]]; then
             echo "❌ ERROR: Cannot deploy 'latest' or 'dev' tags to production"
             exit 1
           fi
 
           # Warn if not a commit SHA
-          if ! [[ "$TAG" =~ ^[a-f0-9]{40}$ ]]; then
+          if ! [[ "$IMAGE_TAG" =~ ^[a-f0-9]{40}$ ]]; then
             echo "⚠️  WARNING: Tag doesn't look like a commit SHA (expected 40 hex chars)"
             echo "    This is allowed but not recommended for production"
           fi
@@ -58,8 +59,10 @@ jobs:
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a  # v4
 
       - name: Configure Kubeconfig
+        env:
+          KUBECONFIG_BASE64: ${{ secrets.KUBECONFIG }}
         run: |
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
+          echo "$KUBECONFIG_BASE64" | base64 -d > $HOME/kubeconfig
           chmod 600 $HOME/kubeconfig
           echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
 
@@ -74,7 +77,11 @@ jobs:
 
       - name: Notify deployment success
         if: success() && secrets.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+          DEPLOYER: ${{ github.actor }}
         run: |
-          curl -fsSL -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+          curl -fsSL -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d '{"content":"✅ **Production deployment successful**\n**Service:** my-stupid-website\n**Tag:** `${{ github.event.inputs.image_tag }}`\n**Deployer:** ${{ github.actor }}"}'
+            -d "{\"content\":\"✅ **Production deployment successful**\\n**Service:** my-stupid-website\\n**Tag:** \`${IMAGE_TAG}\`\\n**Deployer:** ${DEPLOYER}\"}"
