@@ -1,4 +1,4 @@
-import { formatLsDate } from "@/lib/terminalFs";
+import { formatLsDate } from "@/lib/date-format";
 import { Link } from "react-router-dom";
 
 const todayLabel = formatLsDate(new Date());

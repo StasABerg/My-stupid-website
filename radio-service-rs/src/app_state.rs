@@ -46,6 +46,7 @@ pub struct AppState {
     pub stream_validator: StreamValidator,
     memory_cache: Arc<RwLock<Option<MemoryEntry>>>,
     cache_version: Arc<RwLock<Option<String>>>,
+    cache_client: Arc<crate::cache::CacheClient>,
     refresh_mutex: Arc<Mutex<()>>,
     rate_limiter: Arc<RateLimiter>,
     status_monitor: Arc<EventLoopMonitor>,
@@ -202,22 +203,22 @@ pub struct StatusSnapshot {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct CachedStationsPayload {
+pub struct CachedStationsPayload {
     #[serde(rename = "schemaVersion")]
-    schema_version: Option<SchemaVersionValue>,
+    pub schema_version: Option<SchemaVersionValue>,
     #[serde(rename = "updatedAt")]
-    updated_at: String,
-    source: Option<String>,
+    pub updated_at: String,
+    pub source: Option<String>,
     #[serde(default)]
-    requests: Vec<String>,
-    total: usize,
-    fingerprint: Option<String>,
-    stations: Vec<crate::stations::Station>,
+    pub requests: Vec<String>,
+    pub total: usize,
+    pub fingerprint: Option<String>,
+    pub stations: Vec<crate::stations::Station>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-enum SchemaVersionValue {
+pub enum SchemaVersionValue {
     Number(i32),
     String(String),
 }
@@ -263,6 +264,14 @@ impl AppState {
         let processed_cache = Arc::new(RwLock::new(None));
         let memory_cache = Arc::new(RwLock::new(None));
         let cache_version = Arc::new(RwLock::new(None));
+
+        // Initialize cache client with MessagePack + LZ4
+        let cache_client = Arc::new(crate::cache::CacheClient::new(
+            redis.clone(),
+            config.cache_key.clone(),
+            config.cache_ttl_seconds,
+        ));
+
         let refresh_mutex = Arc::new(Mutex::new(()));
         let rate_limiter = Arc::new(RateLimiter::new(100, Duration::from_secs(60)));
         let status_monitor = Arc::new(EventLoopMonitor::new());
@@ -286,6 +295,7 @@ impl AppState {
             stream_validator,
             memory_cache,
             cache_version,
+            cache_client,
             refresh_mutex,
             rate_limiter,
             status_monitor,
@@ -550,74 +560,15 @@ impl AppState {
     }
 
     async fn read_stations_from_cache(&self) -> anyhow::Result<Option<StationsPayload>> {
-        let mut conn = self.redis.get().await?;
-        let raw: Option<String> = conn.get(&self.config.cache_key).await?;
-        if let Some(raw) = raw {
-            match serde_json::from_str::<CachedStationsPayload>(&raw) {
-                Ok(cached) => match StationsPayload::try_from(cached) {
-                    Ok(payload) => return Ok(Some(payload)),
-                    Err(error) => {
-                        logger().warn(
-                            "cache.payload_invalid",
-                            json!({
-                                "error": format!("{:?}", error)
-                            }),
-                        );
-                    }
-                },
-                Err(error) => {
-                    logger().warn(
-                        "cache.parse_error",
-                        json!({
-                            "error": format!("{:?}", error)
-                        }),
-                    );
-                }
-            }
-        }
-        Ok(None)
+        self.cache_client.read().await
     }
 
     async fn write_stations_to_cache(&self, payload: &StationsPayload) -> anyhow::Result<()> {
         if self.config.cache_key.is_empty() {
             return Ok(());
         }
-        let mut conn = self.redis.get().await?;
-        let cached = CachedStationsPayload::from(payload);
-        let body = serde_json::to_string(&cached)?;
-
-        if let Some(existing) = conn
-            .get::<_, Option<String>>(&self.config.cache_key)
-            .await?
-        {
-            if self.cache_entry_matches(&existing, payload, &body) {
-                if self.config.cache_ttl_seconds > 0 {
-                    let _: () = conn
-                        .expire(&self.config.cache_key, self.config.cache_ttl_seconds as i64)
-                        .await?;
-                }
-                return Ok(());
-            }
-        }
-
-        let ttl = self.config.cache_ttl_seconds;
-        let station_count = payload.stations.len();
-        if self.config.cache_ttl_seconds > 0 {
-            conn.set_ex::<_, _, ()>(&self.config.cache_key, body, self.config.cache_ttl_seconds)
-                .await?;
-        } else {
-            conn.set::<_, _, ()>(&self.config.cache_key, body).await?;
-        }
-        logger().info(
-            "stations.cache.write",
-            json!({
-                "redisKey": self.config.cache_key,
-                "ttlSeconds": ttl,
-                "count": station_count,
-            }),
-        );
+        self.cache_client.write(payload).await?;
         self.update_cache_version(payload).await?;
-
         Ok(())
     }
 
@@ -723,26 +674,6 @@ impl AppState {
             self.config.allow_insecure_transports,
         )
         .map(|(payload, upgraded)| SanitizedPayload { payload, upgraded })
-    }
-
-    fn cache_entry_matches(
-        &self,
-        existing: &str,
-        payload: &StationsPayload,
-        serialized: &str,
-    ) -> bool {
-        if let Some(fingerprint) = payload.fingerprint.as_deref() {
-            if let Ok(existing_payload) = serde_json::from_str::<CachedStationsPayload>(existing) {
-                if let Ok(mut parsed) = StationsPayload::try_from(existing_payload) {
-                    if let Ok(parsed_fingerprint) = parsed.ensure_fingerprint() {
-                        if parsed_fingerprint == fingerprint {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        existing == serialized
     }
 
     pub async fn ping_redis(&self) -> anyhow::Result<()> {

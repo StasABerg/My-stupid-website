@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
-import { formatLsDate } from "@/lib/terminalFs";
+import { formatLsDate } from "@/lib/date-format";
 
 const swaggerEntries = [
   {

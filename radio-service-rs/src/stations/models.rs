@@ -41,7 +41,7 @@ pub struct StationCoordinates {
     pub lon: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StationsPayload {
     pub schema_version: Option<i32>,
     pub updated_at: DateTime<Utc>,

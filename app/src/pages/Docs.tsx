@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { formatLsDate } from "@/lib/terminalFs";
+import { formatLsDate } from "@/lib/date-format";
 import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
 
 const todayLabel = formatLsDate(new Date());

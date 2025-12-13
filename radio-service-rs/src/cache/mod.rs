@@ -1,3 +1,8 @@
+mod codec_msgpack;
+mod cache_client;
+
+pub use cache_client::CacheClient;
+
 use deadpool_redis::{Config as RedisConfig, CreatePoolError, Pool, Runtime};
 
 pub fn create_redis_pool(redis_url: &str) -> Result<Pool, CreatePoolError> {

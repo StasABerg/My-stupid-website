@@ -83,23 +83,33 @@ const FilterPanel = ({
       ))}
     </select>
 
-    <label
-      htmlFor="volume"
-      className="mt-6 block text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan"
-    >
-      Volume
-    </label>
-    <input
-      id="volume"
-      type="range"
-      min={0}
-      max={100}
-      value={Math.round(volume * 100)}
-      onChange={(event) => onVolumeChange(Number(event.target.value) / 100)}
-      className="mt-2 w-full accent-terminal-yellow"
-    />
-    <div className="mt-2 text-[0.6rem] text-terminal-white/70">
-      Level: {Math.round(volume * 100)}%
+    <div className="mt-6">
+      <span className="block text-[0.65rem] uppercase tracking-[0.25em] text-terminal-cyan">
+        Volume
+      </span>
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onVolumeChange(Math.max(0, volume - 0.1))}
+          disabled={volume <= 0}
+          className="border border-terminal-green/40 bg-black px-3 py-1 font-mono text-terminal-white hover:bg-terminal-green/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow disabled:opacity-30 disabled:cursor-not-allowed"
+          aria-label="Decrease volume"
+        >
+          -
+        </button>
+        <span className="flex-1 text-center text-[0.6rem] text-terminal-white/70">
+          {Math.round(volume * 100)}%
+        </span>
+        <button
+          type="button"
+          onClick={() => onVolumeChange(Math.min(1, volume + 0.1))}
+          disabled={volume >= 1}
+          className="border border-terminal-green/40 bg-black px-3 py-1 font-mono text-terminal-white hover:bg-terminal-green/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow disabled:opacity-30 disabled:cursor-not-allowed"
+          aria-label="Increase volume"
+        >
+          +
+        </button>
+      </div>
     </div>
   </fieldset>
 );
