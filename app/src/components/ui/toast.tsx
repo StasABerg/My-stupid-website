@@ -1,12 +1,5 @@
 import { useEffect, useState } from "react";
-import { toast as toastManager } from "@/lib/toast-manager";
-
-type Toast = {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info';
-  timestamp: number;
-};
+import { toast as toastManager, type Toast } from "@/lib/toast-manager";
 
 const ToastItem = ({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) => {
   const bgColor = {
