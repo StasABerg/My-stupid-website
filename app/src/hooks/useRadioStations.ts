@@ -162,10 +162,6 @@ export function useRadioStations(filters: StationFilters) {
 
   // Initial fetch
   useEffect(() => {
-    // Clear previous data when filters change
-    setPages([]);
-    setError(null);
-
     // Cancel previous request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -174,21 +170,28 @@ export function useRadioStations(filters: StationFilters) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    setIsLoading(true);
+    // Clear previous data and set loading state asynchronously
+    Promise.resolve().then(() => {
+      if (!controller.signal.aborted) {
+        setPages([]);
+        setError(null);
+        setIsLoading(true);
 
-    fetchStations(0, controller.signal)
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setPages([{ data, offset: 0 }]);
-          setIsLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setError(err);
-          setIsLoading(false);
-        }
-      });
+        fetchStations(0, controller.signal)
+          .then((data) => {
+            if (!controller.signal.aborted) {
+              setPages([{ data, offset: 0 }]);
+              setIsLoading(false);
+            }
+          })
+          .catch((err) => {
+            if (!controller.signal.aborted) {
+              setError(err);
+              setIsLoading(false);
+            }
+          });
+      }
+    });
 
     return () => {
       controller.abort();
@@ -211,7 +214,7 @@ export function useRadioStations(filters: StationFilters) {
     }, REFETCH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [fetchStations]); // Remove pages from deps
+  }, [fetchStations, pages.length]); // Add pages.length dependency
 
   // Fetch next page
   const fetchNextPage = useCallback(() => {
