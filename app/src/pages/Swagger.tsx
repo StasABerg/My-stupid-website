@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
+import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
 import { formatLsDate } from "@/lib/terminalFs";
 
 const swaggerEntries = [
@@ -30,21 +30,16 @@ const SwaggerDirectory = () => (
     <TerminalWindow aria-label="Swagger directory">
       <TerminalHeader displayCwd="~/swagger" />
       <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm space-y-4">
-        <TerminalPrompt
-          user="sandbox"
-          host="gitgud.zip"
-          path="~/swagger"
-          command={(
-            <Link
-              to="/"
-              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
-            >
-              cd ..
-            </Link>
-          )}
-        />
+        <TerminalPrompt path="~">
+          <Link
+            to="/"
+            className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+          >
+            cd ..
+          </Link>
+        </TerminalPrompt>
 
-        <TerminalPrompt command="ls -la" />
+        <TerminalPrompt path="~/swagger" command="ls -la" />
         <div className="space-y-2 pl-2 sm:pl-4">
           {swaggerEntries.map((entry) => (
             <div key={entry.label} className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
@@ -63,6 +58,18 @@ const SwaggerDirectory = () => (
             </div>
           ))}
         </div>
+
+        <TerminalPrompt path="~/swagger">
+          <Link
+            to="/"
+            className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+          >
+            cd ..
+          </Link>
+        </TerminalPrompt>
+        <TerminalPrompt path="~/swagger">
+          <TerminalCursor />
+        </TerminalPrompt>
       </div>
     </TerminalWindow>
   </div>

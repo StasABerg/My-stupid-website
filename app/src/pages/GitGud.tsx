@@ -36,6 +36,14 @@ const GitGud = () => {
       <TerminalWindow aria-label="GitGud training terminal">
         <TerminalHeader displayCwd="~/gitgud" />
         <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm text-terminal-white flex-1 overflow-y-auto space-y-4">
+          <TerminalPrompt path="~">
+            <Link
+              to="/"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
           <TerminalPrompt command="git gud --run --mode=montage" />
 
           <div className="space-y-1">
@@ -59,20 +67,26 @@ const GitGud = () => {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-4 pt-2">
+          <TerminalPrompt path="~/gitgud">
             <Link
               to="/begud"
               className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
             >
               cd /begud
             </Link>
+          </TerminalPrompt>
+
+          <TerminalPrompt path="~/gitgud">
             <Link
               to="/"
               className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
             >
               cd ..
             </Link>
-          </div>
+          </TerminalPrompt>
+          <TerminalPrompt path="~/gitgud">
+            <TerminalCursor />
+          </TerminalPrompt>
         </div>
       </TerminalWindow>
     </div>

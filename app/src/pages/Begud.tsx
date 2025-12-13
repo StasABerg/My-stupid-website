@@ -31,6 +31,14 @@ const Begud = () => {
       <TerminalWindow aria-label="BeGud training terminal">
         <TerminalHeader displayCwd="~/begud" />
         <div className="flex-1 overflow-auto p-4 sm:p-6 text-terminal-white font-mono text-xs sm:text-sm space-y-4">
+          <TerminalPrompt path="~">
+            <Link
+              to="/"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
           <TerminalPrompt command="watch -n2 /var/log/begud.log" />
 
           <div className="space-y-2 text-terminal-white/80">
@@ -55,20 +63,26 @@ const Begud = () => {
             <p>neurons recalibrating<TerminalCursor className="ml-1" /></p>
           </div>
 
-          <div className="flex flex-wrap gap-4 pt-2">
+          <TerminalPrompt path="~/begud">
             <Link
               to="/gitgud"
               className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
             >
               cd /gitgud
             </Link>
+          </TerminalPrompt>
+
+          <TerminalPrompt path="~/begud">
             <Link
               to="/"
               className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
             >
               cd ..
             </Link>
-          </div>
+          </TerminalPrompt>
+          <TerminalPrompt path="~/begud">
+            <TerminalCursor />
+          </TerminalPrompt>
         </div>
       </TerminalWindow>
     </div>

@@ -123,7 +123,7 @@ const SECRET_BROADCAST_VIDEOS: Record<
 > = {
   "midnight-rickroll": {
     embed:
-      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ&controls=0&modestbranding=1&rel=0",
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ&controls=0&modestbranding=1&rel=0&mute=0",
     watch: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     label: "80s Eternal Rick Broadcast",
   },
@@ -1076,13 +1076,23 @@ const Radio = () => {
                     <iframe
                       title="Secret Broadcast Feed"
                       src={secretEmbedUrl}
-                      allow="autoplay; encrypted-media"
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      referrerPolicy="strict-origin-when-cross-origin"
                       allowFullScreen
                       className="absolute inset-0 h-full w-full border border-terminal-green/30"
                     />
                   </div>
                   <p className="text-terminal-white/60 text-[0.65rem]">
                     {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].label}
+                    {" · "}
+                    <a
+                      href={SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].watch}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-terminal-yellow underline"
+                    >
+                      watch on YouTube
+                    </a>
                   </p>
                 </div>
               ) : null}

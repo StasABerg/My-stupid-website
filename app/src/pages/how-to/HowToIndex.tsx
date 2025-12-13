@@ -11,6 +11,14 @@ const HowToIndex = () => (
     <TerminalWindow>
       <TerminalHeader displayCwd="~/briefings" />
       <div className="p-4 sm:p-6 font-mono text-xs sm:text-sm text-terminal-white flex-1 overflow-y-auto space-y-4">
+        <TerminalPrompt path="~">
+          <Link
+            to="/"
+            className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+          >
+            cd ..
+          </Link>
+        </TerminalPrompt>
         <TerminalPrompt command="ls -la ./missions" />
         <div className="pl-2 sm:pl-4 space-y-2">
           {HOW_TO_TOPICS.map((topic) => (

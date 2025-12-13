@@ -11,6 +11,14 @@ const Documents = () => {
         <TerminalHeader displayCwd="~/documents" />
         
         <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm flex-1 overflow-y-auto">
+          <TerminalPrompt path="~">
+            <Link
+              to="/"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
           <TerminalPrompt path="~/documents" command="ls -la" />
 
           <div className="mb-4 pl-2 sm:pl-4">
@@ -18,7 +26,7 @@ const Documents = () => {
               <p className="text-terminal-white whitespace-nowrap">
                 <span className="hidden sm:inline">-rw-r--r-- 1 user user 1024 {todayLabel} </span>
                 <a 
-                  href="https://github.com/StasABerg" 
+                  href="https://forgejo.gitgud.zip/stasaberg/My-stupid-website" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
