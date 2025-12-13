@@ -2,7 +2,7 @@
 import { Link } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
 import { HOW_TO_TOPICS } from "./topics";
-import { formatLsDate } from "@/lib/terminalFs";
+import { formatLsDate } from "@/lib/date-format";
 
 const todayLabel = formatLsDate(new Date());
 

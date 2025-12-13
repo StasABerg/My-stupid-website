@@ -15,7 +15,6 @@ const chunkMatchers: Array<{ test: (value: string) => boolean; name: string }> =
   { test: (value) => value.includes("@tanstack/react-query"), name: "tanstack" },
   { test: (value) => value.includes("lucide-react"), name: "icons" },
   { test: (value) => value.includes("sonner"), name: "sonner" },
-  { test: (value) => value.includes("date-fns"), name: "date-fns" },
   { test: (value) => value.includes("hls.js"), name: "hls" },
   { test: (value) => value.includes("swagger-ui"), name: "swagger" },
 ];
