@@ -106,6 +106,7 @@ function buildUrl(filters: StationFilters, offset: number): string {
 
 const STALE_TIME = 5 * 60 * 1000; // 5 minutes
 const REFETCH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_ENTRIES = 50;
 
 export function useRadioStations(filters: StationFilters) {
   const [pages, setPages] = useState<Page[]>([]);
@@ -130,6 +131,9 @@ export function useRadioStations(filters: StationFilters) {
 
       // Return cached if fresh
       if (cached && Date.now() - cached.timestamp < STALE_TIME) {
+        if (signal?.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
         return cached.data;
       }
 
@@ -144,6 +148,12 @@ export function useRadioStations(filters: StationFilters) {
 
       // Update cache
       cache.current.set(cacheKey, { data, timestamp: Date.now() });
+
+      // Limit cache size to prevent unbounded growth
+      if (cache.current.size > MAX_CACHE_ENTRIES) {
+        const firstKey = cache.current.keys().next().value;
+        if (firstKey) cache.current.delete(firstKey);
+      }
 
       return data;
     },
@@ -187,17 +197,21 @@ export function useRadioStations(filters: StationFilters) {
 
   // Background refetch (every 5 minutes)
   useEffect(() => {
+    if (pages.length === 0) return;
+
     const interval = setInterval(() => {
-      // Refetch all loaded pages in background
-      pages.forEach(({ offset }) => {
-        fetchStations(offset).catch((err) => {
-          console.error('Background refetch failed:', err);
+      setPages((currentPages) => {
+        currentPages.forEach(({ offset }) => {
+          fetchStations(offset).catch((err) => {
+            console.error('Background refetch failed:', err);
+          });
         });
+        return currentPages;
       });
     }, REFETCH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [fetchStations, pages]);
+  }, [fetchStations]); // Remove pages from deps
 
   // Fetch next page
   const fetchNextPage = useCallback(() => {
@@ -239,9 +253,27 @@ export function useRadioStations(filters: StationFilters) {
     fetchNextPage,
     hasNextPage,
     refetch: () => {
-      // Clear cache and refetch first page
       cache.current.clear();
       setPages([]);
+      setError(null);
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      setIsLoading(true);
+
+      fetchStations(0, controller.signal)
+        .then((data) => {
+          if (!controller.signal.aborted) {
+            setPages([{ data, offset: 0 }]);
+            setIsLoading(false);
+          }
+        })
+        .catch((err) => {
+          if (!controller.signal.aborted) {
+            setError(err);
+            setIsLoading(false);
+          }
+        });
     },
   };
 }
