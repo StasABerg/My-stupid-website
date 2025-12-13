@@ -1,4 +1,3 @@
-import { Heart } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -8,7 +7,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useLocation } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   FilterPanel,
   PresetButtons,
@@ -18,7 +16,9 @@ import {
   StatusFooter,
 } from "@/components/Radio";
 import { AlertDialogLite } from "@/components/ui/alert-dialog-lite";
-import { Toaster, toast } from "sonner";
+import { Toaster } from "@/components/ui/toast";
+import { toast } from "@/lib/toast-manager";
+import { HeartIcon } from "@/components/ui/heart-icon";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
 import { useRadioFavorites } from "@/hooks/useRadioFavorites";
@@ -26,15 +26,6 @@ import { authorizedFetch, ensureGatewaySession } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { logger } from "@/lib/logger";
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      gcTime: 1000 * 60 * 30,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
 
 type HlsModule = typeof import("hls.js/dist/hls.light.min.js");
 type HlsConstructor = HlsModule["default"];
@@ -498,25 +489,14 @@ const Radio = () => {
         return;
       }
       if (typeof navigator === "undefined" || !navigator.clipboard) {
-        toast({
-          title: "Copy unavailable",
-          description: "Clipboard access is blocked in this browser.",
-          variant: "destructive",
-        });
+        toast.error("Copy unavailable: Clipboard access is blocked in this browser.");
         return;
       }
       try {
         await navigator.clipboard.writeText(shareLink);
-        toast({
-          title: "Copied to clipboard",
-          description: reason === "auto" ? "Share link ready to paste." : "Share link copied again.",
-        });
+        toast.success(reason === "auto" ? "Share link ready to paste." : "Share link copied again.");
       } catch (error) {
-        toast({
-          title: "Copy failed",
-          description: error instanceof Error ? error.message : "Unable to copy the share link.",
-          variant: "destructive",
-        });
+        toast.error(`Copy failed: ${error instanceof Error ? error.message : "Unable to copy the share link."}`);
       }
     },
     [shareLink],
@@ -535,11 +515,7 @@ const Radio = () => {
     lastShareParamRef.current = shareParam;
     const sharedStation = deserializeSharedStation(shareParam);
     if (!sharedStation) {
-      toast({
-        title: "Invalid share link",
-        description: "We couldn't load the station that was shared.",
-        variant: "destructive",
-      });
+      toast.error("Invalid share link: We couldn't load the station that was shared.");
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing share links requires overriding the current station.
@@ -615,11 +591,7 @@ const Radio = () => {
       favorites.find((station) => station.id === stationId) ??
       displayStations.find((station) => station.id === stationId);
     if (!presetStation) {
-      toast({
-        title: "Preset unavailable",
-        description: "That station is no longer available in the directory.",
-        variant: "destructive",
-      });
+      toast.error("Preset unavailable: That station is no longer available in the directory.");
       setPresetStationOverride(null);
       return;
     }
@@ -637,11 +609,7 @@ const Radio = () => {
 
   const handleShareButtonClick = () => {
     if (!shareLink) {
-      toast({
-        title: "Share unavailable",
-        description: "Pick a station with a playable stream before sharing.",
-        variant: "destructive",
-      });
+      toast.error("Share unavailable: Pick a station with a playable stream before sharing.");
       return;
     }
     shareButtonRef.current?.blur();
@@ -659,19 +627,12 @@ const Radio = () => {
   const handleMidnightPresetSelect = () => {
     setPresetStationOverride({ station: mysteryStation, allowUnknown: true });
     const secretVideo = SECRET_BROADCAST_VIDEOS[mysteryStation.id ?? ""];
-    toast({
-      title: "Secret broadcast tuned",
-      description: "Enjoy the midnight signal.",
-    });
+    toast.success("Secret broadcast tuned. Enjoy the midnight signal.");
   };
 
   const handleFavoriteToggle = async (station: RadioStation) => {
     if (!favoriteIds.has(station.id) && favorites.length >= maxFavoriteSlots) {
-      toast({
-        title: "All presets in use",
-        description: "Remove a favorite before adding a new one.",
-        variant: "destructive",
-      });
+      toast.error("All presets in use: Remove a favorite before adding a new one.");
       return;
     }
 
@@ -683,22 +644,14 @@ const Radio = () => {
     } catch (error) {
       const status = (error as Error & { status?: number }).status;
       if (status === 409) {
-        toast({
-          title: "All presets in use",
-          description: "Remove a favorite before adding a new one.",
-          variant: "destructive",
-        });
+        toast.error("All presets in use: Remove a favorite before adding a new one.");
         return;
       }
       const message =
         error instanceof Error && error.message
           ? error.message
           : "Unable to update favorites.";
-      toast({
-        title: "Preset update failed",
-        description: message,
-        variant: "destructive",
-      });
+      toast.error(`Preset update failed: ${message}`);
     }
   };
 
@@ -714,11 +667,7 @@ const Radio = () => {
         error instanceof Error && error.message
           ? error.message
           : "Unable to update favorites.";
-      toast({
-        title: "Preset update failed",
-        description: message,
-        variant: "destructive",
-      });
+      toast.error(`Preset update failed: ${message}`);
     }
   };
 
@@ -1210,10 +1159,10 @@ const Radio = () => {
                                   : "text-terminal-white/70 hover:text-terminal-yellow"
                               } ${isSavingFavorite ? "opacity-60" : ""}`}
                             >
-                              <Heart
+                              <HeartIcon
                                 className="h-3.5 w-3.5"
-                                fill={isFavorite ? "currentColor" : "none"}
-                                aria-hidden="true"
+                                filled={isFavorite}
+                                aria-label={isFavorite ? "Favorited" : "Not favorited"}
                               />
                             </button>
                             <span className="flex-1 whitespace-normal wrap-break-word text-[0.75rem] sm:min-w-0 sm:text-sm sm:truncate">
@@ -1297,10 +1246,10 @@ const Radio = () => {
 };
 
 const RadioPage = () => (
-  <QueryClientProvider client={queryClient}>
+  <>
     <Radio />
     <Toaster />
-  </QueryClientProvider>
+  </>
 );
 
 export default RadioPage;
