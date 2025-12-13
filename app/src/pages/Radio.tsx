@@ -11,7 +11,6 @@ import {
   FilterPanel,
   PresetButtons,
   RadioHeader,
-  ScannerControl,
   StationInfoPanel,
   StatusFooter,
 } from "@/components/Radio";
@@ -960,11 +959,6 @@ const Radio = () => {
     };
   }, [activeStation.id, activeStation.streamUrl]);
 
-  const maxFrequencyLabel =
-    displayStations.length > 0
-      ? `${formatFrequency(displayStations.length - 1)} FM`
-      : `${formatFrequency(0)} FM`;
-
   const nextOffset = lastMeta
     ? lastMeta.offset + lastMeta.limit
     : displayStations.length;
@@ -1045,15 +1039,6 @@ const Radio = () => {
                   </p>
                 </div>
               ) : null}
-
-              <TerminalPrompt path="~/radio" command="radio scanner --interactive" />
-              <ScannerControl
-                value={activeStationIndex !== -1 ? activeStationIndex : boundedSelectedIndex}
-                max={Math.max(displayStations.length - 1, 0)}
-                onChange={handleStationChange}
-                minLabel={`${formatFrequency(0)} FM`}
-                maxLabel={maxFrequencyLabel}
-              />
 
               <TerminalPrompt path="~/radio" command="radio presets --list" />
               <PresetButtons
