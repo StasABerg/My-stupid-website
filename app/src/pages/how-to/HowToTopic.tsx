@@ -1,7 +1,7 @@
 
 import { useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
-import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
+import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
 import { HOW_TO_TOPICS } from "./topics";
 
 const HowToTopic = () => {
@@ -49,6 +49,14 @@ const HowToTopic = () => {
       <TerminalWindow>
         <TerminalHeader displayCwd={`~/briefings/${topicInfo.slug}`} />
         <div className="p-4 sm:p-6 font-mono text-xs sm:text-sm text-terminal-white flex-1 overflow-y-auto space-y-4">
+          <TerminalPrompt path="~/briefings">
+            <Link
+              to="/how-to"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
           <TerminalPrompt command={`cat ${topicInfo.slug}.md`} />
           <div>
             <p className="text-terminal-yellow text-lg">{heading}</p>
@@ -62,7 +70,17 @@ const HowToTopic = () => {
             </a>
             .
           </p>
-          <TerminalPrompt command={<Link to="/how-to">cd ..</Link>} />
+          <TerminalPrompt path={`~/briefings/${topicInfo.slug}`}>
+            <Link
+              to="/how-to"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
+          <TerminalPrompt path={`~/briefings/${topicInfo.slug}`}>
+            <TerminalCursor />
+          </TerminalPrompt>
         </div>
       </TerminalWindow>
     </div>

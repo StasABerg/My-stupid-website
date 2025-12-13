@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
+import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
 import { formatLsDate } from "@/lib/terminalFs";
 
 const swaggerEntries = [
@@ -26,33 +26,28 @@ const swaggerEntries = [
 const todayLabel = formatLsDate(new Date());
 
 const SwaggerDirectory = () => (
-  <div className="min-h-screen bg-black text-terminal-white">
-    <TerminalWindow>
+  <div className="h-screen bg-black text-terminal-white">
+    <TerminalWindow aria-label="Swagger directory">
       <TerminalHeader displayCwd="~/swagger" />
-      <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm">
-        <TerminalPrompt
-          user="sandbox"
-          host="gitgud.zip"
-          path="~/swagger"
-          command={(
-            <Link
-              to="/"
-              className="focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
-            >
-              cd ..
-            </Link>
-          )}
-        />
+      <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm space-y-4">
+        <TerminalPrompt path="~">
+          <Link
+            to="/"
+            className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+          >
+            cd ..
+          </Link>
+        </TerminalPrompt>
 
-        <TerminalPrompt command="ls -la" />
-        <div className="mt-2 space-y-2 pl-2 sm:pl-4">
+        <TerminalPrompt path="~/swagger" command="ls -la" />
+        <div className="space-y-2 pl-2 sm:pl-4">
           {swaggerEntries.map((entry) => (
             <div key={entry.label} className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
-              <span className="hidden sm:inline text-terminal-cyan">-rw-r--r-- 1 user user 4096 {todayLabel}</span>
+              <span className="hidden sm:inline text-terminal-white">-rw-r--r-- 1 user user 4096 {todayLabel}</span>
               {entry.available ? (
                 <Link
                   to={entry.path}
-                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
                 >
                   {entry.label}
                 </Link>
@@ -63,6 +58,18 @@ const SwaggerDirectory = () => (
             </div>
           ))}
         </div>
+
+        <TerminalPrompt path="~/swagger">
+          <Link
+            to="/"
+            className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+          >
+            cd ..
+          </Link>
+        </TerminalPrompt>
+        <TerminalPrompt path="~/swagger">
+          <TerminalCursor />
+        </TerminalPrompt>
       </div>
     </TerminalWindow>
   </div>

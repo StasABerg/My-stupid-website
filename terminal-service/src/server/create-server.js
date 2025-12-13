@@ -257,11 +257,19 @@ export function createServer({ logger, commandHandlers }) {
   async function getMotdLines() {
     if (cachedMotd) return cachedMotd;
     try {
+      if (!config.motdVirtualPath) {
+        cachedMotd = [];
+        return cachedMotd;
+      }
+
       const data = await readFile(config.motdVirtualPath, { encoding: "utf-8" });
-      cachedMotd = data.split(/\r?\n/);
+      cachedMotd = data
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
       return cachedMotd;
     } catch {
-      cachedMotd = ["motd: Failed to read message of the day."];
+      cachedMotd = [];
       return cachedMotd;
     }
   }

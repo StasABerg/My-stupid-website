@@ -1,0 +1,227 @@
+name: radio-service
+run-name: "Dev Deploy - Radio Service - ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref_name }}"
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'radio-service-rs/**'
+      - 'docker/radio-service.Dockerfile'
+      - 'charts/radio-service/**'
+      - '.forgejo/workflows/radio-service.yaml'
+  workflow_dispatch:
+    inputs:
+      branch:
+        type: string
+        description: 'Branch or ref to deploy'
+        required: true
+        default: main
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: radio-service-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+  REGISTRY_HOST: forgejo.gitgud.zip
+  REGISTRY_NAMESPACE: stasaberg
+  TRIVY_IMAGE: aquasec/trivy:0.50.1
+  TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+jobs:
+  trivy-dockerfile:
+    name: Trivy Dockerfile
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Scan Dockerfile misconfig
+        id: trivy
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" config \
+              --severity HIGH,CRITICAL \
+              --format table \
+              --output /workspace/trivy-radio-dockerfile.txt \
+              /workspace/docker/radio-service.Dockerfile
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-radio-dockerfile.txt') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-radio-dockerfile
+          path: trivy-radio-dockerfile.txt
+
+  trivy-helm:
+    name: Trivy Helm/K8s Config
+    runs-on: self-hosted
+    needs: trivy-dockerfile
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Scan Helm charts
+        id: trivy
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" config \
+              --severity HIGH,CRITICAL \
+              --format table \
+              --output /workspace/trivy-radio-helm.txt \
+              /workspace/charts/radio-service
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-radio-helm.txt') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-radio-helm
+          path: trivy-radio-helm.txt
+
+  build:
+    runs-on: self-hosted
+    needs: trivy-dockerfile
+    outputs:
+      sha: ${{ steps.out.outputs.sha }}
+      attestation: ${{ steps.provenance.outputs.attestation }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          password: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
+
+      - id: out
+        run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: docker/radio-service.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:${{ steps.out.outputs.sha }}
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:latest
+          provenance: false
+          cache-from: type=local,src=/home/runner/.cache/buildx/radio-service
+          cache-to: type=local,dest=/home/runner/.cache/buildx/radio-service,mode=max
+
+      - name: Generate provenance attestation
+        id: provenance
+        run: |
+          ATTESTATION=$(cat << EOF
+          {
+            "image": "${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:${{ steps.out.outputs.sha }}",
+            "digest": "${{ steps.build.outputs.digest }}",
+            "builder": "forgejo-actions",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "ref": "${{ github.ref }}",
+            "workflow": "${{ github.workflow }}",
+            "run_id": "${{ github.run_id }}"
+          }
+          EOF
+          )
+          echo "${ATTESTATION}" > provenance.json
+          echo "attestation<<EOF" >> $GITHUB_OUTPUT
+          echo "${ATTESTATION}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload provenance
+        uses: actions/upload-artifact@v3
+        with:
+          name: provenance-radio-service
+          path: provenance.json
+
+  trivy-image:
+    name: Trivy Image
+    runs-on: self-hosted
+    needs: build
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Scan built image
+        id: trivy
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          IMAGE="${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/radio-service:${{ needs.build.outputs.sha }}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format table \
+              --output /workspace/trivy-radio-image.txt \
+              "${IMAGE}"
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-radio-image.txt') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-radio-image
+          path: trivy-radio-image.txt
+
+  deploy-dev:
+    runs-on: self-hosted
+    needs: [trivy-dockerfile, build, trivy-image, trivy-helm]
+    if: |
+      needs.trivy-dockerfile.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.trivy-image.result == 'success' &&
+      needs.trivy-helm.result == 'success'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - uses: azure/setup-helm@v4
+
+      - name: Configure Kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
+          chmod 600 $HOME/kubeconfig
+          echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
+
+      - name: Helm upgrade (dev - radio)
+        run: |
+          helm upgrade --install my-stupid-website-radio charts/radio-service \
+            -f charts/radio-service/values-dev.yaml \
+            --namespace my-stupid-website-dev --create-namespace \
+            --set-string image.tag=${{ needs.build.outputs.sha }} \
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify
+
+      - name: Output deployment info
+        run: |
+          echo "✅ Deployed to development"
+          echo "📦 Image: ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/radio-service:${{ needs.build.outputs.sha }}"
+          echo "🏷️  Tag for production: ${{ needs.build.outputs.sha }}"

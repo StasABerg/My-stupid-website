@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { TerminalWindow, TerminalHeader, TerminalPrompt } from "@/components/SecureTerminal";
+import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
 
 const Konami = () => {
   useEffect(() => {
@@ -30,6 +30,14 @@ const Konami = () => {
       <TerminalWindow>
         <TerminalHeader displayCwd="~/secrets/konami" />
         <div className="p-4 sm:p-6 font-mono text-xs sm:text-sm text-terminal-white flex-1 space-y-4">
+          <TerminalPrompt path="~">
+            <Link
+              to="/"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
           <TerminalPrompt command="cat transmission.log" />
           <p className="text-terminal-cyan">Access granted. Loading clandestine transmission…</p>
           <div className="relative w-full pt-[56.25%] border border-terminal-green/50 bg-black">
@@ -55,7 +63,17 @@ const Konami = () => {
             </a>
             .
           </p>
-          <TerminalPrompt command={<Link to="/">cd ~</Link>} />
+          <TerminalPrompt path="~/secrets/konami">
+            <Link
+              to="/"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
+          <TerminalPrompt path="~/secrets/konami">
+            <TerminalCursor />
+          </TerminalPrompt>
         </div>
       </TerminalWindow>
     </div>

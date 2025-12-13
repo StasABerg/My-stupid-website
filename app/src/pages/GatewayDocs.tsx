@@ -1,27 +1,30 @@
 import { Link } from "react-router-dom";
-import { TerminalPrompt } from "@/components/SecureTerminal";
+import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { SwaggerEmbed } from "@/components/swagger";
 
 const GatewayDocs = () => (
-  <div className="min-h-screen bg-slate-950 p-4 sm:p-8">
-    <div className="mx-auto mb-4 max-w-5xl font-mono text-xs sm:text-sm">
-      <TerminalPrompt
-        user="sandbox"
-        host="gitgud.zip"
-        path="~/swagger"
-        command={(
-          <Link
-            to="/swagger"
-            className="focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
-          >
-            cd ..
-          </Link>
-        )}
-      />
-    </div>
-    <div className="mx-auto max-w-5xl rounded-lg bg-white p-4 shadow-lg">
-      <SwaggerEmbed specUrl="/api/docs/json" className="min-h-[70vh]" />
-    </div>
+  <div className="h-screen bg-black text-terminal-white">
+    <TerminalWindow aria-label="Gateway docs">
+      <TerminalHeader displayCwd="~/swagger/gateway" />
+      <div className="flex flex-1 flex-col overflow-y-auto p-3 font-mono text-xs sm:p-6 sm:text-sm space-y-4">
+        <TerminalPrompt
+          user="sandbox"
+          host="gitgud.zip"
+          path="~/swagger/gateway"
+          command={(
+            <Link
+              to="/swagger"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          )}
+        />
+        <div className="border border-terminal-green/40 rounded-md bg-black/80 p-3">
+          <SwaggerEmbed specUrl="/api/docs/json" className="min-h-[70vh]" />
+        </div>
+      </div>
+    </TerminalWindow>
   </div>
 );
 

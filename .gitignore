@@ -31,6 +31,8 @@ coverage
 Thumbs.db
 .idea/
 .vscode/*
+.claude
+.codex
 !.vscode/extensions.json
 *.suo
 *.ntvs*
@@ -41,5 +43,10 @@ Thumbs.db
 todo.md
 etc
 AGENTS.md
+CLAUDE.md
+docs
+.forgejo/README.md
+.forgejo/MIGRATION.md
+.forgejo/TESTING.md
 
 ####

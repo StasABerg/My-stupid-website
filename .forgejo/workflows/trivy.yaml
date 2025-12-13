@@ -1,0 +1,46 @@
+name: trivy
+run-name: "Trivy Security Scan - ${{ github.ref_name }}"
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '30 7 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.50.1
+  TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+jobs:
+  scan-repository:
+    name: Trivy Repository Scan
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Scan repository filesystem
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" fs \
+              --severity HIGH,CRITICAL \
+              --format table \
+              --output /workspace/trivy-repo-scan.txt \
+              /workspace
+
+      - name: Upload scan results
+        if: ${{ always() && hashFiles('trivy-repo-scan.txt') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-repository-scan
+          path: trivy-repo-scan.txt

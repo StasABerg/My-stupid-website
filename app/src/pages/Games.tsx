@@ -11,6 +11,14 @@ const Games = () => {
         <TerminalHeader displayCwd="~/games" />
         
         <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm flex-1 overflow-y-auto">
+          <TerminalPrompt path="~">
+            <Link
+              to="/"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
           <TerminalPrompt path="~/games" command="ls -la" />
 
           <div className="mb-4 pl-2 sm:pl-4">

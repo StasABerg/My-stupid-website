@@ -2,14 +2,11 @@ function gen(r) {
   var base = "https://" + r.headersIn.host;
   var routes = [
       "/",
-      "/documents",
       "/games",
       "/games/do-nothing",
       "/terminal",
-      "/terminal/docs",
       "/radio",
-      "/radio/docs",
-      "/gateway/docs",
+      "/docs",
       "/swagger",
       "/konami",
       "/motivation",

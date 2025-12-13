@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   FilterPanel,
   PresetButtons,
@@ -16,20 +17,24 @@ import {
   StationInfoPanel,
   StatusFooter,
 } from "@/components/Radio";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { toast } from "@/components/ui/use-toast";
+import { AlertDialogLite } from "@/components/ui/alert-dialog-lite";
+import { Toaster, toast } from "sonner";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 import { RADIO_API_BASE, useRadioStations, type RadioStation } from "@/hooks/useRadioStations";
 import { useRadioFavorites } from "@/hooks/useRadioFavorites";
 import { authorizedFetch, ensureGatewaySession } from "@/lib/gateway-session";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { logger } from "@/lib/logger";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 30,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 type HlsModule = typeof import("hls.js/dist/hls.light.min.js");
 type HlsConstructor = HlsModule["default"];
@@ -118,7 +123,7 @@ const SECRET_BROADCAST_VIDEOS: Record<
 > = {
   "midnight-rickroll": {
     embed:
-      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ&controls=0&modestbranding=1&rel=0",
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&loop=1&playlist=dQw4w9WgXcQ&controls=0&modestbranding=1&rel=0&mute=0",
     watch: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     label: "80s Eternal Rick Broadcast",
   },
@@ -261,6 +266,7 @@ const Radio = () => {
   const [presetStationOverride, setPresetStationOverride] = useState<StationOverride | null>(null);
   const [volume, setVolume] = useState(0.65);
   const [playbackKey, setPlaybackKey] = useState(0);
+  const [forceHls, setForceHls] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [midnightActive, setMidnightActive] = useState(() => isMidnightHour());
   const [mysteryStation, setMysteryStation] = useState<RadioStation>(() => randomMidnightStation());
@@ -360,6 +366,12 @@ const Radio = () => {
   const frequencyLabel =
     activeStationIndex !== -1 ? `${formatFrequency(activeStationIndex)} FM` : "Preset";
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const looksLikeHls = useMemo(() => {
+    if (!resolvedStreamUrl) return false;
+    const lower = resolvedStreamUrl.toLowerCase();
+    return lower.includes("m3u8") || lower.endsWith(".m3u8") || lower.includes("format=hls");
+  }, [resolvedStreamUrl]);
+  const shouldUseHls = activeStation.hls || looksLikeHls || forceHls;
   const secretEmbedUrl = useMemo(
     () => buildSecretEmbedUrl(activeStation.id),
     [activeStation.id],
@@ -574,6 +586,7 @@ const Radio = () => {
     if (index < 0 || index >= displayStations.length) {
       return;
     }
+    setForceHls(false);
     setPresetStationOverride(null);
     setSelectedIndex(index);
   };
@@ -611,6 +624,7 @@ const Radio = () => {
       return;
     }
 
+    setForceHls(false);
     const indexInDirectory = displayStations.findIndex((station) => station.id === stationId);
     if (indexInDirectory !== -1) {
       setPresetStationOverride(null);
@@ -693,6 +707,7 @@ const Radio = () => {
       await removeFavorite(stationId);
       if (sanitizedPresetStationOverride?.id === stationId) {
         setPresetStationOverride(null);
+        setForceHls(false);
       }
     } catch (error) {
       const message =
@@ -809,12 +824,6 @@ const Radio = () => {
   }, [clearReconnectTimer]);
 
   useEffect(() => {
-    if (!resolvedStreamUrl) {
-      resetReconnectAttempts();
-    }
-  }, [resolvedStreamUrl, resetReconnectAttempts]);
-
-  useEffect(() => {
     resetReconnectAttempts();
   }, [activeStation.id, resetReconnectAttempts]);
 
@@ -833,6 +842,9 @@ const Radio = () => {
     const resumeEvents: Array<keyof HTMLMediaElementEventMap> = ["playing", "canplay"];
 
     const handleRecoverable = (event: Event) => {
+      if (!shouldUseHls && !forceHls && event.type === "error") {
+        setForceHls(true);
+      }
       schedulePlaybackRetry(event.type, { immediate: event.type === "error" });
     };
 
@@ -855,7 +867,7 @@ const Radio = () => {
         element.removeEventListener(eventType, handleResume);
       }
     };
-  }, [schedulePlaybackRetry, resetReconnectAttempts]);
+  }, [forceHls, schedulePlaybackRetry, resetReconnectAttempts, shouldUseHls]);
 
   useEffect(() => {
     const element = audioRef.current;
@@ -878,7 +890,7 @@ const Radio = () => {
       return () => {};
     }
 
-    if (activeStation.hls) {
+    if (shouldUseHls) {
       let cancelled = false;
       let cleanup: (() => void) | undefined;
 
@@ -977,7 +989,7 @@ const Radio = () => {
       element.removeAttribute("src");
       element.load();
     };
-  }, [activeStation.hls, playbackKey, resolvedStreamUrl, schedulePlaybackRetry]);
+  }, [playbackKey, resolvedStreamUrl, schedulePlaybackRetry, shouldUseHls]);
 
   useEffect(() => {
     if (!activeStation.id || !activeStation.streamUrl) {
@@ -1064,13 +1076,23 @@ const Radio = () => {
                     <iframe
                       title="Secret Broadcast Feed"
                       src={secretEmbedUrl}
-                      allow="autoplay; encrypted-media"
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      referrerPolicy="strict-origin-when-cross-origin"
                       allowFullScreen
                       className="absolute inset-0 h-full w-full border border-terminal-green/30"
                     />
                   </div>
                   <p className="text-terminal-white/60 text-[0.65rem]">
                     {SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].label}
+                    {" · "}
+                    <a
+                      href={SECRET_BROADCAST_VIDEOS[activeStation.id ?? ""].watch}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-terminal-yellow underline"
+                    >
+                      watch on YouTube
+                    </a>
                   </p>
                 </div>
               ) : null}
@@ -1233,60 +1255,52 @@ const Radio = () => {
         </div>
       </TerminalWindow>
       <audio ref={audioRef} hidden autoPlay controls />
-      <AlertDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-        <AlertDialogContent
-          className="border border-terminal-green/50 bg-[#050505] text-terminal-white"
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            copyButtonRef.current?.focus();
-          }}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            shareButtonRef.current?.focus();
-          }}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-terminal-yellow text-base uppercase tracking-[0.2em]">
-              Share Station
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-terminal-white/70">
-              The link below opens radio and starts playing this station immediately. It was copied to your clipboard.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded border border-terminal-green/40 bg-black/70 p-3 font-mono text-xs text-terminal-green break-all">
-            {shareLink ?? "No station selected."}
-          </div>
-          <div className="flex flex-wrap gap-3 text-[0.7rem] text-terminal-cyan">
-            <button
-              type="button"
-              ref={copyButtonRef}
-              onClick={handleShareDialogCopy}
-              disabled={!shareLink}
-              className={`inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-cyan/60 px-3 py-1.5 uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
-                shareLink ? "hover:bg-terminal-cyan/10" : "cursor-not-allowed opacity-50"
-              }`}
-            >
-              <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
-                Ctrl + Shift + C
-              </span>
-              Copy
-            </button>
-            <button
-              type="button"
-              data-dialog-focus-scope="true"
-              onClick={handleShareDialogClose}
-              className="inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-red/60 px-3 py-1.5 uppercase tracking-[0.2em] text-terminal-white transition hover:bg-terminal-red/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
-            >
-              <span className="rounded border border-terminal-red/60 bg-terminal-red/10 px-1 py-0.5 font-mono text-[0.65rem]">
-                Ctrl + D
-              </span>
-              Close
-            </button>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AlertDialogLite
+        open={shareDialogOpen}
+        onOpenChange={setShareDialogOpen}
+        title={<span className="text-terminal-yellow text-base uppercase tracking-[0.2em]">Share Station</span>}
+        description="The link below opens radio and starts playing this station immediately. It was copied to your clipboard."
+      >
+        <div className="rounded border border-terminal-green/40 bg-black/70 p-3 font-mono text-xs text-terminal-green break-all">
+          {shareLink ?? "No station selected."}
+        </div>
+        <div className="flex flex-wrap gap-3 text-[0.7rem] text-terminal-cyan">
+          <button
+            type="button"
+            ref={copyButtonRef}
+            onClick={handleShareDialogCopy}
+            disabled={!shareLink}
+            className={`inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-cyan/60 px-3 py-1.5 uppercase tracking-[0.2em] transition focus:outline-none focus:ring-1 focus:ring-terminal-yellow ${
+              shareLink ? "hover:bg-terminal-cyan/10" : "cursor-not-allowed opacity-50"
+            }`}
+          >
+            <span className="rounded border border-terminal-cyan/60 bg-terminal-cyan/10 px-1 py-0.5 font-mono text-[0.65rem]">
+              Ctrl + Shift + C
+            </span>
+            Copy
+          </button>
+          <button
+            type="button"
+            data-dialog-focus-scope="true"
+            onClick={handleShareDialogClose}
+            className="inline-flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-terminal-red/60 px-3 py-1.5 uppercase tracking-[0.2em] text-terminal-white transition hover:bg-terminal-red/10 focus:outline-none focus:ring-1 focus:ring-terminal-yellow"
+          >
+            <span className="rounded border border-terminal-red/60 bg-terminal-red/10 px-1 py-0.5 font-mono text-[0.65rem]">
+              Ctrl + D
+            </span>
+            Close
+          </button>
+        </div>
+      </AlertDialogLite>
     </div>
   );
 };
 
-export default Radio;
+const RadioPage = () => (
+  <QueryClientProvider client={queryClient}>
+    <Radio />
+    <Toaster />
+  </QueryClientProvider>
+);
+
+export default RadioPage;
