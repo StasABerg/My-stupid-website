@@ -1,0 +1,127 @@
+name: semgrep
+run-name: "Semgrep Scan - ${{ github.ref_name }}"
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '18 7 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Semgrep
+        run: |
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install --upgrade semgrep jq
+
+      - name: Authenticate Semgrep
+        if: ${{ secrets.SEMGREP_APP_TOKEN != '' }}
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          source venv/bin/activate
+          semgrep login
+
+      - name: Run Semgrep
+        id: semgrep
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          mkdir -p reports/rendered
+          HELM_BIN="${HELM_BIN:-$(command -v helm)}"
+          if [ -z "${HELM_BIN}" ]; then
+            echo "helm binary not found; set HELM_BIN or install Helm"
+            exit 1
+          fi
+          chart_files=$(find charts -mindepth 1 -maxdepth 2 -name Chart.yaml)
+          if [ -n "${chart_files}" ]; then
+            printf '%s\n' "${chart_files}" | while IFS= read -r chart; do
+              chart_dir=$(dirname "$chart")
+              chart_name=$(basename "$chart_dir")
+              echo "Rendering Helm chart ${chart_name}"
+              "${HELM_BIN}" template "${chart_name}" "${chart_dir}" > "reports/rendered/${chart_name}.yaml"
+            done
+          else
+            echo "No Helm charts found under charts/"
+          fi
+          source venv/bin/activate
+          # Filter out Pro-only rules that still emit warnings under --oss-only.
+          semgrep --oss-only \
+            --config p/ci \
+            --config p/kubernetes \
+            --config p/react \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/rust \
+            --config p/dockerfile \
+            --exclude-rule javascript.crypto-js.cryptojs-weak-algorithm.cryptojs-weak-algorithm \
+            --exclude-rule javascript.express.web.cors-default-config-express.cors-default-config-express \
+            --exclude-rule javascript.koa.web.cors-default-config-koa.cors-default-config-koa \
+            --metrics=off \
+            --exclude venv \
+            --exclude node_modules \
+            --json --output reports/semgrep.json \
+            reports/rendered . || true
+          jq -r '
+            def clean($v): ($v // "") | tostring;
+            def ensure_array($v):
+              if $v == null then []
+              elif ($v | type) == "array" then $v
+              else [$v]
+              end;
+            def list_or_na($arr):
+              (ensure_array($arr)) as $a |
+              (if ($a|length) > 0 then ($a|map(tostring)|join(", ")) else "N/A" end);
+            def fmt($r):
+              "- **" + clean($r.check_id) + "** (" + ((clean($r.severity)|ascii_upcase)) + ", `" + clean($r.path) + ":" + (($r.start.line // 0)|tostring) + "`)" +
+              "\n  • CWE: " + list_or_na($r.extra.metadata.cwe // []) +
+              "\n  • Message: " + (clean($r.extra.message) | gsub("\\s+"; " "));
+            (.results // []) as $res |
+            if ($res | length) == 0 then
+              "No Semgrep findings"
+            else
+              ($res | sort_by(.path,.start.line) | map(fmt(.)) | join("\n\n"))
+            end
+          ' reports/semgrep.json > reports/semgrep-report.txt
+          findings=$(jq -r '(.results // []) | length' reports/semgrep.json)
+          echo "findings=${findings}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Semgrep results
+        if: ${{ always() && hashFiles('reports/semgrep.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results
+          path: reports/
+
+      - name: Notify Discord
+        if: ${{ always() && hashFiles('reports/semgrep-report.txt') != '' && steps.semgrep.outputs.findings != '0' }}
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK}" ]; then
+            echo "DISCORD_WEBHOOK_URL secret not set; skipping Discord notification"
+            exit 0
+          fi
+          COLOR=15158332
+          SUMMARY="Semgrep findings for ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME})"
+          LINK="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          REPORT_RAW=$(cat reports/semgrep-report.txt)
+          REPORT=$(echo "${REPORT_RAW}" | head -c 1800)
+          if [ -z "${REPORT}" ]; then
+            REPORT="Issues found. See run logs/artifact for details."
+          fi
+          PAYLOAD=$(jq -n --arg summary "$SUMMARY" --arg link "$LINK" --arg report "$REPORT" --argjson color ${COLOR} '{embeds:[{title:$summary,description:("Workflow run: " + $link + "\n" + $report),color:$color}]}')
+          curl -fsSL -H "Content-Type: application/json" -d "$PAYLOAD" "${DISCORD_WEBHOOK}"

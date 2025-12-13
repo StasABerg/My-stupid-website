@@ -1,0 +1,77 @@
+name: terminal-service-prod
+run-name: "Production Deploy - Terminal Service → ${{ github.event.inputs.image_tag }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        type: string
+        description: 'Branch to checkout for charts'
+        required: true
+        default: main
+      image_tag:
+        type: string
+        description: 'Image tag/sha from the dev pipeline'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_HOST: forgejo.gitgud.zip
+  REGISTRY_NAMESPACE: stasaberg
+
+jobs:
+  validate-tag:
+    name: Validate Image Tag
+    runs-on: self-hosted
+    steps:
+      - name: Validate image tag format
+        run: |
+          TAG="${{ github.event.inputs.image_tag }}"
+          echo "Validating tag: ${TAG}"
+
+          if [[ "$TAG" == "latest" ]] || [[ "$TAG" == "dev" ]]; then
+            echo "❌ ERROR: Cannot deploy 'latest' or 'dev' tags to production"
+            exit 1
+          fi
+
+          if ! [[ "$TAG" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "⚠️  WARNING: Tag doesn't look like a commit SHA"
+          fi
+
+          echo "✓ Tag validation passed"
+
+  deploy-prod:
+    runs-on: self-hosted
+    needs: validate-tag
+    steps:
+      - name: Checkout charts
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a  # v4
+
+      - name: Configure Kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/kubeconfig
+          chmod 600 $HOME/kubeconfig
+          echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
+
+      - name: Helm upgrade (production - terminal)
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          helm upgrade --install my-stupid-website-terminal charts/terminal-service \
+            --namespace my-stupid-website --create-namespace \
+            --set-string image.tag="$IMAGE_TAG" \
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify
+
+      - name: Notify deployment success
+        if: success() && secrets.DISCORD_WEBHOOK_URL != ''
+        run: |
+          curl -fsSL -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{"content":"✅ **Production deployment successful**\n**Service:** terminal-service\n**Tag:** `${{ github.event.inputs.image_tag }}`\n**Deployer:** ${{ github.actor }}"}'
