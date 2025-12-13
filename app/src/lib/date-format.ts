@@ -12,8 +12,6 @@ const TIME_FORMAT = new Intl.DateTimeFormat('en', {
 const LS_DATE_FORMAT_SAME_YEAR = new Intl.DateTimeFormat('en', {
   month: 'short',
   day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
 });
 const LS_DATE_FORMAT_OTHER_YEAR = new Intl.DateTimeFormat('en', {
   month: 'short',
