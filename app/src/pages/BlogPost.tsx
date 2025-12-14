@@ -39,7 +39,7 @@ const BlogPost = () => {
     <div className="h-screen bg-black">
       <TerminalWindow aria-label={`Blog post ${post.metadata.title}`}>
         <TerminalHeader displayCwd={`~/blog/${post.metadata.slug}`} />
-        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm flex-1 overflow-y-auto space-y-4">
+        <div className="p-3 sm:p-6 font-mono text-xs sm:text-sm text-terminal-white flex-1 overflow-y-auto space-y-4">
           <TerminalPrompt path="~/blog">
             <Link
               to="/blog"
@@ -49,9 +49,20 @@ const BlogPost = () => {
             </Link>
           </TerminalPrompt>
 
-          <div className="border border-terminal-green/40 bg-black/70 p-3 sm:p-5 shadow-[0_0_24px_rgba(0,255,0,0.12)]">
+          <TerminalPrompt command={`cat ${post.metadata.slug}.md`} />
+
+          <div>
             <PostComponent />
           </div>
+
+          <TerminalPrompt path={`~/blog/${post.metadata.slug}`}>
+            <Link
+              to="/blog"
+              className="text-terminal-yellow hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-yellow"
+            >
+              cd ..
+            </Link>
+          </TerminalPrompt>
 
           <TerminalPrompt path={`~/blog/${post.metadata.slug}`}>
             <TerminalCursor />
