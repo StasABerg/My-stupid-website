@@ -110,7 +110,7 @@ const Contact = () => {
 
     // Check if Turnstile is already loaded
     if (window.turnstile) {
-      window.turnstile.ready(renderWidget);
+      renderWidget();
       return;
     }
 
@@ -345,7 +345,6 @@ declare global {
         "timeout-callback": () => void;
       }) => string;
       reset: (widgetId: string) => void;
-      ready: (callback: () => void) => void;
       remove?: (widgetId: string) => void;
     };
   }
