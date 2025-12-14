@@ -52,9 +52,6 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
-      - name: Setup Helm
-        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a  # v4
-
       - name: Configure Kubeconfig
         env:
           KUBECONFIG_BASE64: ${{ secrets.KUBECONFIG }}
