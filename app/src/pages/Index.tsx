@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
-import { formatDate, formatLsDate } from "@/lib/date-format";
-import { getLatestPost } from "@/content/posts";
+import { formatLsDate } from "@/lib/date-format";
+import { posts } from "@/content/posts";
 
 const Index = () => {
   const todayLabel = useMemo(() => formatLsDate(new Date()), []);
-  const latestPost = useMemo(() => getLatestPost(), []);
+  const latestPosts = useMemo(() => posts.slice(0, 5), []);
 
   return (
     <div className="h-screen bg-black">
@@ -153,30 +153,24 @@ const Index = () => {
             </nav>
           </div>
 
-          {latestPost ? (
+          {latestPosts.length > 0 ? (
             <>
               <TerminalPrompt command="tail -n 5 blog/latest.log" />
-              <div className="mb-4 space-y-2">
-                <p className="text-terminal-yellow text-[0.7rem] sm:text-xs uppercase tracking-[0.2em]">
-                  Latest entry — {formatDate(latestPost.metadata.date)}
-                </p>
-                <p className="text-terminal-green text-lg sm:text-xl">{latestPost.metadata.title}</p>
-                <p className="text-terminal-green">{latestPost.metadata.excerpt}</p>
-                <p className="text-terminal-white">
-                  <Link
-                    to="/blog"
-                    className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
-                  >
-                    ls blog
-                  </Link>
-                  {" "}
-                  <Link
-                    to={`/blog/${latestPost.metadata.slug}`}
-                    className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
-                  >
-                    cat {latestPost.metadata.slug}
-                  </Link>
-                </p>
+              <div className="mb-4 pl-2 sm:pl-4 space-y-1">
+                {latestPosts.map((post) => (
+                  <p key={post.metadata.slug} className="text-terminal-white break-words">
+                    <span className="hidden sm:inline whitespace-nowrap">
+                      -rw-r--r-- 1 user user 4096 {formatLsDate(new Date(post.metadata.date))}{" "}
+                    </span>
+                    <Link
+                      to={`/blog/${post.metadata.slug}`}
+                      className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan whitespace-nowrap"
+                    >
+                      {post.metadata.slug}
+                    </Link>
+                    <span className="text-terminal-green pl-2"># {post.metadata.excerpt}</span>
+                  </p>
+                ))}
               </div>
             </>
           ) : null}

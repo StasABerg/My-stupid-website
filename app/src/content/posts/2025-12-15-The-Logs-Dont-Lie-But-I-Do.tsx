@@ -25,7 +25,7 @@ export default function Post() {
         <p className="mt-1 text-sm text-terminal-green/70">{metadata.excerpt}</p>
       </header>
 
-      <div className="leading-relaxed text-justify hyphens-auto break-words">
+      <div className="leading-relaxed text-justify hyphens-none break-normal">
         <p className="mb-0">{body}</p>
       </div>
 

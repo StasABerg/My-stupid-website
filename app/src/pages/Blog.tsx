@@ -35,13 +35,15 @@ const Blog = () => {
           <TerminalPrompt command="ls -la" />
 
           <div className="pl-2 sm:pl-4 space-y-2">
-            {posts.map((post) => (
-              <p key={post.metadata.slug} className="text-terminal-white">
-                <span className="hidden sm:inline whitespace-nowrap">-rw-r--r-- 1 user user 4096 {formatLsDate(new Date(post.metadata.date))} </span>
-                <Link
-                  to={`/blog/${post.metadata.slug}`}
-                  className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan whitespace-nowrap"
-                >
+                {posts.map((post) => (
+                  <p key={post.metadata.slug} className="text-terminal-white">
+                    <span className="hidden sm:inline whitespace-nowrap">
+                      -rw-r--r-- 1 user user 4096 {formatLsDate(new Date(post.metadata.date))}{" "}
+                    </span>
+                    <Link
+                      to={`/blog/${post.metadata.slug}`}
+                      className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan whitespace-nowrap"
+                    >
                   {post.metadata.slug}
                 </Link>
                 <span className="text-terminal-green pl-2"># {post.metadata.excerpt}</span>
