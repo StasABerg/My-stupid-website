@@ -268,6 +268,10 @@ const Radio = () => {
     attempts: 0,
     timer: null,
   });
+  const manualReplayCooldownRef = useRef<{ active: boolean; timer: ReturnType<typeof setTimeout> | null }>({
+    active: false,
+    timer: null,
+  });
   const unmountedRef = useRef(false);
   const shareButtonRef = useRef<HTMLButtonElement | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -517,7 +521,7 @@ const Radio = () => {
       toast.error("Invalid share link: We couldn't load the station that was shared.");
       return;
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing share links requires overriding the current station.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- effect drives selection from URL share param
     setPresetStationOverride({ station: sharedStation, allowUnknown: true });
     setSelectedIndex(0);
   }, [shareParam]);
@@ -561,9 +565,25 @@ const Radio = () => {
     if (index < 0 || index >= displayStations.length) {
       return;
     }
+    const targetStation = displayStations[index];
+    const isSameAsActive = targetStation?.id === activeStation.id && !sanitizedPresetStationOverride;
     setForceHls(false);
     setPresetStationOverride(null);
     setSelectedIndex(index);
+    if (isSameAsActive) {
+      const cooldown = manualReplayCooldownRef.current;
+      if (cooldown.active) {
+        return;
+      }
+      cooldown.active = true;
+      clearManualReplayCooldown();
+      cooldown.timer = setTimeout(() => {
+        cooldown.active = false;
+        cooldown.timer = null;
+      }, 1200);
+      resetReconnectAttempts();
+      setPlaybackKey((value) => value + 1);
+    }
   };
 
   const handleVolumeChange = (value: number) => {
@@ -728,6 +748,15 @@ const Radio = () => {
     clearReconnectTimer();
   }, [clearReconnectTimer]);
 
+  const clearManualReplayCooldown = useCallback(() => {
+    const state = manualReplayCooldownRef.current;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.active = false;
+  }, []);
+
   const schedulePlaybackRetry = useCallback(
     (reason: string, { immediate = false }: { immediate?: boolean } = {}) => {
       if (!resolvedStreamUrl) {
@@ -768,8 +797,9 @@ const Radio = () => {
     return () => {
       unmountedRef.current = true;
       clearReconnectTimer();
+      clearManualReplayCooldown();
     };
-  }, [clearReconnectTimer]);
+  }, [clearManualReplayCooldown, clearReconnectTimer]);
 
   useEffect(() => {
     resetReconnectAttempts();
