@@ -267,10 +267,10 @@ const Contact = () => {
 
               <button
                 type="submit"
-                disabled={loading || !formState.name.trim() || !formState.message.trim() || !csrfToken || !csrfProof}
+                disabled={loading || !formState.name.trim() || !formState.message.trim() || !csrfToken || !csrfProof || (turnstileSiteKey && !turnstileToken)}
                 className="inline-flex items-center rounded-none border border-terminal-green/70 px-4 py-2 text-sm font-semibold text-terminal-green transition hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-green disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? "Sending..." : !csrfToken ? "Initializing..." : "Send Message"}
+                {loading ? "Sending..." : !csrfToken ? "Initializing..." : (turnstileSiteKey && !turnstileToken) ? "Complete challenge..." : "Send Message"}
               </button>
 
               <p className="text-xs opacity-70 mt-4">
