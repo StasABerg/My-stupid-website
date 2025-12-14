@@ -58,32 +58,53 @@ const Contact = () => {
 
   useEffect(() => {
     // Load Turnstile if site key is available
-    if (turnstileSiteKey) {
-      const script = document.createElement("script");
-      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-      script.async = true;
-      script.defer = true;
-      script.onload = () => {
-        if (window.turnstile && turnstileRef.current) {
-          const widgetId = window.turnstile.render(turnstileRef.current, {
-            sitekey: turnstileSiteKey,
-            callback: (token: string) => {
-              setTurnstileToken(token);
-            },
-            "error-callback": () => {
-              setError("Turnstile verification failed. Please refresh the page.");
-            },
-          });
-          setTurnstileWidgetId(widgetId);
-        }
-      };
-      document.head.appendChild(script);
+    if (!turnstileSiteKey) return;
 
+    const renderWidget = () => {
+      if (window.turnstile && turnstileRef.current && !turnstileWidgetId) {
+        const widgetId = window.turnstile.render(turnstileRef.current, {
+          sitekey: turnstileSiteKey,
+          callback: (token: string) => {
+            setTurnstileToken(token);
+          },
+          "error-callback": () => {
+            setError("Turnstile verification failed. Please refresh the page.");
+          },
+        });
+        setTurnstileWidgetId(widgetId);
+      }
+    };
+
+    // Check if Turnstile is already loaded
+    if (window.turnstile) {
+      renderWidget();
+      return;
+    }
+
+    // Check if script already exists in DOM
+    const existingScript = document.querySelector(
+      'script[src="https://challenges.cloudflare.com/turnstile/v0/api.js"]'
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener("load", renderWidget);
       return () => {
-        document.head.removeChild(script);
+        existingScript.removeEventListener("load", renderWidget);
       };
     }
-  }, [turnstileSiteKey]);
+
+    // Load script only if not already present
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    script.async = true;
+    script.defer = true;
+    script.onload = renderWidget;
+    document.head.appendChild(script);
+
+    return () => {
+      script.onload = null;
+    };
+  }, [turnstileSiteKey, turnstileWidgetId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
