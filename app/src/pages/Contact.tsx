@@ -27,6 +27,14 @@ const Contact = () => {
     setTurnstileToken(null);
   };
 
+  const teardownTurnstile = () => {
+    if (window.turnstile && turnstileWidgetId) {
+      window.turnstile.remove?.(turnstileWidgetId);
+    }
+    setTurnstileWidgetId(null);
+    setTurnstileToken(null);
+  };
+
   useEffect(() => {
     const title = "Contact | My Stupid Website";
     const description = "Get in touch with us.";
@@ -65,7 +73,7 @@ const Contact = () => {
 
   useEffect(() => {
     // Load Turnstile if site key is available
-    if (!turnstileSiteKey) return;
+    if (!turnstileSiteKey || success) return;
 
     const renderWidget = () => {
       if (window.turnstile && turnstileRef.current && !turnstileWidgetId) {
@@ -139,7 +147,7 @@ const Contact = () => {
     return () => {
       script.onload = null;
     };
-  }, [turnstileSiteKey, turnstileWidgetId]);
+  }, [turnstileSiteKey, turnstileWidgetId, success]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -179,7 +187,7 @@ const Contact = () => {
       setSuccess(true);
       setFormState({ name: "", email: "", message: "" });
 
-      resetTurnstile();
+      teardownTurnstile();
     } catch (err) {
       resetTurnstile();
       setError(err instanceof Error ? err.message : "Failed to submit contact form");
@@ -213,7 +221,10 @@ const Contact = () => {
               <p className="opacity-80">We'll get back to you if needed.</p>
               <button
                 type="button"
-                onClick={() => setSuccess(false)}
+                onClick={() => {
+                  setError(null);
+                  setSuccess(false);
+                }}
                 className="text-terminal-blue hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-blue"
               >
                 Send another message
@@ -335,6 +346,7 @@ declare global {
       }) => string;
       reset: (widgetId: string) => void;
       ready: (callback: () => void) => void;
+      remove?: (widgetId: string) => void;
     };
   }
 }
