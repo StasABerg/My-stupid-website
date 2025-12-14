@@ -156,31 +156,27 @@ const Index = () => {
           {latestPost ? (
             <>
               <TerminalPrompt command="tail -n 5 blog/latest.log" />
-              <div className="mb-4">
+              <div className="mb-4 space-y-2">
                 <p className="text-terminal-yellow text-[0.7rem] sm:text-xs uppercase tracking-[0.2em]">
                   Latest entry — {formatDate(latestPost.metadata.date)}
                 </p>
-                <Link
-                  to={`/blog/${latestPost.metadata.slug}`}
-                  className="block mt-1 text-lg sm:text-xl text-terminal-green hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-green"
-                >
-                  {latestPost.metadata.title}
-                </Link>
-                <p className="mt-1 text-terminal-green/75 leading-relaxed">{latestPost.metadata.excerpt}</p>
-                <div className="mt-3 flex items-center gap-3 text-terminal-magenta text-xs">
+                <p className="text-terminal-green text-lg sm:text-xl">{latestPost.metadata.title}</p>
+                <p className="text-terminal-green">{latestPost.metadata.excerpt}</p>
+                <p className="text-terminal-white">
                   <Link
                     to="/blog"
-                    className="hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                    className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
                   >
                     ls blog
                   </Link>
+                  {" "}
                   <Link
                     to={`/blog/${latestPost.metadata.slug}`}
-                    className="hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                    className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
                   >
                     cat {latestPost.metadata.slug}
                   </Link>
-                </div>
+                </p>
               </div>
             </>
           ) : null}
