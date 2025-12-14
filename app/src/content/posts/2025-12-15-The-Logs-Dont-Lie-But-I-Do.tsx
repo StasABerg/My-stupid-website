@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { formatDate } from "@/lib/date-format";
 import doomedAscii from "@/images/blog/doomed.txt?raw";
 

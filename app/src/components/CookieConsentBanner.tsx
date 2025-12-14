@@ -36,12 +36,9 @@ function getCookie(name: string) {
 }
 
 const CookieConsentBanner = () => {
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(() => !getCookie(CONSENT_COOKIE_NAME));
 
   useEffect(() => {
-    const hasConsentCookie = Boolean(getCookie(CONSENT_COOKIE_NAME));
-    setVisible(!hasConsentCookie);
-
     const handleChoicesUpdated = () => {
       if (getCookie(CONSENT_COOKIE_NAME)) {
         setVisible(false);
