@@ -6,7 +6,6 @@ const Contact = () => {
   const [formState, setFormState] = useState({
     name: "",
     email: "",
-    category: "general",
     message: "",
   });
   const [honeypot, setHoneypot] = useState("");
@@ -22,7 +21,7 @@ const Contact = () => {
 
   useEffect(() => {
     const title = "Contact | My Stupid Website";
-    const description = "Get in touch for radio station removal, general inquiries, or other requests.";
+    const description = "Get in touch with us.";
     document.title = title;
     let meta = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
     if (!meta) {
@@ -66,9 +65,8 @@ const Contact = () => {
 
     try {
       const payload = {
-        name: formState.name.trim() || undefined,
+        name: formState.name.trim(),
         email: formState.email.trim() || undefined,
-        category: formState.category,
         message: formState.message.trim(),
         honeypot: honeypot || undefined,
         timestamp,
@@ -91,7 +89,7 @@ const Contact = () => {
       const data = await response.json();
       setRequestId(data.requestId);
       setSuccess(true);
-      setFormState({ name: "", email: "", category: "general", message: "" });
+      setFormState({ name: "", email: "", message: "" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit contact form");
     } finally {
@@ -156,34 +154,15 @@ const Contact = () => {
               />
 
               <div className="space-y-2">
-                <label htmlFor="category" className="block text-terminal-green">
-                  Reason: <span className="text-red-400">*</span>
-                </label>
-                <select
-                  id="category"
-                  value={formState.category}
-                  onChange={(e) => setFormState({ ...formState, category: e.target.value })}
-                  required
-                  disabled={loading}
-                  className="w-full rounded-none border border-terminal-green/70 bg-black px-3 py-2 text-terminal-white focus:border-terminal-green focus:outline-none focus:ring-2 focus:ring-terminal-green disabled:opacity-50"
-                >
-                  <option value="general">General Inquiry</option>
-                  <option value="radio-removal">Radio Station Removal Request</option>
-                  <option value="job">Job Inquiry</option>
-                  <option value="security">Security Report</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
                 <label htmlFor="name" className="block text-terminal-green">
-                  Name: <span className="text-xs opacity-70">(optional)</span>
+                  Name: <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
                   id="name"
                   value={formState.name}
                   onChange={(e) => setFormState({ ...formState, name: e.target.value })}
+                  required
                   maxLength={80}
                   disabled={loading}
                   className="w-full rounded-none border border-terminal-green/70 bg-black px-3 py-2 text-terminal-white focus:border-terminal-green focus:outline-none focus:ring-2 focus:ring-terminal-green disabled:opacity-50"
@@ -192,7 +171,7 @@ const Contact = () => {
 
               <div className="space-y-2">
                 <label htmlFor="email" className="block text-terminal-green">
-                  Email: <span className="text-xs opacity-70">(optional, but recommended for replies)</span>
+                  Email: <span className="text-xs opacity-70">(optional)</span>
                 </label>
                 <input
                   type="email"
@@ -236,7 +215,7 @@ const Contact = () => {
 
               <button
                 type="submit"
-                disabled={loading || !formState.message.trim()}
+                disabled={loading || !formState.name.trim() || !formState.message.trim()}
                 className="inline-flex items-center rounded-none border border-terminal-green/70 px-4 py-2 text-sm font-semibold text-terminal-green transition hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-green disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Sending..." : "Send Message"}

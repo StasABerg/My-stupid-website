@@ -26,9 +26,8 @@ static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContactRequest {
-    name: Option<String>,
+    name: String,
     email: Option<String>,
-    category: String,
     message: String,
     #[serde(default)]
     turnstile_token: Option<String>,
@@ -142,7 +141,6 @@ pub async fn handle_contact(
 
     logger.info("contact.submitted", serde_json::json!({
         "requestId": request_id,
-        "category": req.category,
         "clientIp": client_ip,
     }));
 
@@ -170,13 +168,15 @@ fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
 
 fn validate_contact_request(req: &ContactRequest) -> Result<(), ContactError> {
     // Name validation
-    if let Some(name) = &req.name {
-        if name.len() > 80 {
-            return Err(ContactError::Validation("name too long (max 80 chars)".to_string()));
-        }
-        if contains_control_chars(name) {
-            return Err(ContactError::Validation("name contains invalid characters".to_string()));
-        }
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(ContactError::Validation("name cannot be empty".to_string()));
+    }
+    if req.name.len() > 80 {
+        return Err(ContactError::Validation("name too long (max 80 chars)".to_string()));
+    }
+    if contains_control_chars(&req.name) {
+        return Err(ContactError::Validation("name contains invalid characters".to_string()));
     }
 
     // Email validation
@@ -187,12 +187,6 @@ fn validate_contact_request(req: &ContactRequest) -> Result<(), ContactError> {
         if !EMAIL_REGEX.is_match(email) {
             return Err(ContactError::Validation("invalid email format".to_string()));
         }
-    }
-
-    // Category validation
-    let valid_categories = ["general", "radio-removal", "job", "security", "other"];
-    if !valid_categories.contains(&req.category.as_str()) {
-        return Err(ContactError::Validation("invalid category".to_string()));
     }
 
     // Message validation
@@ -332,22 +326,6 @@ async fn send_contact_email(
 ) -> Result<(), ContactError> {
     let config = &state.config.contact.email;
 
-    let category_label = match req.category.as_str() {
-        "general" => "General Inquiry",
-        "radio-removal" => "Radio Station Removal Request",
-        "job" => "Job Inquiry",
-        "security" => "Security Report",
-        "other" => "Other",
-        _ => "Unknown",
-    };
-
-    let name_display = req
-        .name
-        .as_ref()
-        .map(|n| n.trim())
-        .filter(|n| !n.is_empty())
-        .unwrap_or("(not provided)");
-
     let email_display = req
         .email
         .as_ref()
@@ -358,15 +336,13 @@ async fn send_contact_email(
     let body = format!(
         "New contact form submission\n\n\
         Request ID: {}\n\
-        Category: {}\n\
         Name: {}\n\
         Email: {}\n\
         Client IP: {}\n\
         User Agent: {}\n\n\
         Message:\n{}\n",
         request_id,
-        category_label,
-        name_display,
+        req.name.trim(),
         email_display,
         client_ip.as_deref().unwrap_or("(unknown)"),
         user_agent.as_deref().unwrap_or("(unknown)"),
@@ -376,7 +352,7 @@ async fn send_contact_email(
     let email = Message::builder()
         .from(config.from_address.parse().map_err(|_| ContactError::EmailFailed)?)
         .to(config.to_address.parse().map_err(|_| ContactError::EmailFailed)?)
-        .subject(format!("[Contact] {}", category_label))
+        .subject("[Contact] New Message")
         .header(ContentType::TEXT_PLAIN)
         .body(body)
         .map_err(|_| ContactError::EmailFailed)?;
