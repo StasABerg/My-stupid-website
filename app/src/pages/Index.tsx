@@ -1,10 +1,12 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { TerminalWindow, TerminalHeader, TerminalPrompt, TerminalCursor } from "@/components/SecureTerminal";
-import { formatLsDate } from "@/lib/date-format";
+import { formatDate, formatLsDate } from "@/lib/date-format";
+import { getLatestPost } from "@/content/posts";
 
 const Index = () => {
   const todayLabel = useMemo(() => formatLsDate(new Date()), []);
+  const latestPost = useMemo(() => getLatestPost(), []);
 
   return (
     <div className="h-screen bg-black">
@@ -91,6 +93,16 @@ const Index = () => {
               <p className="text-terminal-cyan whitespace-nowrap">
                 <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
                 <Link
+                  to="/blog"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Read the latest blog entries"
+                >
+                  blog/
+                </Link>
+              </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
+                <Link
                   to="/motivation"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
                   aria-label="Open motivation utilities"
@@ -140,6 +152,38 @@ const Index = () => {
               </p>
             </nav>
           </div>
+
+          {latestPost ? (
+            <>
+              <TerminalPrompt command="tail -n 5 blog/latest.log" />
+              <div className="mb-4 pl-2 sm:pl-4 border border-terminal-green/40 bg-black/60 p-3 sm:p-4 shadow-[0_0_24px_rgba(0,255,0,0.12)]">
+                <p className="text-terminal-yellow text-[0.7rem] sm:text-xs uppercase tracking-[0.2em]">
+                  Latest entry — {formatDate(latestPost.metadata.date)}
+                </p>
+                <Link
+                  to={`/blog/${latestPost.metadata.slug}`}
+                  className="block mt-1 text-lg sm:text-xl text-terminal-green hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-green"
+                >
+                  {latestPost.metadata.title}
+                </Link>
+                <p className="mt-1 text-terminal-white/75 leading-relaxed">{latestPost.metadata.excerpt}</p>
+                <div className="mt-3 flex items-center gap-3 text-terminal-magenta text-xs">
+                  <Link
+                    to="/blog"
+                    className="hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  >
+                    ls blog
+                  </Link>
+                  <Link
+                    to={`/blog/${latestPost.metadata.slug}`}
+                    className="hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  >
+                    cat {latestPost.metadata.slug}
+                  </Link>
+                </div>
+              </div>
+            </>
+          ) : null}
 
           <TerminalPrompt command="fastfetch" />
 

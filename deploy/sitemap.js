@@ -1,7 +1,11 @@
 function gen(r) {
   var base = "https://" + r.headersIn.host;
-  var routes = [
-      "/",
+  var blogPosts = [
+    "the-logs-dont-lie-but-i-do"
+  ];
+  var routes = ["/", "/blog"]
+    .concat(blogPosts.map(function(slug) { return "/blog/" + slug; }))
+    .concat([
       "/games",
       "/games/do-nothing",
       "/terminal",
@@ -28,8 +32,7 @@ function gen(r) {
       "/how-to/load-test",
       "/how-to/argo-rollouts",
       "/how-to/cdn-cache"
-
-    ];
+    ]);
   var today = new Date().toISOString().slice(0, 10);
 
   var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';

@@ -10,6 +10,8 @@ const DoNothingGamePage = lazy(() => import("./pages/DoNothingGamePage"));
 const NotFoundPage = lazy(() => import("./pages/NotFound"));
 const TerminalPage = lazy(() => import("./pages/Terminal"));
 const RadioPage = lazy(() => import("./pages/Radio"));
+const BlogPage = lazy(() => import("./pages/Blog"));
+const BlogPostPage = lazy(() => import("./pages/BlogPost"));
 const TerminalDocsPage = lazy(() => import("./pages/TerminalDocs"));
 const RadioDocsPage = lazy(() => import("./pages/RadioDocs"));
 const SwaggerDirectoryPage = lazy(() => import("./pages/Swagger"));
@@ -39,6 +41,8 @@ const App = () => (
         <Route path="/terminal" element={<TerminalPage />} />
         <Route path="/terminal/docs" element={<TerminalDocsPage />} />
         <Route path="/radio" element={<RadioPage />} />
+        <Route path="/blog" element={<BlogPage />} />
+        <Route path="/blog/:slug" element={<BlogPostPage />} />
         <Route path="/radio/docs" element={<RadioDocsPage />} />
         <Route path="/gateway/docs" element={<GatewayDocsPage />} />
         <Route path="/swagger" element={<SwaggerDirectoryPage />} />
