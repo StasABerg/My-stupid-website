@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { TerminalHeader, TerminalPrompt, TerminalWindow } from "@/components/SecureTerminal";
 
@@ -19,6 +19,13 @@ const Contact = () => {
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [csrfProof, setCsrfProof] = useState<string | null>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
+
+  const resetTurnstile = () => {
+    if (window.turnstile && turnstileWidgetId) {
+      window.turnstile.reset(turnstileWidgetId);
+    }
+    setTurnstileToken(null);
+  };
 
   useEffect(() => {
     const title = "Contact | My Stupid Website";
@@ -62,6 +69,14 @@ const Contact = () => {
 
     const renderWidget = () => {
       if (window.turnstile && turnstileRef.current && !turnstileWidgetId) {
+        let renderedId: string | null = null;
+        const resetLocal = () => {
+          if (window.turnstile && renderedId) {
+            window.turnstile.reset(renderedId);
+          }
+          setTurnstileToken(null);
+        };
+
         const widgetId = window.turnstile.render(turnstileRef.current, {
           sitekey: turnstileSiteKey,
           callback: (token: string) => {
@@ -69,21 +84,31 @@ const Contact = () => {
           },
           "error-callback": () => {
             setError("Turnstile verification failed. Please refresh the page.");
+            resetLocal();
+          },
+          "expired-callback": () => {
+            setError("Turnstile token expired. Please complete the challenge again.");
+            resetLocal();
+          },
+          "timeout-callback": () => {
+            setError("Turnstile timed out. Please complete the challenge again.");
+            resetLocal();
           },
         });
+        renderedId = widgetId;
         setTurnstileWidgetId(widgetId);
       }
     };
 
     // Check if Turnstile is already loaded
     if (window.turnstile) {
-      renderWidget();
+      window.turnstile.ready(renderWidget);
       return;
     }
 
     // Check if script already exists in DOM
     const existingScript = document.querySelector(
-      'script[src="https://challenges.cloudflare.com/turnstile/v0/api.js"]'
+      'script[src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"]'
     );
 
     if (existingScript) {
@@ -93,9 +118,19 @@ const Contact = () => {
       };
     }
 
+    const preconnect = document.querySelector(
+      'link[rel="preconnect"][href="https://challenges.cloudflare.com"]'
+    );
+    if (!preconnect) {
+      const link = document.createElement("link");
+      link.rel = "preconnect";
+      link.href = "https://challenges.cloudflare.com";
+      document.head.appendChild(link);
+    }
+
     // Load script only if not already present
     const script = document.createElement("script");
-    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
     script.async = true;
     script.defer = true;
     script.onload = renderWidget;
@@ -106,7 +141,7 @@ const Contact = () => {
     };
   }, [turnstileSiteKey, turnstileWidgetId]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -136,6 +171,7 @@ const Contact = () => {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({ error: "Unknown error" }));
+        resetTurnstile();
         throw new Error(data.error || `Request failed with status ${response.status}`);
       }
 
@@ -143,12 +179,9 @@ const Contact = () => {
       setSuccess(true);
       setFormState({ name: "", email: "", message: "" });
 
-      // Reset Turnstile widget for next submission
-      if (window.turnstile && turnstileWidgetId) {
-        window.turnstile.reset(turnstileWidgetId);
-        setTurnstileToken(null);
-      }
+      resetTurnstile();
     } catch (err) {
+      resetTurnstile();
       setError(err instanceof Error ? err.message : "Failed to submit contact form");
     } finally {
       setLoading(false);
@@ -297,8 +330,11 @@ declare global {
         sitekey: string;
         callback: (token: string) => void;
         "error-callback": () => void;
+        "expired-callback": () => void;
+        "timeout-callback": () => void;
       }) => string;
       reset: (widgetId: string) => void;
+      ready: (callback: () => void) => void;
     };
   }
 }

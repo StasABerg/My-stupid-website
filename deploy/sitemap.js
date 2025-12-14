@@ -1,17 +1,19 @@
 function gen(r) {
-  var base = "https://" + r.headersIn.host;
+  var base = "https://gitgud.zip";
   var blogPosts = [
     "the-logs-dont-lie-but-i-do"
   ];
-  var routes = ["/", "/blog", "/privacy", "/contact"]
+  var routes = ["/", "/blog", "/privacy", "/contact", "/documents"]
     .concat(blogPosts.map(function(slug) { return "/blog/" + slug; }))
     .concat([
       "/games",
       "/games/do-nothing",
       "/terminal",
       "/radio",
-      "/docs",
       "/swagger",
+      "/gateway/docs",
+      "/radio/docs",
+      "/terminal/docs",
       "/konami",
       "/motivation",
       "/begud",

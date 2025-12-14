@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::sync::{Arc, LazyLock};
 
 use crate::app::AppState;
+use crate::logger::Logger;
 
 static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
@@ -57,11 +58,15 @@ struct TurnstileVerifyRequest {
 struct TurnstileVerifyResponse {
     success: bool,
     #[serde(default)]
-    _challenge_ts: Option<String>,
+    challenge_ts: Option<String>,
     #[serde(default)]
-    _hostname: Option<String>,
+    hostname: Option<String>,
+    #[serde(default)]
+    action: Option<String>,
+    #[serde(default)]
+    cdata: Option<String>,
     #[serde(default, rename = "error-codes")]
-    _error_codes: Vec<String>,
+    error_codes: Vec<String>,
 }
 
 pub async fn handle_contact(
@@ -83,10 +88,13 @@ pub async fn handle_contact(
         .validate_session(&headers, &method, None)
         .await
         .map_err(|e| {
-            logger.warn("contact.csrf_validation_failed", serde_json::json!({
-                "status": e.status,
-                "message": e.message,
-            }));
+            logger.warn(
+                "contact.csrf_validation_failed",
+                serde_json::json!({
+                    "status": e.status,
+                    "message": e.message,
+                }),
+            );
             ContactError::CsrfValidationFailed
         })?;
 
@@ -136,20 +144,15 @@ pub async fn handle_contact(
     // Validate inputs
     validate_contact_request(&req)?;
 
-    // Turnstile verification
-    if config.turnstile.enabled {
-        let token = req
-            .turnstile_token
-            .as_deref()
-            .ok_or(ContactError::MissingTurnstile)?;
-        verify_turnstile(
-            &state.http_client,
-            &config.turnstile.secret_key,
-            token,
-            client_ip.as_deref(),
+    let turnstile_token = if config.turnstile.enabled {
+        Some(
+            req.turnstile_token
+                .as_deref()
+                .ok_or(ContactError::MissingTurnstile)?,
         )
-        .await?;
-    }
+    } else {
+        None
+    };
 
     // Rate limiting
     if let Some(ip) = &client_ip {
@@ -170,6 +173,19 @@ pub async fn handle_contact(
         config.rate_limit.dedupe_window_seconds,
     )
     .await?;
+
+    // Turnstile verification (validate after cheap anti-spam checks to avoid burning tokens early).
+    if let Some(token) = turnstile_token {
+        verify_turnstile(
+            &state.http_client,
+            logger,
+            &request_id,
+            client_ip.as_deref(),
+            &config.turnstile.secret_key,
+            token,
+        )
+        .await?;
+    }
 
     // Send email
     send_contact_email(&state, config, &req, &request_id, &client_ip, &user_agent).await?;
@@ -261,14 +277,28 @@ fn contains_control_chars(s: &str) -> bool {
 
 async fn verify_turnstile(
     client: &reqwest::Client,
+    logger: &Logger,
+    request_id: &str,
+    client_ip: Option<&str>,
     secret: &str,
     token: &str,
-    ip: Option<&str>,
 ) -> Result<(), ContactError> {
+    if token.len() > 2048 {
+        logger.warn(
+            "contact.turnstile_token_too_long",
+            serde_json::json!({
+                "requestId": request_id,
+                "clientIp": client_ip,
+                "tokenLength": token.len(),
+            }),
+        );
+        return Err(ContactError::TurnstileFailed);
+    }
+
     let verify_req = TurnstileVerifyRequest {
         secret: secret.to_string(),
         response: token.to_string(),
-        remoteip: ip.map(|s| s.to_string()),
+        remoteip: client_ip.map(|s| s.to_string()),
     };
 
     let resp = client
@@ -276,14 +306,48 @@ async fn verify_turnstile(
         .json(&verify_req)
         .send()
         .await
-        .map_err(|_| ContactError::TurnstileFailed)?;
+        .map_err(|error| {
+            logger.warn(
+                "contact.turnstile_request_failed",
+                serde_json::json!({
+                    "requestId": request_id,
+                    "clientIp": client_ip,
+                    "error": error.to_string(),
+                }),
+            );
+            ContactError::TurnstileFailed
+        })?;
 
-    let verify_resp: TurnstileVerifyResponse = resp
-        .json()
-        .await
-        .map_err(|_| ContactError::TurnstileFailed)?;
+    let status = resp.status();
 
-    if !verify_resp.success {
+    let verify_resp: TurnstileVerifyResponse = resp.json().await.map_err(|error| {
+        logger.warn(
+            "contact.turnstile_response_unreadable",
+            serde_json::json!({
+                "requestId": request_id,
+                "clientIp": client_ip,
+                "statusCode": status.as_u16(),
+                "error": error.to_string(),
+            }),
+        );
+        ContactError::TurnstileFailed
+    })?;
+
+    if !status.is_success() || !verify_resp.success {
+        logger.warn(
+            "contact.turnstile_failed",
+            serde_json::json!({
+                "requestId": request_id,
+                "clientIp": client_ip,
+                "statusCode": status.as_u16(),
+                "success": verify_resp.success,
+                "errorCodes": verify_resp.error_codes,
+                "hostname": verify_resp.hostname,
+                "challengeTs": verify_resp.challenge_ts,
+                "action": verify_resp.action,
+                "cdata": verify_resp.cdata,
+            }),
+        );
         return Err(ContactError::TurnstileFailed);
     }
 
@@ -489,10 +553,9 @@ impl IntoResponse for ContactError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "contact form is not configured".to_string(),
             ),
-            ContactError::CsrfValidationFailed => (
-                StatusCode::FORBIDDEN,
-                "csrf validation failed".to_string(),
-            ),
+            ContactError::CsrfValidationFailed => {
+                (StatusCode::FORBIDDEN, "csrf validation failed".to_string())
+            }
         };
 
         (status, Json(serde_json::json!({ "error": message }))).into_response()
