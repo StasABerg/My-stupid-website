@@ -15,6 +15,7 @@ const Contact = () => {
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
+  const [turnstileWidgetId, setTurnstileWidgetId] = useState<string | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [csrfProof, setCsrfProof] = useState<string | null>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
@@ -64,7 +65,7 @@ const Contact = () => {
       script.defer = true;
       script.onload = () => {
         if (window.turnstile && turnstileRef.current) {
-          window.turnstile.render(turnstileRef.current, {
+          const widgetId = window.turnstile.render(turnstileRef.current, {
             sitekey: turnstileSiteKey,
             callback: (token: string) => {
               setTurnstileToken(token);
@@ -73,6 +74,7 @@ const Contact = () => {
               setError("Turnstile verification failed. Please refresh the page.");
             },
           });
+          setTurnstileWidgetId(widgetId);
         }
       };
       document.head.appendChild(script);
@@ -119,6 +121,12 @@ const Contact = () => {
       await response.json();
       setSuccess(true);
       setFormState({ name: "", email: "", message: "" });
+
+      // Reset Turnstile widget for next submission
+      if (window.turnstile && turnstileWidgetId) {
+        window.turnstile.reset(turnstileWidgetId);
+        setTurnstileToken(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit contact form");
     } finally {
@@ -268,7 +276,8 @@ declare global {
         sitekey: string;
         callback: (token: string) => void;
         "error-callback": () => void;
-      }) => void;
+      }) => string;
+      reset: (widgetId: string) => void;
     };
   }
 }
