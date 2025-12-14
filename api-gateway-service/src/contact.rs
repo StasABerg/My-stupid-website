@@ -7,7 +7,10 @@ use axum::{
 };
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
-    message::{Message, header::ContentType},
+    message::{
+        Message,
+        header::{ContentType, Header, HeaderName, HeaderValue},
+    },
     transport::smtp::authentication::Credentials,
 };
 use redis::AsyncCommands;
@@ -18,6 +21,23 @@ use std::sync::{Arc, LazyLock};
 
 use crate::app::AppState;
 use crate::logger::Logger;
+
+#[derive(Clone)]
+struct ContactRequestIdHeader(String);
+
+impl Header for ContactRequestIdHeader {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("X-Contact-Request-Id")
+    }
+
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.to_string()))
+    }
+
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
 
 static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
@@ -471,6 +491,8 @@ async fn send_contact_email(
         req.message.trim(),
     );
 
+    let subject = format!("[Contact {}] New Message", request_id);
+
     let email = Message::builder()
         .from(
             config
@@ -482,7 +504,8 @@ async fn send_contact_email(
             .to_address
             .parse()
             .map_err(|_| ContactError::EmailFailed)?)
-        .subject("[Contact] New Message")
+        .subject(subject)
+        .header(ContactRequestIdHeader(request_id.to_string()))
         .header(ContentType::TEXT_PLAIN)
         .body(body)
         .map_err(|_| ContactError::EmailFailed)?;
