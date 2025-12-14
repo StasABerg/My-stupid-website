@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
-import RouteLoader from "@/components/route-loader";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import RouteLoader from "@/components/route-loader";
+import CookieConsentBanner from "./components/CookieConsentBanner";
 import { useKonamiCode } from "@/hooks/useKonamiCode";
 
 const IndexPage = lazy(() => import("./pages/Index"));
@@ -16,6 +17,7 @@ const TerminalDocsPage = lazy(() => import("./pages/TerminalDocs"));
 const RadioDocsPage = lazy(() => import("./pages/RadioDocs"));
 const SwaggerDirectoryPage = lazy(() => import("./pages/Swagger"));
 const GatewayDocsPage = lazy(() => import("./pages/GatewayDocs"));
+const PrivacyPage = lazy(() => import("./pages/Privacy"));
 const KonamiPage = lazy(() => import("./pages/Konami"));
 const BegudPage = lazy(() => import("./pages/Begud"));
 const GitGudPage = lazy(() => import("./pages/GitGud"));
@@ -47,6 +49,7 @@ const App = () => (
         <Route path="/gateway/docs" element={<GatewayDocsPage />} />
         <Route path="/swagger" element={<SwaggerDirectoryPage />} />
         <Route path="/konami" element={<KonamiPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/motivation" element={<MotivationPage />} />
         <Route path="/begud" element={<BegudPage />} />
         <Route path="/gitgud" element={<GitGudPage />} />
@@ -56,6 +59,7 @@ const App = () => (
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
+    <CookieConsentBanner />
   </BrowserRouter>
 );
 

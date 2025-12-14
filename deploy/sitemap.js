@@ -3,7 +3,7 @@ function gen(r) {
   var blogPosts = [
     "the-logs-dont-lie-but-i-do"
   ];
-  var routes = ["/", "/blog"]
+  var routes = ["/", "/blog", "/privacy"]
     .concat(blogPosts.map(function(slug) { return "/blog/" + slug; }))
     .concat([
       "/games",
