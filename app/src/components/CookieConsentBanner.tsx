@@ -138,7 +138,7 @@ const CookieConsentBanner = () => {
             </button>
             <button
               type="button"
-              className="rounded-none border border-terminal-green bg-terminal-green/90 px-3 py-2 text-xs font-semibold text-black transition hover:bg-terminal-green focus:outline-none focus:ring-2 focus:ring-terminal-green"
+              className="rounded-none border border-terminal-green bg-terminal-green px-3 py-2 text-xs font-semibold text-black transition hover:bg-terminal-green/90 focus:outline-none focus:ring-2 focus:ring-terminal-green"
               onClick={() => applyConsent(true)}
             >
               Accept analytics
