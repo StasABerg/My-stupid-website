@@ -97,10 +97,6 @@ const CookieConsentBanner = () => {
           return;
         }
 
-        if (typeof consent.modal === "boolean") {
-          consent.modal = false;
-        }
-
         const hasAnalyticsPurpose =
           Boolean(consent.purposes) && Object.prototype.hasOwnProperty.call(consent.purposes, ANALYTICS_PURPOSE_ID);
 
