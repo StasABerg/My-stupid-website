@@ -13,7 +13,6 @@ const Contact = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [requestId, setRequestId] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
@@ -117,8 +116,7 @@ const Contact = () => {
         throw new Error(data.error || `Request failed with status ${response.status}`);
       }
 
-      const data = await response.json();
-      setRequestId(data.requestId);
+      await response.json();
       setSuccess(true);
       setFormState({ name: "", email: "", message: "" });
     } catch (err) {
@@ -150,16 +148,10 @@ const Contact = () => {
           {success ? (
             <div className="space-y-3 pl-2 sm:pl-4">
               <p className="text-terminal-green font-semibold">✓ Message received</p>
-              <p className="opacity-80">
-                Request ID: <span className="text-terminal-yellow">{requestId}</span>
-              </p>
               <p className="opacity-80">We'll get back to you if needed.</p>
               <button
                 type="button"
-                onClick={() => {
-                  setSuccess(false);
-                  setRequestId(null);
-                }}
+                onClick={() => setSuccess(false)}
                 className="text-terminal-blue hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-blue"
               >
                 Send another message
