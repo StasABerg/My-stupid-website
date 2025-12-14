@@ -1,14 +1,14 @@
 use anyhow::Result;
 use axum::{
+    Json,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use lettre::{
-    message::{header::ContentType, Message},
-    transport::smtp::authentication::Credentials,
     AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
+    message::{Message, header::ContentType},
+    transport::smtp::authentication::Credentials,
 };
 use redis::AsyncCommands;
 use regex::Regex;
@@ -66,11 +66,29 @@ struct TurnstileVerifyResponse {
 
 pub async fn handle_contact(
     State(state): State<Arc<AppState>>,
+    method: http::Method,
     headers: HeaderMap,
     Json(req): Json<ContactRequest>,
 ) -> Result<Response, ContactError> {
     let logger = &state.logger;
-    let config = state.config.contact.as_ref().ok_or(ContactError::Unavailable)?;
+    let config = state
+        .config
+        .contact
+        .as_ref()
+        .ok_or(ContactError::Unavailable)?;
+
+    // Validate CSRF token
+    state
+        .session_manager
+        .validate_session(&headers, &method, None)
+        .await
+        .map_err(|e| {
+            logger.warn("contact.csrf_validation_failed", serde_json::json!({
+                "status": e.status,
+                "message": e.message,
+            }));
+            ContactError::CsrfValidationFailed
+        })?;
 
     let request_id = headers
         .get("x-request-id")
@@ -86,10 +104,13 @@ pub async fn handle_contact(
 
     // Honeypot check
     if req.honeypot.as_deref().unwrap_or("").trim() != "" {
-        logger.warn("contact.honeypot_triggered", serde_json::json!({
-            "requestId": request_id,
-            "clientIp": client_ip,
-        }));
+        logger.warn(
+            "contact.honeypot_triggered",
+            serde_json::json!({
+                "requestId": request_id,
+                "clientIp": client_ip,
+            }),
+        );
         return Err(ContactError::Spam);
     }
 
@@ -100,11 +121,14 @@ pub async fn handle_contact(
             .unwrap()
             .as_secs() as i64;
         if now - ts < 2 {
-            logger.warn("contact.too_fast", serde_json::json!({
-                "requestId": request_id,
-                "clientIp": client_ip,
-                "duration": now - ts,
-            }));
+            logger.warn(
+                "contact.too_fast",
+                serde_json::json!({
+                    "requestId": request_id,
+                    "clientIp": client_ip,
+                    "duration": now - ts,
+                }),
+            );
             return Err(ContactError::Spam);
         }
     }
@@ -129,20 +153,34 @@ pub async fn handle_contact(
 
     // Rate limiting
     if let Some(ip) = &client_ip {
-        check_rate_limit(&state, ip, config.rate_limit.max_per_ip, config.rate_limit.window_seconds).await?;
+        check_rate_limit(
+            &state,
+            ip,
+            config.rate_limit.max_per_ip,
+            config.rate_limit.window_seconds,
+        )
+        .await?;
     }
 
     // Deduplication
     let fingerprint = compute_fingerprint(&req);
-    check_duplicate(&state, &fingerprint, config.rate_limit.dedupe_window_seconds).await?;
+    check_duplicate(
+        &state,
+        &fingerprint,
+        config.rate_limit.dedupe_window_seconds,
+    )
+    .await?;
 
     // Send email
     send_contact_email(&state, config, &req, &request_id, &client_ip, &user_agent).await?;
 
-    logger.info("contact.submitted", serde_json::json!({
-        "requestId": request_id,
-        "clientIp": client_ip,
-    }));
+    logger.info(
+        "contact.submitted",
+        serde_json::json!({
+            "requestId": request_id,
+            "clientIp": client_ip,
+        }),
+    );
 
     Ok(Json(ContactResponse {
         request_id: request_id.clone(),
@@ -173,16 +211,22 @@ fn validate_contact_request(req: &ContactRequest) -> Result<(), ContactError> {
         return Err(ContactError::Validation("name cannot be empty".to_string()));
     }
     if req.name.len() > 80 {
-        return Err(ContactError::Validation("name too long (max 80 chars)".to_string()));
+        return Err(ContactError::Validation(
+            "name too long (max 80 chars)".to_string(),
+        ));
     }
     if contains_control_chars(&req.name) {
-        return Err(ContactError::Validation("name contains invalid characters".to_string()));
+        return Err(ContactError::Validation(
+            "name contains invalid characters".to_string(),
+        ));
     }
 
     // Email validation
     if let Some(email) = &req.email {
         if email.len() > 120 {
-            return Err(ContactError::Validation("email too long (max 120 chars)".to_string()));
+            return Err(ContactError::Validation(
+                "email too long (max 120 chars)".to_string(),
+            ));
         }
         if !EMAIL_REGEX.is_match(email) {
             return Err(ContactError::Validation("invalid email format".to_string()));
@@ -192,20 +236,27 @@ fn validate_contact_request(req: &ContactRequest) -> Result<(), ContactError> {
     // Message validation
     let message = req.message.trim();
     if message.is_empty() {
-        return Err(ContactError::Validation("message cannot be empty".to_string()));
+        return Err(ContactError::Validation(
+            "message cannot be empty".to_string(),
+        ));
     }
     if message.len() > 2000 {
-        return Err(ContactError::Validation("message too long (max 2000 chars)".to_string()));
+        return Err(ContactError::Validation(
+            "message too long (max 2000 chars)".to_string(),
+        ));
     }
     if contains_control_chars(&req.message) {
-        return Err(ContactError::Validation("message contains invalid characters".to_string()));
+        return Err(ContactError::Validation(
+            "message contains invalid characters".to_string(),
+        ));
     }
 
     Ok(())
 }
 
 fn contains_control_chars(s: &str) -> bool {
-    s.chars().any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+    s.chars()
+        .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
 }
 
 async fn verify_turnstile(
@@ -259,7 +310,10 @@ async fn check_rate_limit(
         .map_err(|_| ContactError::Internal)?;
 
     let key = format!("{}contact:ratelimit:{}", redis_config.key_prefix, client_ip);
-    let count: u32 = conn.incr(&key, 1).await.map_err(|_| ContactError::Internal)?;
+    let count: u32 = conn
+        .incr(&key, 1)
+        .await
+        .map_err(|_| ContactError::Internal)?;
 
     if count == 1 {
         let _: () = conn
@@ -294,7 +348,10 @@ async fn check_duplicate(
         .map_err(|_| ContactError::Internal)?;
 
     let key = format!("{}contact:dedupe:{}", redis_config.key_prefix, fingerprint);
-    let exists: bool = conn.exists(&key).await.map_err(|_| ContactError::Internal)?;
+    let exists: bool = conn
+        .exists(&key)
+        .await
+        .map_err(|_| ContactError::Internal)?;
 
     if exists {
         return Err(ContactError::Duplicate);
@@ -351,17 +408,22 @@ async fn send_contact_email(
     );
 
     let email = Message::builder()
-        .from(config.from_address.parse().map_err(|_| ContactError::EmailFailed)?)
-        .to(config.to_address.parse().map_err(|_| ContactError::EmailFailed)?)
+        .from(
+            config
+                .from_address
+                .parse()
+                .map_err(|_| ContactError::EmailFailed)?,
+        )
+        .to(config
+            .to_address
+            .parse()
+            .map_err(|_| ContactError::EmailFailed)?)
         .subject("[Contact] New Message")
         .header(ContentType::TEXT_PLAIN)
         .body(body)
         .map_err(|_| ContactError::EmailFailed)?;
 
-    let creds = Credentials::new(
-        config.smtp_username.clone(),
-        config.smtp_password.clone(),
-    );
+    let creds = Credentials::new(config.smtp_username.clone(), config.smtp_password.clone());
 
     let mailer = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.smtp_host)
         .map_err(|_| ContactError::EmailFailed)?
@@ -369,16 +431,16 @@ async fn send_contact_email(
         .credentials(creds)
         .build();
 
-    mailer
-        .send(email)
-        .await
-        .map_err(|e| {
-            state.logger.error("contact.email_send_failed", serde_json::json!({
+    mailer.send(email).await.map_err(|e| {
+        state.logger.error(
+            "contact.email_send_failed",
+            serde_json::json!({
                 "error": e.to_string(),
                 "requestId": request_id,
-            }));
-            ContactError::EmailFailed
-        })?;
+            }),
+        );
+        ContactError::EmailFailed
+    })?;
 
     Ok(())
 }
@@ -394,20 +456,43 @@ pub enum ContactError {
     EmailFailed,
     Internal,
     Unavailable,
+    CsrfValidationFailed,
 }
 
 impl IntoResponse for ContactError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             ContactError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
-            ContactError::MissingTurnstile => (StatusCode::BAD_REQUEST, "missing turnstile token".to_string()),
-            ContactError::TurnstileFailed => (StatusCode::BAD_REQUEST, "turnstile verification failed".to_string()),
-            ContactError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded".to_string()),
+            ContactError::MissingTurnstile => (
+                StatusCode::BAD_REQUEST,
+                "missing turnstile token".to_string(),
+            ),
+            ContactError::TurnstileFailed => (
+                StatusCode::BAD_REQUEST,
+                "turnstile verification failed".to_string(),
+            ),
+            ContactError::RateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate limit exceeded".to_string(),
+            ),
             ContactError::Duplicate => (StatusCode::CONFLICT, "duplicate submission".to_string()),
             ContactError::Spam => (StatusCode::BAD_REQUEST, "invalid submission".to_string()),
-            ContactError::EmailFailed => (StatusCode::INTERNAL_SERVER_ERROR, "failed to send email".to_string()),
-            ContactError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()),
-            ContactError::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "contact form is not configured".to_string()),
+            ContactError::EmailFailed => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to send email".to_string(),
+            ),
+            ContactError::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal error".to_string(),
+            ),
+            ContactError::Unavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "contact form is not configured".to_string(),
+            ),
+            ContactError::CsrfValidationFailed => (
+                StatusCode::FORBIDDEN,
+                "csrf validation failed".to_string(),
+            ),
         };
 
         (status, Json(serde_json::json!({ "error": message }))).into_response()

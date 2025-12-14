@@ -157,8 +157,4 @@ env:
   - name: VITE_TERMINAL_API_BASE_URL
     value: /api/terminal
   - name: VITE_RADIO_DEFAULT_LIMIT
-    value: "200"
-
-turnstile:
-  secretRef: radio-service-env
-  siteKeyRef: TURNSTILE_SITE_KEY  
+    value: "200"  

@@ -1,7 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use redis::{
-    Client, ConnectionAddr, IntoConnectionInfo, ProtocolVersion, RedisConnectionInfo,
-};
+use redis::{Client, ConnectionAddr, IntoConnectionInfo, ProtocolVersion, RedisConnectionInfo};
 use url::Url;
 
 pub fn build_redis_client(url: &str, tls_reject_unauthorized: bool) -> Result<Client> {

@@ -572,6 +572,9 @@ mod tests {
         assert_eq!(config.allowed_service_hostnames.len(), 2);
         assert!(config.cache.ttl.as_secs() > 0);
         assert!(config.contact.is_some());
-        assert_eq!(config.contact.as_ref().unwrap().email.to_address, "pm@gitgud.zip");
+        assert_eq!(
+            config.contact.as_ref().unwrap().email.to_address,
+            "pm@gitgud.zip"
+        );
     }
 }

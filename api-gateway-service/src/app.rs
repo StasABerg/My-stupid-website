@@ -113,6 +113,7 @@ pub async fn build_router_with_proxy(
 
     Ok(Router::new()
         .route("/contact", post(crate::contact::handle_contact))
+        .route("/config", get(crate::frontend_config::get_frontend_config))
         .route("/session", post(handle_session_post))
         .route("/session", options(handle_session_options))
         .route("/session", get(handle_session_method_not_allowed))

@@ -4,6 +4,7 @@ pub mod config;
 pub mod contact;
 pub mod cors;
 pub mod docs;
+pub mod frontend_config;
 pub mod headers;
 pub mod logger;
 pub mod metrics;

@@ -15,9 +15,10 @@ const Contact = () => {
   const [error, setError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [csrfProof, setCsrfProof] = useState<string | null>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
-
-  const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
   useEffect(() => {
     const title = "Contact | My Stupid Website";
@@ -31,8 +32,33 @@ const Contact = () => {
     }
     meta.content = description;
 
+    // Fetch session for CSRF token
+    fetch("/api/session", { method: "POST", credentials: "include" })
+      .then(res => res.json())
+      .then(session => {
+        setCsrfToken(session.csrfToken);
+        setCsrfProof(session.csrfProof);
+      })
+      .catch(() => {
+        setError("Failed to initialize session. Please refresh the page.");
+      });
+
+    // Fetch frontend config
+    fetch("/api/config")
+      .then(res => res.json())
+      .then(config => {
+        if (config.turnstileSiteKey) {
+          setTurnstileSiteKey(config.turnstileSiteKey);
+        }
+      })
+      .catch(() => {
+        // Turnstile not configured, continue without it
+      });
+  }, []);
+
+  useEffect(() => {
     // Load Turnstile if site key is available
-    if (TURNSTILE_SITE_KEY) {
+    if (turnstileSiteKey) {
       const script = document.createElement("script");
       script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
       script.async = true;
@@ -40,7 +66,7 @@ const Contact = () => {
       script.onload = () => {
         if (window.turnstile && turnstileRef.current) {
           window.turnstile.render(turnstileRef.current, {
-            sitekey: TURNSTILE_SITE_KEY,
+            sitekey: turnstileSiteKey,
             callback: (token: string) => {
               setTurnstileToken(token);
             },
@@ -56,7 +82,7 @@ const Contact = () => {
         document.head.removeChild(script);
       };
     }
-  }, [TURNSTILE_SITE_KEY]);
+  }, [turnstileSiteKey]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +103,12 @@ const Contact = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(csrfToken && csrfProof ? {
+            "x-gateway-csrf": csrfToken,
+            "x-gateway-csrf-proof": csrfProof,
+          } : {}),
         },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -203,7 +234,7 @@ const Contact = () => {
                 </p>
               </div>
 
-              {TURNSTILE_SITE_KEY && (
+              {turnstileSiteKey && (
                 <div ref={turnstileRef} className="my-4" />
               )}
 
@@ -215,10 +246,10 @@ const Contact = () => {
 
               <button
                 type="submit"
-                disabled={loading || !formState.name.trim() || !formState.message.trim()}
+                disabled={loading || !formState.name.trim() || !formState.message.trim() || !csrfToken || !csrfProof}
                 className="inline-flex items-center rounded-none border border-terminal-green/70 px-4 py-2 text-sm font-semibold text-terminal-green transition hover:bg-terminal-green/10 focus:outline-none focus:ring-2 focus:ring-terminal-green disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? "Sending..." : "Send Message"}
+                {loading ? "Sending..." : !csrfToken ? "Initializing..." : "Send Message"}
               </button>
 
               <p className="text-xs opacity-70 mt-4">
