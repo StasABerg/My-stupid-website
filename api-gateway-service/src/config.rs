@@ -35,7 +35,7 @@ pub struct Config {
     pub csrf_proof_secret: String,
     pub csrf_proof_secret_generated: bool,
     pub trust_proxy: bool,
-    pub contact: ContactConfig,
+    pub contact: Option<ContactConfig>,
 }
 
 #[derive(Clone, Debug)]
@@ -228,7 +228,7 @@ impl Config {
             .get("APP_ENV")
             .unwrap_or_else(|| "development".to_string());
 
-        let contact_config = load_contact_config(env)?;
+        let contact_config = load_contact_config(env);
 
         let config = Self {
             port,
@@ -309,11 +309,10 @@ fn resolve_session_store(
     Ok(SessionStoreConfig::Memory)
 }
 
-fn load_contact_config(env: &impl EnvSource) -> Result<ContactConfig> {
+fn load_contact_config(env: &impl EnvSource) -> Option<ContactConfig> {
     let smtp_host = env
         .get("CONTACT_SMTP_HOST")
-        .filter(|v| !v.trim().is_empty())
-        .ok_or_else(|| anyhow!("CONTACT_SMTP_HOST must be set"))?;
+        .filter(|v| !v.trim().is_empty())?;
 
     let smtp_port = env
         .get("CONTACT_SMTP_PORT")
@@ -322,18 +321,15 @@ fn load_contact_config(env: &impl EnvSource) -> Result<ContactConfig> {
 
     let smtp_username = env
         .get("CONTACT_SMTP_USERNAME")
-        .filter(|v| !v.trim().is_empty())
-        .ok_or_else(|| anyhow!("CONTACT_SMTP_USERNAME must be set"))?;
+        .filter(|v| !v.trim().is_empty())?;
 
     let smtp_password = env
         .get("CONTACT_SMTP_PASSWORD")
-        .filter(|v| !v.trim().is_empty())
-        .ok_or_else(|| anyhow!("CONTACT_SMTP_PASSWORD must be set"))?;
+        .filter(|v| !v.trim().is_empty())?;
 
     let from_address = env
         .get("CONTACT_FROM_ADDRESS")
-        .filter(|v| !v.trim().is_empty())
-        .ok_or_else(|| anyhow!("CONTACT_FROM_ADDRESS must be set"))?;
+        .filter(|v| !v.trim().is_empty())?;
 
     let to_address = env
         .get("CONTACT_TO_ADDRESS")
@@ -367,7 +363,7 @@ fn load_contact_config(env: &impl EnvSource) -> Result<ContactConfig> {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(86400); // 24 hours
 
-    Ok(ContactConfig {
+    Some(ContactConfig {
         email: EmailConfig {
             smtp_host,
             smtp_port,
@@ -575,6 +571,7 @@ mod tests {
         assert!(config.port > 0);
         assert_eq!(config.allowed_service_hostnames.len(), 2);
         assert!(config.cache.ttl.as_secs() > 0);
-        assert_eq!(config.contact.email.to_address, "pm@gitgud.zip");
+        assert!(config.contact.is_some());
+        assert_eq!(config.contact.as_ref().unwrap().email.to_address, "pm@gitgud.zip");
     }
 }

@@ -104,3 +104,20 @@ autoscaling:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+contact:
+  secretRef: radio-service-env
+  smtp:
+    hostKey: CONTACT_SMTP_HOST
+    portKey: CONTACT_SMTP_PORT
+    usernameKey: CONTACT_SMTP_USERNAME
+    passwordKey: CONTACT_SMTP_PASSWORD
+    fromAddressKey: CONTACT_FROM_ADDRESS
+    toAddress: pm@gitgud.zip
+  turnstile:
+    secretKeyRef: TURNSTILE_SECRET_KEY
+    siteKeyRef: TURNSTILE_SITE_KEY
+  rateLimit:
+    maxPerIp: 3
+    windowSeconds: 600
+    dedupeWindowSeconds: 86400

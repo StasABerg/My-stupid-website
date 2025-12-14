@@ -70,7 +70,7 @@ pub async fn handle_contact(
     Json(req): Json<ContactRequest>,
 ) -> Result<Response, ContactError> {
     let logger = &state.logger;
-    let config = &state.config.contact;
+    let config = state.config.contact.as_ref().ok_or(ContactError::Unavailable)?;
 
     let request_id = headers
         .get("x-request-id")
@@ -137,7 +137,7 @@ pub async fn handle_contact(
     check_duplicate(&state, &fingerprint, config.rate_limit.dedupe_window_seconds).await?;
 
     // Send email
-    send_contact_email(&state, &req, &request_id, &client_ip, &user_agent).await?;
+    send_contact_email(&state, config, &req, &request_id, &client_ip, &user_agent).await?;
 
     logger.info("contact.submitted", serde_json::json!({
         "requestId": request_id,
@@ -319,12 +319,13 @@ fn compute_fingerprint(req: &ContactRequest) -> String {
 
 async fn send_contact_email(
     state: &AppState,
+    contact_config: &crate::config::ContactConfig,
     req: &ContactRequest,
     request_id: &str,
     client_ip: &Option<String>,
     user_agent: &Option<String>,
 ) -> Result<(), ContactError> {
-    let config = &state.config.contact.email;
+    let config = &contact_config.email;
 
     let email_display = req
         .email
@@ -392,6 +393,7 @@ pub enum ContactError {
     Spam,
     EmailFailed,
     Internal,
+    Unavailable,
 }
 
 impl IntoResponse for ContactError {
@@ -405,6 +407,7 @@ impl IntoResponse for ContactError {
             ContactError::Spam => (StatusCode::BAD_REQUEST, "invalid submission".to_string()),
             ContactError::EmailFailed => (StatusCode::INTERNAL_SERVER_ERROR, "failed to send email".to_string()),
             ContactError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()),
+            ContactError::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "contact form is not configured".to_string()),
         };
 
         (status, Json(serde_json::json!({ "error": message }))).into_response()

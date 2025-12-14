@@ -57,6 +57,19 @@ spec:
           env:
             - name: VITE_LOG_LEVEL
               value: {{ default "info" .Values.logLevel | quote }}
+            {{- if .Values.turnstile }}
+            {{- if .Values.turnstile.secretRef }}
+            - name: VITE_TURNSTILE_SITE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.turnstile.secretRef }}
+                  key: {{ .Values.turnstile.siteKeyRef }}
+                  optional: true
+            {{- else if .Values.turnstile.siteKey }}
+            - name: VITE_TURNSTILE_SITE_KEY
+              value: {{ .Values.turnstile.siteKey | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
