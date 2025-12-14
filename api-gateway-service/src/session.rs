@@ -273,7 +273,7 @@ impl SessionManager {
             });
         }
 
-        let csrf_required = method != Method::OPTIONS;
+        let csrf_required = !matches!(method, &Method::GET | &Method::HEAD | &Method::OPTIONS);
         if csrf_required
             && (csrf_token.as_deref().is_none() || csrf_token.as_deref() != Some(&final_nonce))
         {
