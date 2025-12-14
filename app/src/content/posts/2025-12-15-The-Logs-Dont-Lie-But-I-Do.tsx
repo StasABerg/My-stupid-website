@@ -16,13 +16,13 @@ const body = `I have grown accustomed to the quiet hum of machines in the dead o
 
 export default function Post() {
   return (
-    <article className="max-w-4xl mx-auto text-terminal-white/90">
+    <article className="max-w-4xl mx-auto text-terminal-green">
       <header className="mb-8 border-b border-terminal-green/40 pb-3">
         <p className="text-[0.65rem] uppercase tracking-[0.2em] text-terminal-yellow">
           {formatDate(metadata.date)}
         </p>
         <h1 className="mt-2 text-2xl sm:text-3xl font-semibold text-terminal-green">{metadata.title}</h1>
-        <p className="mt-1 text-sm text-terminal-white/70">{metadata.excerpt}</p>
+        <p className="mt-1 text-sm text-terminal-green/70">{metadata.excerpt}</p>
       </header>
 
       <div className="leading-relaxed text-justify hyphens-auto break-words">

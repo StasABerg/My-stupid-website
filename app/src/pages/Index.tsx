@@ -156,7 +156,7 @@ const Index = () => {
           {latestPost ? (
             <>
               <TerminalPrompt command="tail -n 5 blog/latest.log" />
-              <div className="mb-4 pl-2 sm:pl-4 border border-terminal-green/40 bg-black/60 p-3 sm:p-4 shadow-[0_0_24px_rgba(0,255,0,0.12)]">
+              <div className="mb-4">
                 <p className="text-terminal-yellow text-[0.7rem] sm:text-xs uppercase tracking-[0.2em]">
                   Latest entry — {formatDate(latestPost.metadata.date)}
                 </p>
@@ -166,7 +166,7 @@ const Index = () => {
                 >
                   {latestPost.metadata.title}
                 </Link>
-                <p className="mt-1 text-terminal-white/75 leading-relaxed">{latestPost.metadata.excerpt}</p>
+                <p className="mt-1 text-terminal-green/75 leading-relaxed">{latestPost.metadata.excerpt}</p>
                 <div className="mt-3 flex items-center gap-3 text-terminal-magenta text-xs">
                   <Link
                     to="/blog"
