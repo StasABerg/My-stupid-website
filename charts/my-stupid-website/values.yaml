@@ -158,3 +158,5 @@ env:
     value: /api/terminal
   - name: VITE_RADIO_DEFAULT_LIMIT
     value: "200"
+  - name: VITE_TURNSTILE_SITE_KEY
+    value: "0x4AAAAAAB9v7tB2FpvAdySF"  

@@ -57,6 +57,16 @@ pub async fn build_router_with_proxy(
     let metrics = GatewayMetrics::new(OVERLOAD_THRESHOLD_MS);
     let request_context = RequestContextManager::new(logger.clone(), metrics.clone());
 
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let redis_cache_client = if let Some(redis_config) = &config.cache.redis {
+        Some(redis::Client::open(redis_config.url.as_str())?)
+    } else {
+        None
+    };
+
     let state = Arc::new(AppState {
         config,
         session_manager,
@@ -66,6 +76,8 @@ pub async fn build_router_with_proxy(
         request_context,
         metrics,
         logger,
+        http_client,
+        redis_cache_client,
     });
 
     let request_timeout = state.config.request_timeout;
@@ -100,6 +112,7 @@ pub async fn build_router_with_proxy(
         .layer(TimeoutLayer::new(request_timeout));
 
     Ok(Router::new()
+        .route("/contact", post(crate::contact::handle_contact))
         .route("/session", post(handle_session_post))
         .route("/session", options(handle_session_options))
         .route("/session", get(handle_session_method_not_allowed))
@@ -117,15 +130,17 @@ pub async fn build_router_with_proxy(
         .layer(timeout_layer))
 }
 
-struct AppState {
-    config: Arc<Config>,
-    session_manager: Arc<SessionManager>,
-    cors: Cors,
-    routing: Routing,
-    proxy: Arc<dyn GatewayProxy>,
-    request_context: RequestContextManager,
-    metrics: GatewayMetrics,
-    logger: Logger,
+pub struct AppState {
+    pub config: Arc<Config>,
+    pub session_manager: Arc<SessionManager>,
+    pub cors: Cors,
+    pub routing: Routing,
+    pub proxy: Arc<dyn GatewayProxy>,
+    pub request_context: RequestContextManager,
+    pub metrics: GatewayMetrics,
+    pub logger: Logger,
+    pub http_client: reqwest::Client,
+    pub redis_cache_client: Option<redis::Client>,
 }
 
 async fn handle_session_options(

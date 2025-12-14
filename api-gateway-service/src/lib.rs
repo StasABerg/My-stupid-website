@@ -1,6 +1,7 @@
 pub mod app;
 pub mod cache;
 pub mod config;
+pub mod contact;
 pub mod cors;
 pub mod docs;
 pub mod headers;

@@ -106,6 +106,60 @@ spec:
             - name: CACHE_REDIS_TLS_REJECT_UNAUTHORIZED
               value: {{ ternary "true" "false" (default true .Values.cache.redis.tlsRejectUnauthorized) | quote }}
             {{- end }}
+            {{- if .Values.contact }}
+            {{- if .Values.contact.secretRef }}
+            - name: CONTACT_SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contact.secretRef }}
+                  key: {{ .Values.contact.smtp.hostKey }}
+                  optional: true
+            - name: CONTACT_SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contact.secretRef }}
+                  key: {{ .Values.contact.smtp.portKey }}
+                  optional: true
+            - name: CONTACT_SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contact.secretRef }}
+                  key: {{ .Values.contact.smtp.usernameKey }}
+                  optional: true
+            - name: CONTACT_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contact.secretRef }}
+                  key: {{ .Values.contact.smtp.passwordKey }}
+                  optional: true
+            - name: CONTACT_FROM_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contact.secretRef }}
+                  key: {{ .Values.contact.smtp.fromAddressKey }}
+                  optional: true
+            - name: TURNSTILE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contact.secretRef }}
+                  key: {{ .Values.contact.turnstile.secretKeyRef }}
+                  optional: true
+            - name: TURNSTILE_SITE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contact.secretRef }}
+                  key: {{ .Values.contact.turnstile.siteKeyRef }}
+                  optional: true
+            {{- end }}
+            - name: CONTACT_TO_ADDRESS
+              value: "{{ .Values.contact.smtp.toAddress }}"
+            - name: CONTACT_RATE_LIMIT_MAX
+              value: "{{ .Values.contact.rateLimit.maxPerIp }}"
+            - name: CONTACT_RATE_LIMIT_WINDOW_SECONDS
+              value: "{{ .Values.contact.rateLimit.windowSeconds }}"
+            - name: CONTACT_DEDUPE_WINDOW_SECONDS
+              value: "{{ .Values.contact.rateLimit.dedupeWindowSeconds }}"
+            {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}

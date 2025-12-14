@@ -35,6 +35,7 @@ pub struct Config {
     pub csrf_proof_secret: String,
     pub csrf_proof_secret_generated: bool,
     pub trust_proxy: bool,
+    pub contact: ContactConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +82,37 @@ pub struct RedisCacheConfig {
     #[allow(dead_code)]
     pub connect_timeout_ms: u64,
     pub tls_reject_unauthorized: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContactConfig {
+    pub email: EmailConfig,
+    pub turnstile: TurnstileConfig,
+    pub rate_limit: ContactRateLimitConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct EmailConfig {
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_username: String,
+    pub smtp_password: String,
+    pub from_address: String,
+    pub to_address: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct TurnstileConfig {
+    pub secret_key: String,
+    pub site_key: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContactRateLimitConfig {
+    pub max_per_ip: u32,
+    pub window_seconds: u64,
+    pub dedupe_window_seconds: u64,
 }
 
 impl Config {
@@ -196,6 +228,8 @@ impl Config {
             .get("APP_ENV")
             .unwrap_or_else(|| "development".to_string());
 
+        let contact_config = load_contact_config(env)?;
+
         let config = Self {
             port,
             radio_service_url,
@@ -208,6 +242,7 @@ impl Config {
             csrf_proof_secret,
             csrf_proof_secret_generated,
             trust_proxy: parse_bool(env.get("TRUST_PROXY"), false),
+            contact: contact_config,
         };
 
         config.validate(&app_env)?;
@@ -272,6 +307,86 @@ fn resolve_session_store(
         }),
     );
     Ok(SessionStoreConfig::Memory)
+}
+
+fn load_contact_config(env: &impl EnvSource) -> Result<ContactConfig> {
+    let smtp_host = env
+        .get("CONTACT_SMTP_HOST")
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| anyhow!("CONTACT_SMTP_HOST must be set"))?;
+
+    let smtp_port = env
+        .get("CONTACT_SMTP_PORT")
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(587);
+
+    let smtp_username = env
+        .get("CONTACT_SMTP_USERNAME")
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| anyhow!("CONTACT_SMTP_USERNAME must be set"))?;
+
+    let smtp_password = env
+        .get("CONTACT_SMTP_PASSWORD")
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| anyhow!("CONTACT_SMTP_PASSWORD must be set"))?;
+
+    let from_address = env
+        .get("CONTACT_FROM_ADDRESS")
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| anyhow!("CONTACT_FROM_ADDRESS must be set"))?;
+
+    let to_address = env
+        .get("CONTACT_TO_ADDRESS")
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "pm@gitgud.zip".to_string());
+
+    let turnstile_secret = env
+        .get("TURNSTILE_SECRET_KEY")
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_default();
+
+    let turnstile_site_key = env
+        .get("TURNSTILE_SITE_KEY")
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_default();
+
+    let turnstile_enabled = !turnstile_secret.is_empty() && !turnstile_site_key.is_empty();
+
+    let max_per_ip = env
+        .get("CONTACT_RATE_LIMIT_MAX")
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(3);
+
+    let window_seconds = env
+        .get("CONTACT_RATE_LIMIT_WINDOW_SECONDS")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(600); // 10 minutes
+
+    let dedupe_window_seconds = env
+        .get("CONTACT_DEDUPE_WINDOW_SECONDS")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(86400); // 24 hours
+
+    Ok(ContactConfig {
+        email: EmailConfig {
+            smtp_host,
+            smtp_port,
+            smtp_username,
+            smtp_password,
+            from_address,
+            to_address,
+        },
+        turnstile: TurnstileConfig {
+            secret_key: turnstile_secret,
+            site_key: turnstile_site_key,
+            enabled: turnstile_enabled,
+        },
+        rate_limit: ContactRateLimitConfig {
+            max_per_ip,
+            window_seconds,
+            dedupe_window_seconds,
+        },
+    })
 }
 
 fn parse_port(value: Option<String>, fallback: u16) -> u16 {
@@ -450,11 +565,16 @@ mod tests {
     fn config_loads_with_dummy_env() {
         let env = TestEnv::default()
             .with("SESSION_SECRET", "a_secure_dummy_secret_value_that_is_long")
-            .with("PORT", "18080");
+            .with("PORT", "18080")
+            .with("CONTACT_SMTP_HOST", "smtp.example.com")
+            .with("CONTACT_SMTP_USERNAME", "test@example.com")
+            .with("CONTACT_SMTP_PASSWORD", "test_password")
+            .with("CONTACT_FROM_ADDRESS", "noreply@example.com");
 
         let config = Config::load_with_env(&Logger::new("test"), &env).expect("config should load");
         assert!(config.port > 0);
         assert_eq!(config.allowed_service_hostnames.len(), 2);
         assert!(config.cache.ttl.as_secs() > 0);
+        assert_eq!(config.contact.email.to_address, "pm@gitgud.zip");
     }
 }
