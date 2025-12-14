@@ -21,6 +21,7 @@ use std::sync::{Arc, LazyLock};
 
 use crate::app::AppState;
 use crate::logger::Logger;
+use uuid::Uuid;
 
 #[derive(Clone)]
 struct ContactRequestIdHeader(String);
@@ -121,8 +122,10 @@ pub async fn handle_contact(
     let request_id = headers
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     let client_ip = extract_client_ip(&headers);
     let user_agent = headers
@@ -492,6 +495,8 @@ async fn send_contact_email(
     );
 
     let subject = format!("[Contact {}] New Message", request_id);
+    let message_id =
+        lettre::message::header::MessageId::from(format!("<contact-{}@gitgud.zip>", request_id));
 
     let email = Message::builder()
         .from(
@@ -505,6 +510,7 @@ async fn send_contact_email(
             .parse()
             .map_err(|_| ContactError::EmailFailed)?)
         .subject(subject)
+        .header(message_id)
         .header(ContactRequestIdHeader(request_id.to_string()))
         .header(ContentType::TEXT_PLAIN)
         .body(body)
