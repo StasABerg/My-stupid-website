@@ -268,10 +268,10 @@ const Radio = () => {
     attempts: 0,
     timer: null,
   });
-  const manualReplayCooldownRef = useRef<{ active: boolean; timer: ReturnType<typeof setTimeout> | null }>({
-    active: false,
-    timer: null,
-  });
+  const manualReplayCooldownRef = useRef<{
+    active: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ active: false, timer: null });
   const unmountedRef = useRef(false);
   const shareButtonRef = useRef<HTMLButtonElement | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -571,18 +571,7 @@ const Radio = () => {
     setPresetStationOverride(null);
     setSelectedIndex(index);
     if (isSameAsActive) {
-      const cooldown = manualReplayCooldownRef.current;
-      if (cooldown.active) {
-        return;
-      }
-      cooldown.active = true;
-      clearManualReplayCooldown();
-      cooldown.timer = setTimeout(() => {
-        cooldown.active = false;
-        cooldown.timer = null;
-      }, 1200);
-      resetReconnectAttempts();
-      setPlaybackKey((value) => value + 1);
+      tryManualReplay();
     }
   };
 
@@ -624,6 +613,9 @@ const Radio = () => {
     }
 
     setPresetStationOverride({ station: presetStation });
+    if (presetStation.id === activeStation.id) {
+      tryManualReplay();
+    }
   };
 
   const handleShareButtonClick = () => {
@@ -756,6 +748,22 @@ const Radio = () => {
     }
     state.active = false;
   }, []);
+
+  const tryManualReplay = useCallback(() => {
+    const cooldown = manualReplayCooldownRef.current;
+    if (cooldown.active) {
+      return false;
+    }
+    clearManualReplayCooldown();
+    cooldown.active = true;
+    cooldown.timer = setTimeout(() => {
+      cooldown.active = false;
+      cooldown.timer = null;
+    }, 1200);
+    resetReconnectAttempts();
+    setPlaybackKey((value) => value + 1);
+    return true;
+  }, [clearManualReplayCooldown, resetReconnectAttempts]);
 
   const schedulePlaybackRetry = useCallback(
     (reason: string, { immediate = false }: { immediate?: boolean } = {}) => {
