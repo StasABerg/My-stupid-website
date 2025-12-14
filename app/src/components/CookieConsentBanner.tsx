@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 const CONSENT_COOKIE_NAME = "zaraz-consent";
 const ANALYTICS_PURPOSE_ID = "analytics";
 const OPEN_EVENT = "openCookieConsentBar";
+const LOCAL_CONSENT_KEY = "cookie-consent-choice";
 
 declare global {
   interface Window {
@@ -36,11 +37,18 @@ function getCookie(name: string) {
 }
 
 const CookieConsentBanner = () => {
-  const [visible, setVisible] = useState(() => !getCookie(CONSENT_COOKIE_NAME));
+  const [visible, setVisible] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    const hasCookie = Boolean(getCookie(CONSENT_COOKIE_NAME));
+    const stored = window.localStorage.getItem(LOCAL_CONSENT_KEY);
+    return !hasCookie && !stored;
+  });
 
   useEffect(() => {
     const handleChoicesUpdated = () => {
-      if (getCookie(CONSENT_COOKIE_NAME)) {
+      if (getCookie(CONSENT_COOKIE_NAME) || window.localStorage.getItem(LOCAL_CONSENT_KEY)) {
         setVisible(false);
       }
     };
@@ -79,6 +87,9 @@ const CookieConsentBanner = () => {
   const applyConsent = useCallback(
     (granted: boolean) => {
       setVisible(false);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(LOCAL_CONSENT_KEY, granted ? "accepted" : "rejected");
+      }
 
       whenConsentAPIReady(() => {
         const consent = window.zaraz?.consent;
@@ -138,7 +149,8 @@ const CookieConsentBanner = () => {
             </button>
             <button
               type="button"
-              className="rounded-none border border-terminal-green bg-terminal-green px-3 py-2 text-xs font-semibold text-black transition hover:bg-terminal-green/90 focus:outline-none focus:ring-2 focus:ring-terminal-green"
+              className="rounded-none border border-terminal-green px-3 py-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-terminal-green"
+              style={{ backgroundColor: "hsl(var(--terminal-green))", color: "#000" }}
               onClick={() => applyConsent(true)}
             >
               Accept analytics
