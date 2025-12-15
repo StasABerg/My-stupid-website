@@ -57,7 +57,7 @@ pub struct AppState {
 
 #[derive(Clone)]
 struct ProcessedCache {
-    fingerprint: String,
+    cache_key: String,
     data: ProcessedStations,
 }
 
@@ -345,13 +345,18 @@ impl TryFrom<CachedStationsPayload> for StationsPayload {
 impl AppState {
     pub async fn ensure_processed(
         &self,
-        fingerprint: &str,
+        cache_key: &str,
         stations: &[crate::stations::Station],
     ) -> ProcessedStations {
         {
             let cache = self.processed_cache.read().await;
             if let Some(existing) = cache.as_ref() {
-                if existing.fingerprint == fingerprint {
+                if existing.cache_key == cache_key
+                    && existing.data.station_count == stations.len()
+                    && stations
+                        .first()
+                        .is_some_and(|station| existing.data.station_index(&station.id) == Some(0))
+                {
                     return existing.data.clone();
                 }
             }
@@ -359,7 +364,7 @@ impl AppState {
         let processed = ProcessedStations::build(stations);
         let mut cache = self.processed_cache.write().await;
         *cache = Some(ProcessedCache {
-            fingerprint: fingerprint.to_string(),
+            cache_key: cache_key.to_string(),
             data: processed.clone(),
         });
         processed
@@ -388,11 +393,14 @@ impl AppState {
                         self.write_stations_to_cache(&payload).await?;
                     }
                     self.cache_in_memory(payload.clone(), "cache").await;
-                    self.ensure_processed(
-                        payload.fingerprint.as_deref().unwrap_or("cache"),
-                        &payload.stations,
-                    )
-                    .await;
+                    let processed_key = payload.processed_cache_key().unwrap_or_else(|_| {
+                        payload
+                            .fingerprint
+                            .clone()
+                            .unwrap_or_else(|| "cache".into())
+                    });
+                    self.ensure_processed(&processed_key, &payload.stations)
+                        .await;
                     return Ok(LoadStationsResult {
                         payload,
                         cache_source: "cache".into(),
@@ -423,11 +431,14 @@ impl AppState {
                     }
                     self.write_stations_to_cache(&payload).await?;
                     self.cache_in_memory(payload.clone(), "database").await;
-                    self.ensure_processed(
-                        payload.fingerprint.as_deref().unwrap_or("database"),
-                        &payload.stations,
-                    )
-                    .await;
+                    let processed_key = payload.processed_cache_key().unwrap_or_else(|_| {
+                        payload
+                            .fingerprint
+                            .clone()
+                            .unwrap_or_else(|| "database".into())
+                    });
+                    self.ensure_processed(&processed_key, &payload.stations)
+                        .await;
                     self.schedule_background_refresh();
                     return Ok(LoadStationsResult {
                         payload,
@@ -489,11 +500,13 @@ impl AppState {
         self.cache_in_memory(result.payload.clone(), "radio-browser")
             .await;
         self.ensure_processed(
-            result
-                .payload
-                .fingerprint
-                .as_deref()
-                .unwrap_or("radio-browser"),
+            &result.payload.processed_cache_key().unwrap_or_else(|_| {
+                result
+                    .payload
+                    .fingerprint
+                    .clone()
+                    .unwrap_or_else(|| "radio-browser".into())
+            }),
             &result.payload.stations,
         )
         .await;
@@ -634,7 +647,12 @@ impl AppState {
                     self.ensure_cache_version_sync().await?;
                     self.cache_in_memory(payload.clone(), "cache").await;
                     self.ensure_processed(
-                        payload.fingerprint.as_deref().unwrap_or("cache"),
+                        &payload.processed_cache_key().unwrap_or_else(|_| {
+                            payload
+                                .fingerprint
+                                .clone()
+                                .unwrap_or_else(|| "cache".into())
+                        }),
                         &payload.stations,
                     )
                     .await;

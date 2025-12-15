@@ -7,6 +7,7 @@ mod sanitize;
 mod storage;
 
 pub use fingerprint::build_stations_fingerprint;
+pub use fingerprint::build_stations_order_fingerprint;
 pub use models::{Station, StationCoordinates, StationsPayload, STATIONS_SCHEMA_VERSION};
 pub use persisted::sanitize_persisted_payload;
 pub use processed::{intersect_lists, ProcessedStations};

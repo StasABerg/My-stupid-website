@@ -840,13 +840,15 @@ async fn load_station(state: &AppState, station_id: &str) -> Result<Station, Api
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
-    let fingerprint = load
-        .payload
+    load.payload
         .ensure_fingerprint()
-        .map_err(ApiError::internal)?
-        .to_string();
+        .map_err(ApiError::internal)?;
+    let processed_key = load
+        .payload
+        .processed_cache_key()
+        .map_err(ApiError::internal)?;
     let processed = state
-        .ensure_processed(&fingerprint, &load.payload.stations)
+        .ensure_processed(&processed_key, &load.payload.stations)
         .await;
     get_station_by_id(&load.payload, &processed, station_id)
         .ok_or(ApiError::NotFound("Station not found"))
@@ -983,13 +985,15 @@ async fn get_stations(
         .await
         .map_err(ApiError::internal)?;
 
-    let fingerprint = load
-        .payload
+    load.payload
         .ensure_fingerprint()
-        .map_err(ApiError::internal)?
-        .to_string();
+        .map_err(ApiError::internal)?;
+    let processed_key = load
+        .payload
+        .processed_cache_key()
+        .map_err(ApiError::internal)?;
     let processed = state
-        .ensure_processed(&fingerprint, &load.payload.stations)
+        .ensure_processed(&processed_key, &load.payload.stations)
         .await;
     let response = project_stations(
         &load.payload,
@@ -1017,13 +1021,15 @@ async fn get_favorites(State(state): State<AppState>, headers: HeaderMap) -> Api
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
-    let fingerprint = load
-        .payload
+    load.payload
         .ensure_fingerprint()
-        .map_err(ApiError::internal)?
-        .to_string();
+        .map_err(ApiError::internal)?;
+    let processed_key = load
+        .payload
+        .processed_cache_key()
+        .map_err(ApiError::internal)?;
     let processed = state
-        .ensure_processed(&fingerprint, &load.payload.stations)
+        .ensure_processed(&processed_key, &load.payload.stations)
         .await;
     let payload = load.payload;
 
@@ -1093,13 +1099,15 @@ async fn upsert_favorite(
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
-    let fingerprint = load
-        .payload
+    load.payload
         .ensure_fingerprint()
-        .map_err(ApiError::internal)?
-        .to_string();
+        .map_err(ApiError::internal)?;
+    let processed_key = load
+        .payload
+        .processed_cache_key()
+        .map_err(ApiError::internal)?;
     let processed = state
-        .ensure_processed(&fingerprint, &load.payload.stations)
+        .ensure_processed(&processed_key, &load.payload.stations)
         .await;
     let payload = load.payload;
 
@@ -1173,13 +1181,15 @@ async fn delete_favorite(
         .load_stations(false)
         .await
         .map_err(ApiError::internal)?;
-    let fingerprint = load
-        .payload
+    load.payload
         .ensure_fingerprint()
-        .map_err(ApiError::internal)?
-        .to_string();
+        .map_err(ApiError::internal)?;
+    let processed_key = load
+        .payload
+        .processed_cache_key()
+        .map_err(ApiError::internal)?;
     let processed = state
-        .ensure_processed(&fingerprint, &load.payload.stations)
+        .ensure_processed(&processed_key, &load.payload.stations)
         .await;
     let payload = load.payload;
 
