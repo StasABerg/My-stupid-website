@@ -128,6 +128,15 @@ const WebToMarkdown = () => {
             />
             <p id="url-help" className="text-terminal-white/70 text-[0.75rem] sm:text-xs">
               Fetches the page server-side and returns markdown. Only http/https; ports 80/443; no redirects.
+              {" "}
+              <a
+                href="https://forgejo.gitgud.zip/stasaberg/My-stupid-website#how-to-use-via-curl"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-terminal-cyan hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-cyan"
+              >
+                How to use via CURL
+              </a>
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -192,4 +201,3 @@ const WebToMarkdown = () => {
 };
 
 export default WebToMarkdown;
-
