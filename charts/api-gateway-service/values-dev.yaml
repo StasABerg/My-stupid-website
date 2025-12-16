@@ -14,6 +14,14 @@ radioService:
 terminalService:
   name: my-stupid-website-terminal
 
+fmdService:
+  name: my-stupid-website-fmd
+
+fmd:
+  tokenSecretRef: radio-service-env-dev
+  tokenSecretKey: FMD_TOKEN
+  tokenOptional: false
+
 session:
   secretRef: "radio-service-env-dev"
   secretRefKey: SESSION_SECRET

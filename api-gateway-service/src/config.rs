@@ -7,6 +7,8 @@ const DEFAULT_RADIO_BASE_URL: &str =
     "http://my-stupid-website-radio.my-stupid-website.svc.cluster.local:4010";
 const DEFAULT_TERMINAL_BASE_URL: &str =
     "http://my-stupid-website-terminal.my-stupid-website.svc.cluster.local:80";
+const DEFAULT_FMD_BASE_URL: &str =
+    "http://my-stupid-website-fmd.my-stupid-website.svc.cluster.local:4020";
 const DEFAULT_CACHE_TTL_SECONDS: u64 = 60;
 
 pub trait EnvSource {
@@ -27,6 +29,8 @@ pub struct Config {
     pub port: u16,
     pub radio_service_url: String,
     pub terminal_service_url: String,
+    pub fmd_service_url: String,
+    pub fmd_token: Option<String>,
     pub request_timeout: Duration,
     pub allow_origins: Vec<String>,
     pub allowed_service_hostnames: Vec<String>,
@@ -130,11 +134,17 @@ impl Config {
             .get("TERMINAL_SERVICE_URL")
             .map(|value| trim_trailing_slash(&value))
             .unwrap_or_else(|| trim_trailing_slash(DEFAULT_TERMINAL_BASE_URL));
+        let fmd_service_url = env
+            .get("FMD_SERVICE_URL")
+            .map(|value| trim_trailing_slash(&value))
+            .unwrap_or_else(|| trim_trailing_slash(DEFAULT_FMD_BASE_URL));
+        let fmd_token = read_optional_secret(env.get("FMD_TOKEN"), "FMD_TOKEN", logger)?;
         let allow_origins = split_list(env.get("CORS_ALLOW_ORIGINS"));
         let explicit_hosts = split_list(env.get("ALLOWED_SERVICE_HOSTNAMES"));
         let derived_hosts = vec![
             extract_hostname(&radio_service_url),
             extract_hostname(&terminal_service_url),
+            extract_hostname(&fmd_service_url),
         ]
         .into_iter()
         .flatten();
@@ -234,6 +244,8 @@ impl Config {
             port,
             radio_service_url,
             terminal_service_url,
+            fmd_service_url,
+            fmd_token,
             request_timeout,
             allow_origins,
             allowed_service_hostnames,
@@ -500,6 +512,7 @@ impl Config {
 
         validate_url(&self.radio_service_url, "RADIO_SERVICE_URL")?;
         validate_url(&self.terminal_service_url, "TERMINAL_SERVICE_URL")?;
+        validate_url(&self.fmd_service_url, "FMD_SERVICE_URL")?;
 
         if self.allowed_service_hostnames.is_empty() {
             return Err(anyhow!(
@@ -569,7 +582,7 @@ mod tests {
 
         let config = Config::load_with_env(&Logger::new("test"), &env).expect("config should load");
         assert!(config.port > 0);
-        assert_eq!(config.allowed_service_hostnames.len(), 2);
+        assert_eq!(config.allowed_service_hostnames.len(), 3);
         assert!(config.cache.ttl.as_secs() > 0);
         assert!(config.contact.is_some());
         assert_eq!(

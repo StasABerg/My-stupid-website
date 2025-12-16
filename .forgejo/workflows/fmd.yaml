@@ -1,0 +1,241 @@
+name: fmd
+run-name: "Dev Deploy - FMD - ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref_name }}"
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'fmd/**'
+      - 'docker/fmd.Dockerfile'
+      - 'charts/fmd/**'
+      - '.forgejo/workflows/fmd.yaml'
+  workflow_dispatch:
+    inputs:
+      branch:
+        type: string
+        description: 'Branch or ref to deploy'
+        required: true
+        default: main
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: fmd-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+  REGISTRY_HOST: forgejo.gitgud.zip
+  REGISTRY_NAMESPACE: stasaberg
+  TRIVY_IMAGE: aquasec/trivy:0.50.1
+  TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+jobs:
+  trivy-dockerfile:
+    name: Trivy Dockerfile
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Scan Dockerfile misconfig
+        id: trivy
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" config \
+              --severity HIGH,CRITICAL \
+              --format table \
+              --output /workspace/trivy-fmd-dockerfile.txt \
+              /workspace/docker/fmd.Dockerfile
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-fmd-dockerfile.txt') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-fmd-dockerfile
+          path: trivy-fmd-dockerfile.txt
+
+  trivy-helm:
+    name: Trivy Helm/K8s Config
+    runs-on: self-hosted
+    needs: trivy-dockerfile
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Scan Helm charts
+        id: trivy
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" config \
+              --severity HIGH,CRITICAL \
+              --format table \
+              --output /workspace/trivy-fmd-helm.txt \
+              /workspace/charts/fmd
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-fmd-helm.txt') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-fmd-helm
+          path: trivy-fmd-helm.txt
+
+  build:
+    runs-on: self-hosted
+    needs: trivy-dockerfile
+    outputs:
+      sha: ${{ steps.out.outputs.sha }}
+      attestation: ${{ steps.provenance.outputs.attestation }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          password: ${{ secrets.FORGEJO_REGISTRY_PASSWORD }}
+
+      - id: out
+        run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: docker/fmd.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/fmd:${{ steps.out.outputs.sha }}
+            ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/fmd:latest
+          provenance: false
+          cache-from: type=local,src=/home/runner/.cache/buildx/fmd
+          cache-to: type=local,dest=/home/runner/.cache/buildx/fmd,mode=max
+
+      - name: Generate provenance attestation
+        id: provenance
+        env:
+          IMAGE_SHA: ${{ steps.out.outputs.sha }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          COMMIT_SHA: ${{ github.sha }}
+          GIT_REF: ${{ github.ref }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          ATTESTATION=$(cat << EOF
+          {
+            "image": "${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/fmd:${IMAGE_SHA}",
+            "digest": "${BUILD_DIGEST}",
+            "builder": "forgejo-actions",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${COMMIT_SHA}",
+            "ref": "${GIT_REF}",
+            "workflow": "${WORKFLOW_NAME}",
+            "run_id": "${RUN_ID}"
+          }
+          EOF
+          )
+          echo "${ATTESTATION}" > provenance.json
+          echo "attestation<<EOF" >> $GITHUB_OUTPUT
+          echo "${ATTESTATION}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload provenance
+        uses: actions/upload-artifact@v3
+        with:
+          name: provenance-fmd
+          path: provenance.json
+
+  trivy-image:
+    name: Trivy Image
+    runs-on: self-hosted
+    needs: build
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Scan built image
+        id: trivy
+        env:
+          IMAGE_SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${TRIVY_CACHE_DIR}"
+          IMAGE="${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/fmd:${IMAGE_SHA}"
+          docker run --rm \
+            -v "${TRIVY_CACHE_DIR}:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "${TRIVY_IMAGE}" image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format table \
+              --output /workspace/trivy-fmd-image.txt \
+              "${IMAGE}"
+
+      - name: Upload report artifact
+        if: ${{ always() && hashFiles('trivy-fmd-image.txt') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-fmd-image
+          path: trivy-fmd-image.txt
+
+  deploy-dev:
+    runs-on: self-hosted
+    needs: [trivy-dockerfile, build, trivy-image, trivy-helm]
+    if: |
+      needs.trivy-dockerfile.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.trivy-image.result == 'success' &&
+      needs.trivy-helm.result == 'success'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Configure Kubeconfig
+        env:
+          KUBECONFIG_BASE64: ${{ secrets.KUBECONFIG }}
+        run: |
+          echo "$KUBECONFIG_BASE64" | base64 -d > $HOME/kubeconfig
+          chmod 600 $HOME/kubeconfig
+          echo "KUBECONFIG=$HOME/kubeconfig" >> $GITHUB_ENV
+
+      - name: Helm upgrade (dev - fmd)
+        env:
+          IMAGE_SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          helm upgrade --install my-stupid-website-fmd charts/fmd \
+            -f charts/fmd/values-dev.yaml \
+            --namespace my-stupid-website-dev --create-namespace \
+            --set-string image.tag="${IMAGE_SHA}" \
+            --rollback-on-failure --wait --kube-insecure-skip-tls-verify
+
+      - name: Output deployment info
+        env:
+          IMAGE_SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          echo "✅ Deployed to development"
+          echo "📦 Image: ${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/fmd:${IMAGE_SHA}"
+          echo "🏷️  Tag for production: ${IMAGE_SHA}"
+

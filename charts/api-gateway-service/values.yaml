@@ -45,6 +45,15 @@ terminalService:
   name: my-stupid-website-terminal
   port: 80
 
+fmdService:
+  name: my-stupid-website-fmd
+  port: 4020
+
+fmd:
+  tokenSecretRef: radio-service-env
+  tokenSecretKey: FMD_TOKEN
+  tokenOptional: false
+
 allowOrigins:
   - https://gitgud.zip
 trustProxy: true

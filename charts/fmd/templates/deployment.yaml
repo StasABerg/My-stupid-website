@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fmd.fullname" . }}
+  labels:
+    {{- include "fmd.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "fmd.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fmd.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "fmd.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: fmd
+          {{- $imageTag := .Values.image.tag | default "" | trim }}
+          {{- $imageRepo := .Values.image.repository | default "" }}
+          {{- $imageRegistry := .Values.image.registry | default "" | trimSuffix "/" }}
+          {{- $needsRegistry := and (ne $imageRegistry "") (not (hasPrefix (printf "%s/" $imageRegistry) $imageRepo)) }}
+          {{- $fullRepo := ternary (printf "%s/%s" $imageRegistry (trimPrefix "/" $imageRepo)) $imageRepo $needsRegistry }}
+          {{- if $imageTag }}
+          image: "{{ $fullRepo }}:{{ $imageTag }}"
+          {{- else }}
+          image: "{{ $fullRepo }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "{{ .Values.containerPort }}"
+            - name: FMD_TIMEOUT_SECONDS
+              value: "{{ .Values.config.timeoutSeconds }}"
+            - name: FMD_MAX_HTML_BYTES
+              value: "{{ .Values.config.maxHtmlBytes }}"
+            - name: FMD_MAX_MD_BYTES
+              value: "{{ .Values.config.maxMdBytes }}"
+            - name: FMD_MAX_CONCURRENCY
+              value: "{{ .Values.config.maxConcurrency }}"
+            - name: FMD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.token.secretName }}
+                  key: {{ .Values.token.secretKey }}
+                  {{- if .Values.token.optional }}
+                  optional: true
+                  {{- end }}
+            {{- if .Values.logLevel }}
+            - name: LOG_LEVEL
+              value: "{{ .Values.logLevel }}"
+            {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+

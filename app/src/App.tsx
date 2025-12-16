@@ -25,6 +25,9 @@ const GitGudPage = lazy(() => import("./pages/GitGud"));
 const MotivationPage = lazy(() => import("./pages/Motivation"));
 const HowToIndexPage = lazy(() => import("./pages/how-to/HowToIndex"));
 const HowToTopicPage = lazy(() => import("./pages/how-to/HowToTopic"));
+const ToolsPage = lazy(() => import("./pages/Tools"));
+const WebToMarkdownPage = lazy(() => import("./pages/tools/WebToMarkdown"));
+const ImageToAsciiPage = lazy(() => import("./pages/tools/ImageToAscii"));
 
 const KonamiListener = () => {
   const navigate = useNavigate();
@@ -57,6 +60,9 @@ const App = () => (
         <Route path="/gitgud" element={<GitGudPage />} />
         <Route path="/how-to" element={<HowToIndexPage />} />
         <Route path="/how-to/:topic" element={<HowToTopicPage />} />
+        <Route path="/tools" element={<ToolsPage />} />
+        <Route path="/tools/web-to-markdown" element={<WebToMarkdownPage />} />
+        <Route path="/tools/image-to-ascii" element={<ImageToAsciiPage />} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

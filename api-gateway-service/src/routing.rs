@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 const RADIO_PREFIX: &str = "/radio";
 const TERMINAL_PREFIX: &str = "/terminal";
+const FMD_PREFIX: &str = "/fmd";
 
 #[derive(Clone)]
 pub struct Routing {
@@ -42,6 +43,7 @@ impl Routing {
     pub fn validate_base_urls(&self) -> Result<()> {
         self.validate_base_url("radioServiceUrl", &self.config.radio_service_url)?;
         self.validate_base_url("terminalServiceUrl", &self.config.terminal_service_url)?;
+        self.validate_base_url("fmdServiceUrl", &self.config.fmd_service_url)?;
         Ok(())
     }
 
@@ -114,6 +116,16 @@ impl Routing {
                 base_url: self.config.terminal_service_url.clone(),
                 path: sanitized,
                 service: "terminal",
+            });
+        }
+
+        if path == FMD_PREFIX || path.starts_with(&format!("{FMD_PREFIX}/")) {
+            let suffix = path.trim_start_matches(FMD_PREFIX);
+            let sanitized = self.sanitize_path(FMD_PREFIX, suffix)?;
+            return Some(Target {
+                base_url: self.config.fmd_service_url.clone(),
+                path: sanitized,
+                service: "fmd",
             });
         }
 
