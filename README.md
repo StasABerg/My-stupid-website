@@ -34,7 +34,7 @@ SESSION_JSON="/tmp/gw.session.json"
 # 1) Create a session (stores cookie, returns CSRF tokens)
 curl -fsS -c "$COOKIE_JAR" -X POST "$BASE/api/session" > "$SESSION_JSON"
 
-# 2) Extract CSRF fields (no jq/python)
+# 2) Extract CSRF fields
 CSRF_TOKEN=$(sed -n 's/.*"csrfToken":"\\([^"]*\\)".*/\\1/p' "$SESSION_JSON" | head -n1)
 CSRF_PROOF=$(sed -n 's/.*"csrfProof":"\\([^"]*\\)".*/\\1/p' "$SESSION_JSON" | head -n1)
 
