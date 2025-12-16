@@ -1,5 +1,5 @@
-mod codec_msgpack;
 mod cache_client;
+mod codec_msgpack;
 
 pub use cache_client::CacheClient;
 

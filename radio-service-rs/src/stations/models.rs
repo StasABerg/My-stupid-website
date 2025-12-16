@@ -60,4 +60,10 @@ impl StationsPayload {
         }
         Ok(self.fingerprint.as_deref().unwrap_or("unknown"))
     }
+
+    pub fn processed_cache_key(&self) -> Result<String> {
+        let set_fingerprint = self.fingerprint.as_deref().unwrap_or("unknown");
+        let order_fingerprint = crate::stations::build_stations_order_fingerprint(&self.stations)?;
+        Ok(format!("{set_fingerprint}:{order_fingerprint}"))
+    }
 }
