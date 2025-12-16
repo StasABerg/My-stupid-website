@@ -123,6 +123,16 @@ const Index = () => {
               <p className="text-terminal-cyan whitespace-nowrap">
                 <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
                 <Link
+                  to="/tools"
+                  className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
+                  aria-label="Open tools directory"
+                >
+                  tools/
+                </Link>
+              </p>
+              <p className="text-terminal-cyan whitespace-nowrap">
+                <span className="hidden sm:inline">drwxr-xr-x 2 user user 4096 {todayLabel} </span>
+                <Link
                   to="/terminal"
                   className="text-terminal-magenta hover:underline focus:outline-none focus:ring-2 focus:ring-terminal-magenta"
                   aria-label="Open restricted SSH sandbox"

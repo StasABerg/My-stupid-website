@@ -45,6 +45,7 @@ pub struct ProxyOptions<'a> {
     pub cacheable: bool,
     pub remote_addr: Option<SocketAddr>,
     pub request_id: &'a str,
+    pub extra_request_headers: HeaderMap,
 }
 
 impl Proxy {
@@ -76,6 +77,8 @@ impl GatewayProxy for Proxy {
 
         let target_url = build_target_url(options.target, options.query);
         let mut outbound_headers = sanitize_request_headers(&parts.headers);
+        // Never allow clients to inject internal auth headers.
+        outbound_headers.remove(HeaderName::from_static("x-fmd-token"));
         append_forwarded_for(&mut outbound_headers, options.remote_addr.as_ref());
         let client_ip = resolve_client_ip(
             &parts.headers,
@@ -89,6 +92,12 @@ impl GatewayProxy for Proxy {
             );
         }
         set_client_ip_headers(&mut outbound_headers, &client_ip);
+        // Ensure downstream services see a request id, and can echo it back.
+        if outbound_headers.get("x-request-id").is_none()
+            && let Ok(value) = HeaderValue::from_str(options.request_id)
+        {
+            outbound_headers.insert(HeaderName::from_static("x-request-id"), value);
+        }
 
         if let Some(session) = options.session {
             outbound_headers.insert(
@@ -106,6 +115,10 @@ impl GatewayProxy for Proxy {
                 HeaderValue::from_str(&session.csrf_proof)
                     .unwrap_or_else(|_| HeaderValue::from_static("")),
             );
+        }
+
+        for (key, value) in options.extra_request_headers.iter() {
+            outbound_headers.insert(key.clone(), value.clone());
         }
 
         let mut request_builder = self

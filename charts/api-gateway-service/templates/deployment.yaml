@@ -56,6 +56,20 @@ spec:
               value: "http://{{ .Values.radioService.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.radioService.port }}"
             - name: TERMINAL_SERVICE_URL
               value: "http://{{ .Values.terminalService.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.terminalService.port }}"
+            - name: FMD_SERVICE_URL
+              value: "http://{{ .Values.fmdService.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.fmdService.port | default 4020 }}"
+            {{- if .Values.fmd }}
+            {{- if .Values.fmd.tokenSecretRef }}
+            - name: FMD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.fmd.tokenSecretRef }}
+                  key: {{ .Values.fmd.tokenSecretKey }}
+                  {{- if .Values.fmd.tokenOptional }}
+                  optional: true
+                  {{- end }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.allowOrigins }}
             - name: CORS_ALLOW_ORIGINS
               value: "{{ join "," .Values.allowOrigins }}"

@@ -1,0 +1,12 @@
+autoscaling:
+  enabled: false
+
+replicaCount: 1
+
+token:
+  secretName: radio-service-env-dev
+  secretKey: FMD_TOKEN
+  optional: false
+
+logLevel: debug
+

@@ -454,6 +454,30 @@ async fn handle_proxy(
     };
 
     let request_id = context.request_id.clone();
+    let mut extra_request_headers = HeaderMap::new();
+    if target.service == "fmd" {
+        let token = match state.config.fmd_token.as_deref() {
+            Some(token) => token,
+            None => {
+                state.logger.error(
+                    "fmd.misconfigured",
+                    json!({ "requestId": request_id, "message": "FMD_TOKEN not configured" }),
+                );
+                context.complete(
+                    503,
+                    json!({"route": target.service, "reason": "misconfigured"}),
+                );
+                return json_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    json!({"error": "Tool service is temporarily unavailable"}),
+                    cors_headers,
+                );
+            }
+        };
+        if let Ok(value) = HeaderValue::from_str(token) {
+            extra_request_headers.insert(HeaderName::from_static("x-fmd-token"), value);
+        }
+    }
     let response = state
         .proxy
         .forward(
@@ -468,6 +492,7 @@ async fn handle_proxy(
                 cacheable,
                 remote_addr: Some(remote),
                 request_id: &request_id,
+                extra_request_headers,
             },
         )
         .await;
