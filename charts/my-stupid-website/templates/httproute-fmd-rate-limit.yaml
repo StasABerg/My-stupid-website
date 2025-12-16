@@ -30,7 +30,7 @@ spec:
     - matches:
         - method: POST
           path:
-            type: PathExact
+            type: Exact
             value: /api/fmd/v1/fetch-md
       backendRefs:
         - name: {{ include "my-stupid-website.fullname" . }}
@@ -54,4 +54,3 @@ spec:
             kind: KongPlugin
             name: {{ printf "%s-fmd-rate-limit" (include "my-stupid-website.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
-
