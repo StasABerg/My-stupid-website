@@ -64,6 +64,15 @@ gateway:
     - value: /
       type: PathPrefix
   middlewareRefs: []
+  fmdRateLimit:
+    enabled: true
+    config:
+      policy: local
+      limit_by: ip
+      second: 2
+      minute: 30
+      fault_tolerant: true
+      hide_client_headers: false
   wwwRedirect:
     enabled: true
     sourceHostname: www.gitgud.zip
@@ -157,4 +166,4 @@ env:
   - name: VITE_TERMINAL_API_BASE_URL
     value: /api/terminal
   - name: VITE_RADIO_DEFAULT_LIMIT
-    value: "200"  
+    value: "200"

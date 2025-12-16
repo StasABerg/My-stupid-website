@@ -1,0 +1,14 @@
+{{- $gateway := .Values.gateway | default dict }}
+{{- $fmd := $gateway.fmdRateLimit | default dict }}
+{{- if and $gateway.enabled $fmd.enabled }}
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: {{ printf "%s-fmd-rate-limit" (include "my-stupid-website.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "my-stupid-website.labels" . | nindent 4 }}
+plugin: rate-limiting
+config:
+  {{- toYaml ($fmd.config | default dict) | nindent 2 }}
+{{- end }}
+

@@ -19,6 +19,15 @@ gateway:
     - value: /
       type: PathPrefix
   middlewareRefs: []
+  fmdRateLimit:
+    enabled: true
+    config:
+      policy: local
+      limit_by: ip
+      second: 2
+      minute: 30
+      fault_tolerant: true
+      hide_client_headers: false
   wwwRedirect:
     enabled: false
     sourceHostname: www.dev.gitgud.zip
