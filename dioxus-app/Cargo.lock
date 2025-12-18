@@ -792,12 +792,18 @@ dependencies = [
 name = "dioxus-app"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "dioxus",
  "dioxus-router",
  "gloo-net",
  "gloo-storage",
+ "js-sys",
  "serde",
+ "serde_json",
  "urlencoding",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

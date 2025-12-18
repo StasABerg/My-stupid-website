@@ -3,6 +3,7 @@ use dioxus_router::{Link, Routable, Router};
 
 use crate::config::{use_runtime_config, RuntimeConfig};
 use crate::radio::RadioPage;
+use crate::tools::WebToMarkdownPage;
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -36,6 +37,10 @@ pub fn App() -> Element {
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        script {
+            src: "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.light.min.js",
+            defer: true,
+        }
         Router::<Route> {}
     }
 }
@@ -278,7 +283,7 @@ fn Tools() -> Element {
 #[component]
 fn WebToMarkdown() -> Element {
     rsx! { PageShell { title: "web to markdown",
-        p { "Placeholder." }
+        WebToMarkdownPage {}
     } }
 }
 

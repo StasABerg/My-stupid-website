@@ -150,3 +150,138 @@ a {
     width: 100%;
     max-width: 560px;
 }
+
+.share {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.share-button {
+    align-self: flex-start;
+    background: #1c2230;
+    color: #e8e8ea;
+    border: 1px solid #2e2f36;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.share-input {
+    width: 100%;
+    max-width: 560px;
+    background: #12141b;
+    border: 1px solid #2e2f36;
+    color: #e8e8ea;
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
+.midnight {
+    border: 1px dashed #2e2f36;
+    border-radius: 8px;
+    padding: 12px;
+    background: #0c0f16;
+}
+
+.midnight-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.midnight-button {
+    background: transparent;
+    border: 1px solid #2e2f36;
+    color: #e8e8ea;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.secret {
+    margin-top: 16px;
+    display: grid;
+    gap: 8px;
+}
+
+.secret-frame {
+    width: 100%;
+    max-width: 720px;
+    aspect-ratio: 16 / 9;
+    border: 0;
+    border-radius: 8px;
+    background: #000;
+}
+
+.tool {
+    display: grid;
+    gap: 12px;
+    max-width: 760px;
+}
+
+.tool-help {
+    opacity: 0.7;
+    font-size: 13px;
+}
+
+.tool-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.7;
+}
+
+.tool-input,
+.tool-output {
+    width: 100%;
+    border-radius: 6px;
+    border: 1px solid #2e2f36;
+    background: #12141b;
+    color: #e8e8ea;
+    padding: 10px;
+}
+
+.tool-output {
+    min-height: 40vh;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.tool-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tool-button {
+    background: #e8e8ea;
+    color: #0f1116;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.tool-button.ghost {
+    background: transparent;
+    color: #e8e8ea;
+    border: 1px solid #2e2f36;
+}
+
+.tool-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.tool-toast {
+    color: #8ad28a;
+}
+
+.tool-error {
+    color: #f38b8b;
+}
