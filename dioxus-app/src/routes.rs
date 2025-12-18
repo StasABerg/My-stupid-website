@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use dioxus_router::{Link, Routable, Router};
 
 use crate::config::{use_runtime_config, RuntimeConfig};
+use crate::radio::RadioPage;
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -169,7 +170,7 @@ fn TerminalDocs() -> Element {
 #[component]
 fn Radio() -> Element {
     rsx! { PageShell { title: "radio",
-        p { "Placeholder." }
+        RadioPage {}
     } }
 }
 

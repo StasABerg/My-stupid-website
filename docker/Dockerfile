@@ -14,7 +14,7 @@ COPY dioxus-app/Cargo.toml dioxus-app/Cargo.lock dioxus-app/Dioxus.toml /app/dio
 COPY dioxus-app/src /app/dioxus-app/src
 COPY dioxus-app/assets /app/dioxus-app/assets
 
-RUN cd /app/dioxus-app && dx build --web --release
+RUN cd /app/dioxus-app && dx build --web --release --debug-symbols=false
 
 FROM nginx:stable-alpine
 RUN apk add --no-cache nginx-mod-http-js

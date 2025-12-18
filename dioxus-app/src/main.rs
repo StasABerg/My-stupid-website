@@ -1,4 +1,5 @@
 mod config;
+mod radio;
 mod routes;
 
 fn main() {
