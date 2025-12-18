@@ -1,0 +1,5 @@
+{
+  "radio_api_base_url": "/api/radio",
+  "terminal_api_base_url": "/api/terminal",
+  "gateway_api_base_url": "/api"
+}

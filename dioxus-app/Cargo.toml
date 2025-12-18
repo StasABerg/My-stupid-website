@@ -1,0 +1,19 @@
+[package]
+name = "dioxus-app"
+version = "0.1.0"
+authors = ["Stas <stasbwork2@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { version = "0.7.1", features = [] }
+dioxus-router = "0.7.1"
+serde = { version = "1.0.219", features = ["derive"] }
+gloo-net = { version = "0.5.0", features = ["http"] }
+
+[features]
+default = ["web"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]

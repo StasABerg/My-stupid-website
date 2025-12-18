@@ -76,13 +76,28 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.volumeMounts }}
+          {{- if or (.Values.runtimeConfig.enabled) (.Values.volumeMounts) }}
           volumeMounts:
+            {{- if .Values.runtimeConfig.enabled }}
+            - name: runtime-config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
-      {{- with .Values.volumes }}
+      {{- if or (.Values.runtimeConfig.enabled) (.Values.volumes) }}
       volumes:
+        {{- if .Values.runtimeConfig.enabled }}
+        - name: runtime-config
+          configMap:
+            name: {{ include "my-stupid-website.fullname" . }}-runtime-config
+        {{- end }}
+        {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

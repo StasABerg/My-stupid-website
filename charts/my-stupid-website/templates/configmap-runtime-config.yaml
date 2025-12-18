@@ -1,0 +1,11 @@
+{{- if .Values.runtimeConfig.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "my-stupid-website.fullname" . }}-runtime-config
+  labels:
+    {{- include "my-stupid-website.labels" . | nindent 4 }}
+data:
+  config.json: |-
+    {{- toJson .Values.runtimeConfig.data | nindent 4 }}
+{{- end }}
