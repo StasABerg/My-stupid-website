@@ -58,6 +58,23 @@ a {
     padding-left: 18px;
 }
 
+.list-note {
+    margin-left: 8px;
+    opacity: 0.7;
+    font-size: 13px;
+}
+
+.swagger-shell {
+    border: 1px solid #2e2f36;
+    border-radius: 8px;
+    padding: 8px;
+    background: #0f1116;
+}
+
+.swagger-embed {
+    min-height: 70vh;
+}
+
 .radio {
     display: flex;
     flex-direction: column;

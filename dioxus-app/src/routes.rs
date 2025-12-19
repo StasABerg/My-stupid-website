@@ -3,7 +3,8 @@ use dioxus_router::{Link, Routable, Router};
 
 use crate::config::{use_runtime_config, RuntimeConfig};
 use crate::radio::RadioPage;
-use crate::tools::WebToMarkdownPage;
+use crate::swagger::SwaggerEmbed;
+use crate::tools::{ImageToAsciiPage, WebToMarkdownPage};
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -168,7 +169,9 @@ fn Terminal() -> Element {
 #[component]
 fn TerminalDocs() -> Element {
     rsx! { PageShell { title: "terminal docs",
-        p { "Placeholder." }
+        div { class: "swagger-shell",
+            SwaggerEmbed { spec_url: "/api/terminal/docs/json".to_string() }
+        }
     } }
 }
 
@@ -196,21 +199,38 @@ fn BlogPost(slug: String) -> Element {
 #[component]
 fn RadioDocs() -> Element {
     rsx! { PageShell { title: "radio docs",
-        p { "Placeholder." }
+        div { class: "swagger-shell",
+            SwaggerEmbed { spec_url: "/api/radio/docs/json".to_string() }
+        }
     } }
 }
 
 #[component]
 fn GatewayDocs() -> Element {
     rsx! { PageShell { title: "gateway docs",
-        p { "Placeholder." }
+        div { class: "swagger-shell",
+            SwaggerEmbed { spec_url: "/api/docs/json".to_string() }
+        }
     } }
 }
 
 #[component]
 fn Swagger() -> Element {
     rsx! { PageShell { title: "swagger",
-        p { "Placeholder." }
+        ul { class: "list",
+            li {
+                Link { to: Route::RadioDocs {}, "radio-api" }
+                span { class: "list-note", "# Swagger UI for the Radio service" }
+            }
+            li {
+                Link { to: Route::TerminalDocs {}, "terminal-api" }
+                span { class: "list-note", "# Swagger UI for the Terminal service" }
+            }
+            li {
+                Link { to: Route::GatewayDocs {}, "gateway-api" }
+                span { class: "list-note", "# Swagger UI for the API Gateway" }
+            }
+        }
     } }
 }
 
@@ -290,7 +310,7 @@ fn WebToMarkdown() -> Element {
 #[component]
 fn ImageToAscii() -> Element {
     rsx! { PageShell { title: "image to ascii",
-        p { "Placeholder." }
+        ImageToAsciiPage {}
     } }
 }
 

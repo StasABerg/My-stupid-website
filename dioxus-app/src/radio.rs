@@ -7,6 +7,7 @@ use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
 
 use crate::config::RuntimeConfig;
+use crate::gateway_session::ensure_gateway_session;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct RadioStation {
@@ -169,7 +170,12 @@ pub fn RadioPage() -> Element {
         let base_url = base_url.clone();
         move || {
             if let Some(station) = selected() {
-                resolved_stream_url.set(Some(resolve_stream_url(&base_url, &station)));
+                let base_url = base_url.clone();
+                let station = station.clone();
+                spawn(async move {
+                    let resolved = resolve_stream_url(&base_url, &station).await;
+                    resolved_stream_url.set(Some(resolved));
+                });
             } else {
                 resolved_stream_url.set(None);
             }
@@ -293,49 +299,57 @@ pub fn RadioPage() -> Element {
                     }
                 }
             }
-            if let Some(station) = selected() {
-                div { class: "player",
-                    h3 { "{station.name}" }
-                    audio {
-                        id: "radio-audio",
-                        src: "{station.stream_url}",
-                        controls: true,
-                        autoplay: true,
-                    }
-                    if station.hls {
-                        p { class: "station-meta",
-                            "This station is marked HLS. If playback fails, we'll add hls.js interop next."
+            {
+                if let Some(station) = selected() {
+                    let stream_url = resolved_stream_url()
+                        .unwrap_or_else(|| station.stream_url.clone());
+                    rsx! {
+                        div { class: "player",
+                            h3 { "{station.name}" }
+                            audio {
+                                id: "radio-audio",
+                                src: "{stream_url}",
+                                controls: true,
+                                autoplay: true,
+                            }
+                            if station.hls {
+                                p { class: "station-meta",
+                                    "This station is marked HLS. If playback fails, we'll add hls.js interop next."
+                                }
+                            }
+                        }
+                        if let Some(secret) = match_secret(&station.id) {
+                            div { class: "secret",
+                                h3 { "{SECRET_BROADCAST_LABEL}" }
+                                iframe {
+                                    class: "secret-frame",
+                                    src: "{secret.stream_url}",
+                                    allow: "autoplay; encrypted-media",
+                                    referrerpolicy: "origin",
+                                }
+                                a { href: "{secret.watch_url}", target: "_blank", "Open on YouTube" }
+                            }
+                        }
+                        div { class: "share",
+                            button {
+                                class: "share-button",
+                                onclick: move |_| {
+                                    let url = build_share_url(&station);
+                                    share_url.set(url);
+                                },
+                                "Share"
+                            }
+                            if !share_url().is_empty() {
+                                input {
+                                    class: "share-input",
+                                    value: "{share_url}",
+                                    readonly: true,
+                                }
+                            }
                         }
                     }
-                }
-                if let Some(secret) = match_secret(&station.id) {
-                    div { class: "secret",
-                        h3 { "{SECRET_BROADCAST_LABEL}" }
-                        iframe {
-                            class: "secret-frame",
-                            src: "{secret.stream_url}",
-                            allow: "autoplay; encrypted-media",
-                            referrerpolicy: "origin",
-                        }
-                        a { href: "{secret.watch_url}", target: "_blank", "Open on YouTube" }
-                    }
-                }
-                div { class: "share",
-                    button {
-                        class: "share-button",
-                        onclick: move |_| {
-                            let url = build_share_url(&station);
-                            share_url.set(url);
-                        },
-                        "Share"
-                    }
-                    if !share_url().is_empty() {
-                        input {
-                            class: "share-input",
-                            value: "{share_url}",
-                            readonly: true,
-                        }
-                    }
+                } else {
+                    rsx! {}
                 }
             }
         }
@@ -411,16 +425,31 @@ fn toggle_favorite(mut favorites: Vec<String>, station_id: &str) -> Vec<String> 
     favorites
 }
 
-fn resolve_stream_url(base_url: &str, station: &RadioStation) -> String {
-    if station.hls {
-        format!(
-            "{}/stations/{}/stream",
-            base_url.trim_end_matches('/'),
-            urlencoding::encode(&station.id)
-        )
-    } else {
-        station.stream_url.clone()
+async fn resolve_stream_url(base_url: &str, station: &RadioStation) -> String {
+    if !station.hls {
+        return station.stream_url.clone();
     }
+
+    let mut stream_url = format!(
+        "{}/stations/{}/stream",
+        base_url.trim_end_matches('/'),
+        urlencoding::encode(&station.id)
+    );
+
+    if let Ok((token, proof)) = ensure_gateway_session().await {
+        let mut params = Vec::new();
+        if !token.is_empty() {
+            params.push(format!("csrfToken={}", urlencoding::encode(&token)));
+        }
+        if !proof.is_empty() {
+            params.push(format!("csrfProof={}", urlencoding::encode(&proof)));
+        }
+        if !params.is_empty() {
+            stream_url = format!("{stream_url}?{}", params.join("&"));
+        }
+    }
+
+    stream_url
 }
 
 #[cfg(target_arch = "wasm32")]
