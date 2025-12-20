@@ -13,6 +13,10 @@ pub fn DoNothingGamePage() -> Element {
     let mut interval_id = use_signal(|| None::<i32>);
     #[cfg(not(target_arch = "wasm32"))]
     let _interval_id = ();
+    #[cfg(target_arch = "wasm32")]
+    let mut start_time = use_signal(|| None::<f64>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _start_time = ();
 
     #[cfg(target_arch = "wasm32")]
     let mut listeners_ready = use_signal(|| false);
@@ -35,6 +39,7 @@ pub fn DoNothingGamePage() -> Element {
             let on_move_elapsed = elapsed_time;
             let mut on_move_best = best_time;
             let mut on_move_interval = interval_id;
+            let mut on_move_start = start_time;
             let move_closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
                 if !on_move_running() {
                     return;
@@ -46,6 +51,7 @@ pub fn DoNothingGamePage() -> Element {
                     }
                     on_move_interval.set(None);
                 }
+                on_move_start.set(None);
                 let elapsed = on_move_elapsed();
                 if elapsed > on_move_best() {
                     on_move_best.set(elapsed);
@@ -87,14 +93,19 @@ pub fn DoNothingGamePage() -> Element {
             }
 
             let mut interval_elapsed = elapsed_time;
+            let interval_start = start_time;
             let interval_closure = Closure::wrap(Box::new(move || {
-                let next = interval_elapsed() + 0.01;
+                let Some(start) = interval_start() else {
+                    return;
+                };
+                let now = js_sys::Date::now();
+                let next = (now - start) / 1000.0;
                 interval_elapsed.set(next);
             }) as Box<dyn FnMut()>);
 
             if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
                 interval_closure.as_ref().unchecked_ref(),
-                10,
+                100,
             ) {
                 interval_id.set(Some(id));
             }
@@ -141,6 +152,8 @@ pub fn DoNothingGamePage() -> Element {
                                 class: "terminal-button",
                                 onclick: move |_| {
                                     elapsed_time.set(0.0);
+                                    #[cfg(target_arch = "wasm32")]
+                                    start_time.set(Some(js_sys::Date::now()));
                                     is_running.set(true);
                                 },
                                 if elapsed_time() > 0.0 { "RESTART" } else { "START" }

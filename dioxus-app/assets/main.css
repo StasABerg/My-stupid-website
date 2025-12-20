@@ -122,7 +122,8 @@ body {
 }
 
 .terminal-listing {
-    margin: 0;
+    margin: 0 0 6px;
+    line-height: 1.4;
 }
 
 .terminal-list-bullets {
@@ -139,6 +140,7 @@ body {
 
 .terminal-link {
     text-decoration: none;
+    cursor: pointer;
 }
 
 .terminal-link:hover {
@@ -380,12 +382,15 @@ body {
 
 .blog-article {
     max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
     color: hsl(var(--terminal-green));
 }
 
 .blog-header {
     border-bottom: 1px solid rgba(0, 255, 0, 0.4);
     padding-bottom: 12px;
+    text-align: center;
 }
 
 .blog-date {
@@ -412,13 +417,15 @@ body {
 .blog-body {
     text-align: justify;
     line-height: 1.7;
+    white-space: pre-wrap;
 }
 
 .blog-ascii {
     margin-top: 24px;
     font-size: 6px;
     line-height: 1.1;
-    opacity: 0.2;
+    opacity: 0.35;
+    color: hsl(var(--terminal-cyan));
     overflow-x: auto;
     white-space: pre;
 }
@@ -513,6 +520,14 @@ a {
     border-radius: 6px;
 }
 
+.filters select {
+    background: #12141b;
+    border: 1px solid #2e2f36;
+    color: #e8e8ea;
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
 .station-list {
     list-style: none;
     padding: 0;
@@ -529,6 +544,11 @@ a {
     border: 1px solid #2e2f36;
     border-radius: 6px;
     background: #151821;
+}
+
+.station.active {
+    border-color: rgba(0, 255, 0, 0.6);
+    box-shadow: 0 0 12px rgba(0, 255, 0, 0.15);
 }
 
 .station-play {
@@ -577,6 +597,40 @@ a {
 .player audio {
     width: 100%;
     max-width: 560px;
+}
+
+.radio-shell {
+    gap: 20px;
+}
+
+.radio-layout {
+    display: grid;
+    gap: 16px;
+}
+
+.radio-column {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.radio-panel {
+    border: 1px solid rgba(0, 255, 0, 0.35);
+    background: rgba(0, 0, 0, 0.6);
+    padding: 12px;
+    border-radius: 8px;
+}
+
+.radio-title {
+    margin: 0 0 6px;
+    color: hsl(var(--terminal-yellow));
+    font-size: 16px;
+}
+
+@media (min-width: 900px) {
+    .radio-layout {
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    }
 }
 
 .share {

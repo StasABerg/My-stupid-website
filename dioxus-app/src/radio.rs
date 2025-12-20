@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::ensure_gateway_session;
+use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct RadioStation {
@@ -48,12 +49,20 @@ pub struct StationsMeta {
     pub page: i64,
     pub limit: i64,
     #[serde(rename = "maxLimit")]
-    pub max_limit: i64,
+    pub max_limit: Option<i64>,
     #[serde(rename = "requestedLimit")]
     pub requested_limit: Option<RequestedLimit>,
     pub offset: i64,
     #[serde(rename = "cacheSource")]
-    pub cache_source: String,
+    pub cache_source: Option<String>,
+    #[serde(rename = "origin")]
+    pub origin: Option<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub countries: Option<Vec<String>>,
+    #[serde(default)]
+    pub genres: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -137,6 +146,7 @@ pub fn RadioPage() -> Element {
     let mut country = use_signal(String::new);
     let mut genre = use_signal(String::new);
     let mut favorites = use_signal(load_favorites);
+    let mut last_response = use_signal(|| None::<StationsResponse>);
 
     let stations = use_resource({
         let base_url = base_url.clone();
@@ -153,6 +163,22 @@ pub fn RadioPage() -> Element {
                 )
                 .await
             }
+        }
+    });
+
+    use_effect({
+        let mut stations = stations;
+        move || {
+            search();
+            country();
+            genre();
+            stations.restart();
+        }
+    });
+
+    use_effect(move || {
+        if let Some(Ok(response)) = stations() {
+            last_response.set(Some(response));
         }
     });
 
@@ -207,156 +233,211 @@ pub fn RadioPage() -> Element {
         }
     });
 
+    let fallback_response = last_response();
+    let current_response = stations()
+        .and_then(|value| value.ok())
+        .or(fallback_response);
+    let response_error = stations().and_then(|value| value.err());
+    let (available_countries, available_genres) = current_response
+        .as_ref()
+        .map(resolve_filter_options)
+        .unwrap_or_default();
+    let selected_station = selected();
+    let selected_station_id = selected_station.as_ref().map(|station| station.id.clone());
+    let player_panel = if let Some(station) = selected_station.clone() {
+        let stream_url = resolved_stream_url()
+            .unwrap_or_else(|| station.stream_url.clone());
+        rsx! {
+            h3 { class: "radio-title", "{station.name}" }
+            p { class: "station-meta",
+                "Country: "
+                span { class: "text-terminal-green",
+                    "{station.country.clone().unwrap_or_else(|| \"Unknown\".to_string())}"
+                }
+            }
+            if station.hls {
+                p { class: "station-meta", "Mode: HLS" }
+            } else {
+                p { class: "station-meta", "Mode: Direct stream" }
+            }
+            audio {
+                id: "radio-audio",
+                src: "{stream_url}",
+                controls: true,
+                autoplay: true,
+            }
+        }
+    } else {
+        rsx! { p { class: "terminal-muted", "No station selected." } }
+    };
+
     rsx! {
-        div { class: "radio",
-            h2 { "Broadcast Control" }
-            div { class: "filters",
-                label { "search" }
-                input {
-                    value: "{search}",
-                    placeholder: "station name or tag",
-                    oninput: move |event| search.set(event.value()),
-                }
-                label { "country" }
-                input {
-                    value: "{country}",
-                    placeholder: "country",
-                    oninput: move |event| country.set(event.value()),
-                }
-                label { "genre" }
-                input {
-                    value: "{genre}",
-                    placeholder: "genre",
-                    oninput: move |event| genre.set(event.value()),
-                }
-            }
-            match stations() {
-                None => rsx! { p { "Loading stations..." } },
-                Some(Err(message)) => rsx! { p { "Failed to load: {message}" } },
-                Some(Ok(response)) => rsx! {
-                    p { "Stations: {response.meta.matches}" }
-                    ul { class: "station-list",
-                        {
-                            let favs = favorites();
-                            response.items.into_iter().map(move |station| {
-                                let station_id = station.id.clone();
-                                let station_for_play = station.clone();
-                                let is_fav = is_favorite(&favs, &station_id);
-                                let mut resolved_stream_url = resolved_stream_url;
-                                rsx! {
-                                    li { class: "station",
-                                        button {
-                                            class: "station-play",
-                                            onclick: move |_| {
-                                                if !station_for_play.hls {
-                                                    resolved_stream_url
-                                                        .set(Some(station_for_play.stream_url.clone()));
-                                                }
-                                                selected.set(Some(station_for_play.clone()));
-                                            },
-                                            "Play"
+        div { class: "terminal-screen",
+            TerminalWindow { aria_label: Some("Radio control".to_string()),
+                TerminalHeader { display_cwd: "~/radio".to_string(), label: None }
+                div { class: "terminal-body terminal-stack radio-shell",
+                    TerminalPrompt { command: Some("radio status".to_string()), children: rsx! {} }
+                    div { class: "radio-panel",
+                        {player_panel}
+                    }
+                    div { class: "radio-layout",
+                        div { class: "radio-column",
+                            TerminalPrompt { command: Some("radio filters".to_string()), children: rsx! {} }
+                            div { class: "radio-panel",
+                                if let Some(message) = response_error.clone() {
+                                    p { class: "terminal-error", "Failed to load stations: {message}" }
+                                }
+                                div { class: "filters",
+                                    label { "search" }
+                                    input {
+                                        value: "{search}",
+                                        placeholder: "station name or tag",
+                                        oninput: move |event| search.set(event.value()),
+                                    }
+                                    label { "country" }
+                                    select {
+                                        value: "{country}",
+                                        onchange: move |event| country.set(event.value()),
+                                        option { value: "", "all" }
+                                        for value in available_countries.clone().into_iter() {
+                                            option { value: "{value}", "{value}" }
                                         }
-                                        button {
-                                            class: if is_fav {
-                                                "station-fav active"
-                                            } else {
-                                                "station-fav"
-                                            },
-                                            onclick: move |_| {
-                                                let updated = toggle_favorite(favorites(), &station_id);
-                                                favorites.set(updated.clone());
-                                                save_favorites(&updated);
-                                            },
-                                            if is_fav { "♥" } else { "♡" }
+                                    }
+                                    label { "genre" }
+                                    select {
+                                        value: "{genre}",
+                                        onchange: move |event| genre.set(event.value()),
+                                        option { value: "", "all" }
+                                        for value in available_genres.clone().into_iter() {
+                                            option { value: "{value}", "{value}" }
                                         }
-                                        div { class: "station-info",
-                                            strong { "{station.name}" }
-                                            if let Some(country) = &station.country {
-                                                span { class: "station-meta", " — {country}" }
-                                            }
-                                            if station.hls {
-                                                span { class: "station-meta", " (HLS)" }
+                                    }
+                                }
+                            }
+                        }
+                        div { class: "radio-column",
+                            TerminalPrompt { command: Some("radio stations --limit 40".to_string()), children: rsx! {} }
+                            {
+                                match current_response.clone() {
+                                    None => rsx! { p { class: "terminal-muted", "Loading stations..." } },
+                                    Some(response) => rsx! {
+                                        p { class: "station-meta", "Stations: {response.meta.matches}" }
+                                        ul { class: "station-list",
+                                            {
+                                                let favs = favorites();
+                                                response.items.into_iter().map(move |station| {
+                                                    let station_id = station.id.clone();
+                                                    let station_for_play = station.clone();
+                                                    let is_fav = is_favorite(&favs, &station_id);
+                                                    let mut resolved_stream_url = resolved_stream_url;
+                                                    let is_selected = selected_station_id
+                                                        .as_ref()
+                                                        .map(|value| value == &station_id)
+                                                        .unwrap_or(false);
+                                                    rsx! {
+                                                        li { class: if is_selected { "station active" } else { "station" },
+                                                            button {
+                                                                class: "station-play",
+                                                                onclick: move |_| {
+                                                                    if !station_for_play.hls {
+                                                                        resolved_stream_url
+                                                                            .set(Some(station_for_play.stream_url.clone()));
+                                                                    }
+                                                                    selected.set(Some(station_for_play.clone()));
+                                                                },
+                                                                if is_selected { "▶" } else { "Play" }
+                                                            }
+                                                            button {
+                                                                class: if is_fav {
+                                                                    "station-fav active"
+                                                                } else {
+                                                                    "station-fav"
+                                                                },
+                                                                onclick: move |_| {
+                                                                    let updated = toggle_favorite(favorites(), &station_id);
+                                                                    favorites.set(updated.clone());
+                                                                    save_favorites(&updated);
+                                                                },
+                                                                if is_fav { "♥" } else { "♡" }
+                                                            }
+                                                            div { class: "station-info",
+                                                                strong { "{station.name}" }
+                                                                if let Some(country) = &station.country {
+                                                                    span { class: "station-meta", " — {country}" }
+                                                                }
+                                                                if station.hls {
+                                                                    span { class: "station-meta", " (HLS)" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                })
                                             }
                                         }
                                     }
                                 }
-                            })
+                            }
                         }
                     }
-                }
-            }
-            if is_midnight_hour() {
-                div { class: "midnight",
-                    h3 { "Midnight Presets" }
-                    p { class: "station-meta", "Tune into a secret broadcast." }
-                    div { class: "midnight-buttons",
-                        {
-                            MIDNIGHT_PRESETS.into_iter().map(|preset| {
-                                let label = preset.label;
-                                let station = secret_station(preset);
-                                rsx! {
+                    if is_midnight_hour() {
+                        div { class: "midnight",
+                            h3 { "Midnight Presets" }
+                            p { class: "station-meta", "Tune into a secret broadcast." }
+                            div { class: "midnight-buttons",
+                                {
+                                    MIDNIGHT_PRESETS.into_iter().map(|preset| {
+                                        let label = preset.label;
+                                        let station = secret_station(preset);
+                                        rsx! {
+                                            button {
+                                                class: "midnight-button",
+                                                onclick: move |_| selected.set(Some(station.clone())),
+                                                "{label}"
+                                            }
+                                        }
+                                    })
+                                }
+                            }
+                        }
+                    }
+                    {
+                        if let Some(station) = selected_station.clone() {
+                            rsx! {
+                                if let Some(secret) = match_secret(&station.id) {
+                                    div { class: "secret",
+                                        h3 { "{SECRET_BROADCAST_LABEL}" }
+                                        iframe {
+                                            class: "secret-frame",
+                                            src: "{secret.stream_url}",
+                                            allow: "autoplay; encrypted-media",
+                                            referrerpolicy: "origin",
+                                        }
+                                        a { href: "{secret.watch_url}", target: "_blank", "Open on YouTube" }
+                                    }
+                                }
+                                div { class: "share",
                                     button {
-                                        class: "midnight-button",
-                                        onclick: move |_| selected.set(Some(station.clone())),
-                                        "{label}"
+                                        class: "share-button",
+                                        onclick: move |_| {
+                                            let url = build_share_url(&station);
+                                            share_url.set(url);
+                                        },
+                                        "Share"
+                                    }
+                                    if !share_url().is_empty() {
+                                        input {
+                                            class: "share-input",
+                                            value: "{share_url}",
+                                            readonly: true,
+                                        }
                                     }
                                 }
-                            })
+                            }
+                        } else {
+                            rsx! {}
                         }
                     }
-                }
-            }
-            {
-                if let Some(station) = selected() {
-                    let stream_url = resolved_stream_url()
-                        .unwrap_or_else(|| station.stream_url.clone());
-                    rsx! {
-                        div { class: "player",
-                            h3 { "{station.name}" }
-                            audio {
-                                id: "radio-audio",
-                                src: "{stream_url}",
-                                controls: true,
-                                autoplay: true,
-                            }
-                            if station.hls {
-                                p { class: "station-meta",
-                                    "This station is marked HLS. If playback fails, we'll add hls.js interop next."
-                                }
-                            }
-                        }
-                        if let Some(secret) = match_secret(&station.id) {
-                            div { class: "secret",
-                                h3 { "{SECRET_BROADCAST_LABEL}" }
-                                iframe {
-                                    class: "secret-frame",
-                                    src: "{secret.stream_url}",
-                                    allow: "autoplay; encrypted-media",
-                                    referrerpolicy: "origin",
-                                }
-                                a { href: "{secret.watch_url}", target: "_blank", "Open on YouTube" }
-                            }
-                        }
-                        div { class: "share",
-                            button {
-                                class: "share-button",
-                                onclick: move |_| {
-                                    let url = build_share_url(&station);
-                                    share_url.set(url);
-                                },
-                                "Share"
-                            }
-                            if !share_url().is_empty() {
-                                input {
-                                    class: "share-input",
-                                    value: "{share_url}",
-                                    readonly: true,
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    rsx! {}
+                    TerminalPrompt { path: Some("~/radio".to_string()), children: rsx! { TerminalCursor {} } }
                 }
             }
         }
@@ -395,6 +476,7 @@ struct Filters {
 fn build_url(base_url: &str, filters: &Filters) -> String {
     let mut params = Vec::new();
     params.push("limit=40".to_string());
+    params.push("offset=0".to_string());
     if !filters.search.trim().is_empty() {
         params.push(format!("search={}", urlencoding::encode(filters.search.trim())));
     }
@@ -430,6 +512,50 @@ fn toggle_favorite(mut favorites: Vec<String>, station_id: &str) -> Vec<String> 
         favorites.push(station_id.to_string());
     }
     favorites
+}
+
+fn resolve_filter_options(response: &StationsResponse) -> (Vec<String>, Vec<String>) {
+    let countries = response
+        .meta
+        .countries
+        .clone()
+        .filter(|values| !values.is_empty())
+        .unwrap_or_else(|| collect_unique_countries(&response.items));
+    let genres = response
+        .meta
+        .genres
+        .clone()
+        .filter(|values| !values.is_empty())
+        .unwrap_or_else(|| collect_unique_genres(&response.items));
+
+    (normalize_values(countries), normalize_values(genres))
+}
+
+fn collect_unique_countries(items: &[RadioStation]) -> Vec<String> {
+    let values: Vec<String> = items
+        .iter()
+        .filter_map(|station| station.country.clone())
+        .collect();
+    values
+}
+
+fn collect_unique_genres(items: &[RadioStation]) -> Vec<String> {
+    let mut values = Vec::new();
+    for station in items {
+        for tag in &station.tags {
+            if !tag.trim().is_empty() {
+                values.push(tag.clone());
+            }
+        }
+    }
+    values
+}
+
+fn normalize_values(mut values: Vec<String>) -> Vec<String> {
+    values.retain(|value| !value.trim().is_empty());
+    values.sort_by_key(|value| value.to_lowercase());
+    values.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    values
 }
 
 async fn resolve_stream_url(base_url: &str, station: &RadioStation) -> String {

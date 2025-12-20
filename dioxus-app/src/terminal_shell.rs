@@ -269,9 +269,6 @@ pub fn TerminalPage() -> Element {
                                         }
                                     }
                                 }
-                                Key::Enter => {
-                                    event.prevent_default();
-                                }
                                 _ => {}
                             }
                         },
