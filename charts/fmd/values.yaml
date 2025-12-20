@@ -45,6 +45,16 @@ config:
   maxHtmlBytes: 1048576
   maxMdBytes: 524288
   maxConcurrency: 16
+  renderEnabled: true
+  renderMaxConcurrency: 1
+  renderMaxSubrequests: 96
+  renderPort: 9222
+  renderTimeoutSeconds: 10
+  renderStartupTimeoutSeconds: 3
+  renderSpaTextThreshold: 200
+  renderPostLoadWaitMs: 500
+  renderWsUrl: ""
+  renderBinary: "lightpanda"
 
 token:
   secretName: radio-service-env
@@ -54,10 +64,10 @@ token:
 resources:
   limits:
     cpu: 500m
-    memory: 256Mi
+    memory: 512Mi
   requests:
     cpu: 50m
-    memory: 64Mi
+    memory: 128Mi
 
 autoscaling:
   enabled: true
@@ -103,4 +113,3 @@ readinessProbe:
 nodeSelector: {}
 tolerations: []
 affinity: {}
-

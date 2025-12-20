@@ -61,6 +61,28 @@ spec:
               value: "{{ .Values.config.maxMdBytes }}"
             - name: FMD_MAX_CONCURRENCY
               value: "{{ .Values.config.maxConcurrency }}"
+            - name: FMD_RENDER_ENABLED
+              value: "{{ .Values.config.renderEnabled }}"
+            - name: FMD_RENDER_MAX_CONCURRENCY
+              value: "{{ .Values.config.renderMaxConcurrency }}"
+            - name: FMD_RENDER_MAX_SUBREQUESTS
+              value: "{{ .Values.config.renderMaxSubrequests }}"
+            - name: FMD_RENDER_PORT
+              value: "{{ .Values.config.renderPort }}"
+            - name: FMD_RENDER_TIMEOUT_SECONDS
+              value: "{{ .Values.config.renderTimeoutSeconds }}"
+            - name: FMD_RENDER_STARTUP_TIMEOUT_SECONDS
+              value: "{{ .Values.config.renderStartupTimeoutSeconds }}"
+            - name: FMD_RENDER_SPA_TEXT_THRESHOLD
+              value: "{{ .Values.config.renderSpaTextThreshold }}"
+            - name: FMD_RENDER_POST_LOAD_WAIT_MS
+              value: "{{ .Values.config.renderPostLoadWaitMs }}"
+            - name: FMD_RENDER_BIN
+              value: "{{ .Values.config.renderBinary }}"
+            {{- if .Values.config.renderWsUrl }}
+            - name: FMD_RENDER_WS_URL
+              value: "{{ .Values.config.renderWsUrl }}"
+            {{- end }}
             - name: FMD_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -89,10 +111,16 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
@@ -101,4 +129,3 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-

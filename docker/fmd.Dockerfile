@@ -40,6 +40,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/sccache \
     cargo build --release
 
+FROM lightpanda/browser:nightly AS lightpanda
+
 FROM debian:trixie-slim AS runner
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -53,10 +55,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     useradd -r -g fmd -u 101 fmd
 WORKDIR /app
 COPY --from=build /app/fmd/target/release/fmd /usr/local/bin/fmd
+COPY --from=lightpanda /bin/lightpanda /usr/local/bin/lightpanda
 
 ENV RUST_LOG=info
 ENV PORT=4020
+ENV LIGHTPANDA_DISABLE_TELEMETRY=true
 EXPOSE 4020
 USER fmd
 ENTRYPOINT ["/usr/local/bin/fmd"]
-
