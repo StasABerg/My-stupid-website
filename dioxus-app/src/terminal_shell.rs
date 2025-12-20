@@ -200,7 +200,21 @@ pub fn TerminalPage() -> Element {
                 TerminalHeader { display_cwd: display_cwd(), label: Some(header_label) }
                 div { class: "terminal-output terminal-stack", id: OUTPUT_ID,
                     for line in banner_lines.iter() {
-                        p { class: "terminal-banner {banner_class}", "{line}" }
+                        if line == "Commands run against a locked-down Kubernetes pod with whitelisted binaries and an ephemeral filesystem." {
+                            p { class: "text-terminal-white", "{line}" }
+                        } else if line == "Need to leave? cd ~" {
+                            p { class: "text-terminal-white",
+                                "Need to leave? "
+                                Link {
+                                    to: Route::Home {},
+                                    class: "terminal-link text-terminal-yellow",
+                                    aria_label: "Go back to home directory",
+                                    "cd ~"
+                                }
+                            }
+                        } else {
+                            p { class: "terminal-banner {banner_class}", "{line}" }
+                        }
                     }
                     for entry in history().iter() {
                         div { class: "terminal-entry",

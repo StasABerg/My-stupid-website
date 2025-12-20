@@ -8,6 +8,8 @@ use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{JsCast, JsValue};
+#[cfg(target_arch = "wasm32")]
+use web_sys::RequestCredentials;
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::ensure_gateway_session;
@@ -635,30 +637,6 @@ pub fn RadioPage() -> Element {
                                     "Stations: {station_count}"
                                 }
                             }
-                            div { class: "radio-panel",
-                                div { class: "radio-section-header",
-                                    span { class: "text-terminal-cyan", "Station Scanner" }
-                                    span { class: "text-terminal-yellow", "Index: {bounded_index}" }
-                                }
-                                input {
-                                    r#type: "range",
-                                    min: "0",
-                                    max: "{station_items.len().saturating_sub(1)}",
-                                    value: "{bounded_index}",
-                                    onchange: move |event| {
-                                        if let Ok(parsed) = event.value().parse::<usize>() {
-                                            selected_index.set(parsed);
-                                            if let Some(station) = station_items.get(parsed).cloned() {
-                                                selected.set(Some(station));
-                                            }
-                                        }
-                                    }
-                                }
-                                div { class: "radio-muted radio-scan-labels",
-                                    span { "0" }
-                                    span { if station_items.is_empty() { "0" } else { "{station_items.len().saturating_sub(1)}" } }
-                                }
-                            }
                         }
                     }
                     div { class: "radio-status",
@@ -740,7 +718,9 @@ pub fn RadioPage() -> Element {
 #[cfg(target_arch = "wasm32")]
 async fn fetch_stations(base_url: String, filters: Filters) -> Result<StationsResponse, String> {
     let url = build_url(&base_url, &filters);
+    let _ = ensure_gateway_session().await;
     let response = gloo_net::http::Request::get(&url)
+        .credentials(RequestCredentials::Include)
         .send()
         .await
         .map_err(|err| format!("request failed: {err}"))?;
