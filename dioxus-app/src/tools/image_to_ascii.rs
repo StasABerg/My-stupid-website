@@ -2,6 +2,8 @@ use dioxus::prelude::*;
 use dioxus::html::FileData;
 use wasm_bindgen::JsCast;
 
+use crate::terminal::TerminalPrompt;
+
 const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_WIDTH: i32 = 300;
 const MIN_WIDTH: i32 = 1;
@@ -34,11 +36,11 @@ pub fn ImageToAsciiPage() -> Element {
 
     rsx! {
         div { class: "tool",
-            h2 { "Image → ASCII" }
+            TerminalPrompt { command: Some("img2ascii --width 300".to_string()), children: rsx! {} }
             p { class: "tool-help",
                 "Converts an image locally in your browser. Supported: jpg/jpeg/png/bmp/gif."
             }
-            label { class: "tool-label", "Image file (max 5 MiB)" }
+            label { class: "tool-label", "Image file (jpg/jpeg/png/bmp/gif, max 5 MiB):" }
             input {
                 r#type: "file",
                 accept: ".jpg,.jpeg,.png,.bmp,.gif,image/jpeg,image/png,image/bmp,image/gif",
@@ -50,7 +52,7 @@ pub fn ImageToAsciiPage() -> Element {
                     toast.set(String::new());
                 }
             }
-            label { class: "tool-label", "Width (1–300)" }
+            label { class: "tool-label", "Width (1-300):" }
             input {
                 r#type: "number",
                 min: "{MIN_WIDTH}",
@@ -90,7 +92,7 @@ pub fn ImageToAsciiPage() -> Element {
                     "Clear"
                 }
                 button {
-                    class: "tool-button ghost",
+                    class: "tool-button success",
                     onclick: move |_| {
                         let state = state;
                         let toast = toast;
@@ -100,7 +102,7 @@ pub fn ImageToAsciiPage() -> Element {
                     "Copy"
                 }
                 button {
-                    class: "tool-button ghost",
+                    class: "tool-button magenta",
                     onclick: move |_| {
                         let filename = filename();
                         let state = state;
@@ -110,6 +112,15 @@ pub fn ImageToAsciiPage() -> Element {
                     disabled: !matches!(*state.read(), ConvertState::Success { .. }),
                     "Download"
                 }
+                button {
+                    class: "tool-button ghost",
+                    onclick: move |_| {
+                        file.set(None);
+                        state.set(ConvertState::Idle);
+                        toast.set(String::new());
+                    },
+                    "Reset"
+                }
             }
             if !toast().is_empty() {
                 p { class: "tool-toast", "{toast}" }
@@ -118,6 +129,7 @@ pub fn ImageToAsciiPage() -> Element {
                 ConvertState::Error(message) => rsx! { p { class: "tool-error", "{message}" } },
                 _ => rsx! {},
             }
+            TerminalPrompt { command: Some("cat output.txt".to_string()), children: rsx! {} }
             textarea {
                 class: "tool-output",
                 readonly: true,

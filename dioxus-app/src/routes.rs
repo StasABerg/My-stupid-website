@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use dioxus_router::{Link, Routable, Router};
 
 use crate::blog::{BlogPage, BlogPostPage};
+use crate::cookie_consent::CookieConsentBanner;
 use crate::config::use_runtime_config;
 use crate::contact::ContactPage;
 use crate::date::ls_date_now;
@@ -56,6 +57,7 @@ pub fn App() -> Element {
             defer: true,
         }
         Router::<Route> {}
+        CookieConsentBanner {}
     }
 }
 
@@ -176,47 +178,47 @@ fn Home() -> Element {
                     div { class: "terminal-list",
                         nav { aria_label: "Main directories", role: "navigation",
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Documents {}, class: "text-terminal-magenta", "documents/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Games {}, class: "text-terminal-magenta", "games/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Radio {}, class: "text-terminal-magenta", "radio/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Blog {}, class: "text-terminal-magenta", "blog/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Contact {}, class: "text-terminal-magenta", "contact/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Motivation {}, class: "text-terminal-magenta", "motivation?/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Tools {}, class: "text-terminal-magenta", "tools/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Terminal {}, class: "text-terminal-magenta", "ssh-sandbox/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::Swagger {}, class: "text-terminal-magenta", "swagger/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr-xr-x 2 user user 4096 {today_label} " }
                                 Link { to: Route::HowToIndex {}, class: "text-terminal-magenta", "how-to/" }
                             }
                             p { class: "text-terminal-cyan",
-                                span { class: "text-terminal-white", "drwxr----- 2 root root 1337 {today_label} " }
+                                span { class: "text-terminal-white terminal-desktop-only", "drwxr----- 2 root root 1337 {today_label} " }
                                 Link { to: Route::Konami {}, class: "text-terminal-yellow", ".secrets/" }
                             }
                         }
@@ -226,7 +228,7 @@ fn Home() -> Element {
                         div { class: "terminal-list terminal-stack",
                             for post in latest_posts.iter() {
                                 p { class: "terminal-listing",
-                                    span { class: "text-terminal-white terminal-inline", "-rw-r--r-- 1 user user 4096 {format_ls_date(post.date)} " }
+                                    span { class: "text-terminal-white terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {format_ls_date(post.date)} " }
                                     Link { to: Route::BlogPost { slug: post.slug.to_string() }, class: "text-terminal-cyan", "{post.slug}" }
                                     span { class: "text-terminal-green terminal-inline terminal-indent", "# {post.excerpt}" }
                                 }
@@ -270,7 +272,7 @@ fn Documents() -> Element {
                     div { class: "terminal-indent terminal-stack",
                         nav { aria_label: "Document links",
                             p { class: "terminal-listing",
-                                span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 1024 {today_label} " }
+                                span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 1024 {today_label} " }
                                 a {
                                     href: "https://forgejo.gitgud.zip/stasaberg/My-stupid-website",
                                     target: "_blank",
@@ -280,7 +282,7 @@ fn Documents() -> Element {
                                 }
                             }
                             p { class: "terminal-listing",
-                                span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 1024 {today_label} " }
+                                span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 1024 {today_label} " }
                                 a {
                                     href: "https://linkedin.com/in/stasaberg",
                                     target: "_blank",
@@ -318,7 +320,7 @@ fn Games() -> Element {
                     div { class: "terminal-indent terminal-stack",
                         nav { aria_label: "Games list",
                             p { class: "terminal-listing",
-                                span { class: "terminal-muted terminal-inline", "-rwxr-xr-x 1 user user 2048 {today_label} " }
+                                span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rwxr-xr-x 1 user user 2048 {today_label} " }
                                 Link { to: Route::DoNothingGame {}, class: "terminal-link text-terminal-green", "do-nothing" }
                             }
                         }
@@ -352,7 +354,9 @@ fn TerminalDocs() -> Element {
                 TerminalHeader { display_cwd: "~/swagger/terminal".to_string(), label: None }
                 div { class: "terminal-body terminal-stack",
                     TerminalPrompt {
-                        path: Some("~/swagger".to_string()),
+                        user: Some("sandbox".to_string()),
+                        host: Some("gitgud.zip".to_string()),
+                        path: Some("~/swagger/terminal".to_string()),
                         children: rsx! { Link { to: Route::Swagger {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     div { class: "swagger-shell",
@@ -366,20 +370,7 @@ fn TerminalDocs() -> Element {
 
 #[component]
 fn Radio() -> Element {
-    rsx! {
-        div { class: "terminal-screen",
-            TerminalWindow { aria_label: Some("Radio".to_string()),
-                TerminalHeader { display_cwd: "~/radio".to_string(), label: None }
-                div { class: "terminal-body terminal-stack",
-                    TerminalPrompt {
-                        path: Some("~".to_string()),
-                        children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
-                    }
-                    RadioPage {}
-                }
-            }
-        }
-    }
+    rsx! { RadioPage {} }
 }
 
 #[component]
@@ -400,7 +391,9 @@ fn RadioDocs() -> Element {
                 TerminalHeader { display_cwd: "~/swagger/radio".to_string(), label: None }
                 div { class: "terminal-body terminal-stack",
                     TerminalPrompt {
-                        path: Some("~/swagger".to_string()),
+                        user: Some("sandbox".to_string()),
+                        host: Some("gitgud.zip".to_string()),
+                        path: Some("~/swagger/radio".to_string()),
                         children: rsx! { Link { to: Route::Swagger {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     div { class: "swagger-shell",
@@ -420,7 +413,9 @@ fn GatewayDocs() -> Element {
                 TerminalHeader { display_cwd: "~/swagger/gateway".to_string(), label: None }
                 div { class: "terminal-body terminal-stack",
                     TerminalPrompt {
-                        path: Some("~/swagger".to_string()),
+                        user: Some("sandbox".to_string()),
+                        host: Some("gitgud.zip".to_string()),
+                        path: Some("~/swagger/gateway".to_string()),
                         children: rsx! { Link { to: Route::Swagger {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     div { class: "swagger-shell",
@@ -447,17 +442,17 @@ fn Swagger() -> Element {
                     TerminalPrompt { path: Some("~/swagger".to_string()), command: Some("ls -la".to_string()), children: rsx! {} }
                     div { class: "terminal-indent terminal-stack",
                         div { class: "terminal-listing",
-                            span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                            span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::RadioDocs {}, class: "terminal-link text-terminal-cyan", "radio-api" }
                             span { class: "text-terminal-green terminal-inline terminal-indent", "# Swagger UI for the Radio service" }
                         }
                         div { class: "terminal-listing",
-                            span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                            span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::TerminalDocs {}, class: "terminal-link text-terminal-cyan", "terminal-api" }
                             span { class: "text-terminal-green terminal-inline terminal-indent", "# Swagger UI for the Terminal service" }
                         }
                         div { class: "terminal-listing",
-                            span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                            span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::GatewayDocs {}, class: "terminal-link text-terminal-cyan", "gateway-api" }
                             span { class: "text-terminal-green terminal-inline terminal-indent", "# Swagger UI for the API Gateway" }
                         }
@@ -592,12 +587,12 @@ fn Motivation() -> Element {
                     TerminalPrompt { command: Some("ls -la ./motivation?".to_string()), children: rsx! {} }
                     div { class: "terminal-indent terminal-stack",
                         p { class: "terminal-listing",
-                            span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                            span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::GitGud {}, class: "terminal-link text-terminal-cyan", "gitgud" }
                             span { class: "text-terminal-green terminal-inline terminal-indent", "# Run the impossible progress bar" }
                         }
                         p { class: "terminal-listing",
-                            span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                            span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::Begud {}, class: "terminal-link text-terminal-cyan", "begud" }
                             span { class: "text-terminal-green terminal-inline terminal-indent", "# Rotate reminders; pretend it helps" }
                         }
@@ -794,12 +789,12 @@ fn Tools() -> Element {
                     TerminalPrompt { command: Some("ls -la ./tools".to_string()), children: rsx! {} }
                     div { class: "terminal-indent terminal-stack",
                         p { class: "terminal-listing",
-                            span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                            span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::WebToMarkdown {}, class: "terminal-link text-terminal-cyan", "web-to-markdown" }
                             span { class: "text-terminal-green terminal-inline terminal-indent", "# Fetch a URL and output markdown" }
                         }
                         p { class: "terminal-listing",
-                            span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                            span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::ImageToAscii {}, class: "terminal-link text-terminal-cyan", "image-to-ascii" }
                             span { class: "text-terminal-green terminal-inline terminal-indent", "# Local-only ASCII conversion" }
                         }
@@ -820,7 +815,7 @@ fn WebToMarkdown() -> Element {
                 div { class: "terminal-body terminal-stack",
                     TerminalPrompt {
                         path: Some("~/tools".to_string()),
-                        children: rsx! { Link { to: Route::Tools {}, class: "terminal-link text-terminal-yellow", "cd .." } }
+                        children: rsx! { Link { to: Route::Tools {}, class: "terminal-link text-terminal-yellow", "cd ../tools" } }
                     }
                     WebToMarkdownPage {}
                 }
@@ -838,7 +833,7 @@ fn ImageToAscii() -> Element {
                 div { class: "terminal-body terminal-stack",
                     TerminalPrompt {
                         path: Some("~/tools".to_string()),
-                        children: rsx! { Link { to: Route::Tools {}, class: "terminal-link text-terminal-yellow", "cd .." } }
+                        children: rsx! { Link { to: Route::Tools {}, class: "terminal-link text-terminal-yellow", "cd ../tools" } }
                     }
                     ImageToAsciiPage {}
                 }
@@ -849,19 +844,34 @@ fn ImageToAscii() -> Element {
 
 #[component]
 fn NotFound(route: Vec<String>) -> Element {
-    let path = route.join("/");
+    let _path = route.join("/");
+    let mut show_modal = use_signal(random_modal_choice);
+    let gif_src = use_signal(random_access_denied_gif);
     rsx! {
         document::Title { "Not Found | My Stupid Website" }
-        div { class: "terminal-screen",
-            TerminalWindow { aria_label: Some("Not found".to_string()),
-                TerminalHeader { display_cwd: "~/404".to_string(), label: None }
-                div { class: "terminal-body terminal-stack",
-                    TerminalPrompt { command: Some("cat missing.md".to_string()), children: rsx! {} }
-                    p { class: "terminal-muted", "Missing: /{path}" }
-                    TerminalPrompt {
-                        children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
+        div { class: "notfound",
+            div {
+                class: if show_modal() { "notfound-card dimmed" } else { "notfound-card" },
+                aria_hidden: if show_modal() { "true" } else { "false" },
+                p { class: "notfound-kicker text-terminal-cyan", "404 // ACCESS LOST" }
+                h1 { class: "text-terminal-yellow", "Directory not found" }
+                p { class: "notfound-sub", "The file system refuses your request." }
+                Link { to: Route::Home {}, class: "terminal-link text-terminal-cyan", "Return to Home" }
+            }
+            if show_modal() {
+                div { class: "notfound-overlay",
+                    div { class: "notfound-modal",
+                        p { class: "notfound-modal-text", "Access denied. Security is reviewing this incident." }
+                        div { class: "notfound-gif-frame",
+                            img { src: "{gif_src}", alt: "Access denied meme" }
+                        }
+                        button {
+                            r#type: "button",
+                            class: "notfound-button text-terminal-yellow",
+                            onclick: move |_| show_modal.set(false),
+                            "I Understand"
+                        }
                     }
-                    TerminalPrompt { children: rsx! { TerminalCursor {} } }
                 }
             }
         }
@@ -904,6 +914,33 @@ fn build_progress_bar(progress: f64) -> String {
 fn clamp_percent(value: f64) -> u32 {
     let value = value.round().clamp(0.0, 100.0);
     value as u32
+}
+
+fn random_modal_choice() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return js_sys::Math::random() < 0.5;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+fn random_access_denied_gif() -> String {
+    const GIFS: [&str; 2] = [
+        "/easter-eggs/access-denied-1.gif",
+        "/easter-eggs/access-denied-2.gif",
+    ];
+    #[cfg(target_arch = "wasm32")]
+    {
+        let idx = (js_sys::Math::random() * GIFS.len() as f64).floor() as usize;
+        return GIFS[idx.min(GIFS.len() - 1)].to_string();
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        GIFS[0].to_string()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

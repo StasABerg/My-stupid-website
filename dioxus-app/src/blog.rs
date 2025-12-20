@@ -29,7 +29,7 @@ pub fn BlogPage() -> Element {
                     div { class: "terminal-indent terminal-stack",
                         for post in posts.iter() {
                             p { class: "terminal-listing",
-                                span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {format_ls_date(post.date)} " }
+                                span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {format_ls_date(post.date)} " }
                                 Link {
                                     to: Route::BlogPost { slug: post.slug.to_string() },
                                     class: "terminal-link text-terminal-cyan",
@@ -49,7 +49,6 @@ pub fn BlogPage() -> Element {
                             }
                         }
                     }
-                    TerminalPrompt { path: Some("~/blog".to_string()), children: rsx! { TerminalCursor {} } }
                 }
             }
         }
@@ -91,9 +90,6 @@ pub fn BlogPostPage(slug: String) -> Element {
                                 p { class: "blog-date text-terminal-yellow", "{format_date(post.date)}" }
                                 h1 { class: "blog-title", "{post.title}" }
                                 p { class: "blog-excerpt", "{post.excerpt}" }
-                                p { class: "blog-meta",
-                                    "by {post.author} · {post.reading_time} · tags: {post.tags.join(\" | \")}"
-                                }
                             }
                             div { class: "blog-body",
                                 p { "{post.body}" }

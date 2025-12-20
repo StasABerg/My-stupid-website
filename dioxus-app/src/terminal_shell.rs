@@ -74,6 +74,10 @@ pub fn TerminalPage() -> Element {
     let is_submitting = use_signal(|| false);
     let command_id = use_signal(|| 0u64);
     let mut booted = use_signal(|| false);
+    #[cfg(target_arch = "wasm32")]
+    let mut focus_listener_ready = use_signal(|| false);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _focus_listener_ready = ();
 
     const OUTPUT_ID: &str = "terminal-output";
     const INPUT_ID: &str = "terminal-input";
@@ -125,6 +129,33 @@ pub fn TerminalPage() -> Element {
         }
     });
 
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+
+        if focus_listener_ready() {
+            return;
+        }
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+
+        let focus_closure = Closure::wrap(Box::new(move || {
+            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+                if let Some(node) = document.get_element_by_id(INPUT_ID) {
+                    if let Ok(element) = node.dyn_into::<web_sys::HtmlInputElement>() {
+                        let _ = element.focus();
+                    }
+                }
+            }
+        }) as Box<dyn FnMut()>);
+
+        let _ = window.add_event_listener_with_callback("click", focus_closure.as_ref().unchecked_ref());
+        focus_closure.forget();
+        focus_listener_ready.set(true);
+    });
+
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         {
@@ -157,6 +188,11 @@ pub fn TerminalPage() -> Element {
         "{} — isolated pod",
         build_prompt_label(&prompt_user, &prompt_host, &display_cwd())
     );
+
+    let base_url_submit = base_url.clone();
+    let base_url_keydown = base_url.clone();
+    let navigator_submit = navigator.clone();
+    let navigator_keydown = navigator.clone();
 
     rsx! {
         div { class: "terminal-screen",
@@ -195,8 +231,8 @@ pub fn TerminalPage() -> Element {
                         if value.trim().is_empty() {
                             return;
                         }
-                        let base_url = base_url.clone();
-                        let navigator = navigator;
+                        let base_url = base_url_submit.clone();
+                        let navigator = navigator_submit.clone();
                         let input = input;
                         let history = history;
                         let command_history = command_history;
@@ -236,6 +272,8 @@ pub fn TerminalPage() -> Element {
                         value: "{input}",
                         class: "terminal-input",
                         placeholder: if connection_error().is_some() { "offline" } else { "type a command" },
+                        autocomplete: "off",
+                        spellcheck: "false",
                         disabled: loading() || is_submitting(),
                         oninput: move |event| input.set(event.value()),
                         onkeydown: move |event| {
@@ -268,6 +306,44 @@ pub fn TerminalPage() -> Element {
                                             input.set(value.clone());
                                         }
                                     }
+                                }
+                                Key::Enter => {
+                                    event.prevent_default();
+                                    if loading() || is_submitting() {
+                                        return;
+                                    }
+                                    let value = input();
+                                    if value.trim().is_empty() {
+                                        return;
+                                    }
+                                    let base_url = base_url_keydown.clone();
+                                    let navigator = navigator_keydown.clone();
+                                    let input = input;
+                                    let history = history;
+                                    let command_history = command_history;
+                                    let history_index = history_index;
+                                    let virtual_cwd = virtual_cwd;
+                                    let display_cwd = display_cwd;
+                                    let connection_error = connection_error;
+                                    let is_submitting = is_submitting;
+                                    let command_id = command_id;
+                                    spawn(async move {
+                                        run_command(
+                                            value,
+                                            base_url,
+                                            navigator,
+                                            input,
+                                            history,
+                                            command_history,
+                                            history_index,
+                                            virtual_cwd,
+                                            display_cwd,
+                                            connection_error,
+                                            is_submitting,
+                                            command_id,
+                                        )
+                                        .await;
+                                    });
                                 }
                                 _ => {}
                             }

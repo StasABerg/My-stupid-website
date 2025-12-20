@@ -79,23 +79,20 @@ pub fn DoNothingGamePage() -> Element {
                 return;
             };
 
-            if !running {
-                if let Some(id) = interval_id() {
-                    window.clear_interval_with_handle(id);
-                    interval_id.set(None);
-                }
-                return;
-            }
-
-            if let Some(id) = interval_id() {
+            let current_id = *interval_id.peek();
+            if let Some(id) = current_id {
                 window.clear_interval_with_handle(id);
                 interval_id.set(None);
+            }
+
+            if !running {
+                return;
             }
 
             let mut interval_elapsed = elapsed_time;
             let interval_start = start_time;
             let interval_closure = Closure::wrap(Box::new(move || {
-                let Some(start) = interval_start() else {
+                let Some(start) = *interval_start.peek() else {
                     return;
                 };
                 let now = js_sys::Date::now();

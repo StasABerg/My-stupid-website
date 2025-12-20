@@ -124,11 +124,11 @@ pub fn HowToIndexPage() -> Element {
                     div { class: "terminal-indent terminal-stack",
                         for topic in HOW_TO_TOPICS.iter() {
                             p { class: "terminal-listing",
-                                span { class: "terminal-muted terminal-inline", "-rw-r--r-- 1 user user 4096 {today_label} " }
+                                span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                                 Link {
                                     to: Route::HowToTopic { topic: topic.slug.to_string() },
                                     class: "terminal-link text-terminal-cyan",
-                                    "{topic.slug}"
+                                    "{display_slug(topic.title)}"
                                 }
                                 span { class: "text-terminal-green terminal-inline terminal-indent", "# {topic.description}" }
                             }
@@ -143,6 +143,17 @@ pub fn HowToIndexPage() -> Element {
             }
         }
     }
+}
+
+fn display_slug(title: &str) -> String {
+    let mut output = String::new();
+    for (index, chunk) in title.split_whitespace().enumerate() {
+        if index > 0 {
+            output.push('-');
+        }
+        output.push_str(&chunk.to_lowercase());
+    }
+    output
 }
 
 #[component]

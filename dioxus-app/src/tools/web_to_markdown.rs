@@ -1,8 +1,14 @@
 use dioxus::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
 use crate::gateway_session::authorized_post;
+use crate::terminal::TerminalPrompt;
+
+#[derive(Deserialize)]
+struct ErrorBody {
+    error: Option<String>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum ConvertState {
@@ -26,11 +32,18 @@ pub fn WebToMarkdownPage() -> Element {
 
     rsx! {
         div { class: "tool",
-            h2 { "Web → Markdown" }
+            TerminalPrompt { command: Some("fmd --url".to_string()), children: rsx! {} }
             p { class: "tool-help",
-                "Fetches a page server-side and returns markdown. Only http/https; ports 80/443; no redirects."
+                "Fetches the page server-side and returns markdown. Only http/https; ports 80/443; no redirects. "
+                a {
+                    href: "https://forgejo.gitgud.zip/stasaberg/My-stupid-website#how-to-use-via-curl",
+                    target: "_blank",
+                    rel: "noopener noreferrer",
+                    class: "terminal-link text-terminal-cyan",
+                    "How to use via CURL"
+                }
             }
-            label { class: "tool-label", "URL" }
+            label { class: "tool-label", "URL:" }
             input {
                 value: "{url}",
                 placeholder: "https://example.com",
@@ -50,7 +63,7 @@ pub fn WebToMarkdownPage() -> Element {
                         let url = url();
                         let state = state;
                         let toast = toast;
-                        async move { convert(url, state, toast).await }
+                        spawn(async move { convert(url, state, toast).await });
                     },
                     disabled: matches!(*state.read(), ConvertState::Loading),
                     if matches!(*state.read(), ConvertState::Loading) { "Converting..." } else { "Convert" }
@@ -64,22 +77,22 @@ pub fn WebToMarkdownPage() -> Element {
                     "Clear"
                 }
                 button {
-                    class: "tool-button ghost",
+                    class: "tool-button success",
                     onclick: move |_| {
                         let state = state;
                         let toast = toast;
-                        async move { copy_markdown(state, toast).await }
+                        spawn(async move { copy_markdown(state, toast).await });
                     },
                     disabled: !matches!(*state.read(), ConvertState::Success(_)),
                     "Copy"
                 }
                 button {
-                    class: "tool-button ghost",
+                    class: "tool-button magenta",
                     onclick: move |_| {
                         let filename = filename();
                         let state = state;
                         let toast = toast;
-                        async move { download_markdown(filename, state, toast).await }
+                        spawn(async move { download_markdown(filename, state, toast).await });
                     },
                     disabled: !matches!(*state.read(), ConvertState::Success(_)),
                     "Download"
@@ -92,6 +105,7 @@ pub fn WebToMarkdownPage() -> Element {
                 ConvertState::Error(message) => rsx! { p { class: "tool-error", "{message}" } },
                 _ => rsx! {},
             }
+            TerminalPrompt { command: Some("cat output.md".to_string()), children: rsx! {} }
             textarea {
                 class: "tool-output",
                 readonly: true,
@@ -129,10 +143,26 @@ async fn convert(url: String, mut state: Signal<ConvertState>, mut toast: Signal
 
     if !response.ok() {
         let status = response.status();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .unwrap_or_else(|| "".to_string());
+        if content_type.contains("application/json") {
+            if let Ok(body) = response.json::<ErrorBody>().await {
+                let message = body
+                    .error
+                    .unwrap_or_else(|| format!("Request failed (status {status})"));
+                state.set(ConvertState::Error(message));
+                return;
+            }
+        }
         let message = response.text().await.unwrap_or_default();
-        state.set(ConvertState::Error(format!(
-            "Request failed (status {status}): {message}"
-        )));
+        let message = if message.is_empty() {
+            format!("Request failed (status {status})")
+        } else {
+            message
+        };
+        state.set(ConvertState::Error(message));
         return;
     }
 

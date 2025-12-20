@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Post {
     pub title: &'static str,

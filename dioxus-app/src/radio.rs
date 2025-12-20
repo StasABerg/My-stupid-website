@@ -3,11 +3,15 @@ use base64::Engine;
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use dioxus::prelude::document;
+use dioxus_router::Link;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::{JsCast, JsValue};
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::ensure_gateway_session;
+use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -104,6 +108,14 @@ struct SharedStationPayload {
 const SHARE_QUERY_PARAM: &str = "share";
 const SHARE_PAYLOAD_VERSION: i32 = 1;
 const SECRET_BROADCAST_LABEL: &str = "Secret Broadcast";
+const MAX_PRESET_SLOTS: usize = 6;
+const PRESET_COLORS: [&str; 5] = [
+    "text-terminal-green",
+    "text-terminal-cyan",
+    "text-terminal-magenta",
+    "text-terminal-yellow",
+    "text-terminal-red",
+];
 
 const MIDNIGHT_RICKROLL_ID: &str = "midnight-rickroll";
 const MIDNIGHT_LOFI_ID: &str = "midnight-lofi";
@@ -140,11 +152,16 @@ pub fn RadioPage() -> Element {
     let base_url = config.radio_api_base_url.clone();
     let mut selected = use_signal::<Option<RadioStation>>(|| None);
     let mut resolved_stream_url = use_signal::<Option<String>>(|| None);
-    let mut share_url = use_signal(String::new);
     let mut share_loaded = use_signal(|| false);
     let mut search = use_signal(String::new);
     let mut country = use_signal(String::new);
     let mut genre = use_signal(String::new);
+    let mut selected_index = use_signal(|| 0usize);
+    let mut volume = use_signal(|| 0.65f64);
+    let mut share_dialog_open = use_signal(|| false);
+    let mut share_toast = use_signal(String::new);
+    let midnight_active = use_signal(is_midnight_hour);
+    let mystery_station = use_signal(|| secret_station(random_midnight_preset()));
     let mut favorites = use_signal(load_favorites);
     let mut last_response = use_signal(|| None::<StationsResponse>);
 
@@ -172,6 +189,8 @@ pub fn RadioPage() -> Element {
             search();
             country();
             genre();
+            selected_index.set(0);
+            selected.set(None);
             stations.restart();
         }
     });
@@ -188,8 +207,31 @@ pub fn RadioPage() -> Element {
         }
         if let Some(station) = read_shared_station() {
             selected.set(Some(station));
+            share_dialog_open.set(true);
         }
         share_loaded.set(true);
+    });
+
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        use wasm_bindgen::closure::Closure;
+        let mut midnight_active = midnight_active;
+        let mut mystery_station = mystery_station;
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let closure = Closure::wrap(Box::new(move || {
+            let active = is_midnight_hour();
+            if active && !midnight_active() {
+                mystery_station.set(secret_station(random_midnight_preset()));
+            }
+            midnight_active.set(active);
+        }) as Box<dyn FnMut()>);
+        let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().unchecked_ref(),
+            60000,
+        );
+        closure.forget();
     });
 
     use_effect({
@@ -242,202 +284,453 @@ pub fn RadioPage() -> Element {
         .as_ref()
         .map(resolve_filter_options)
         .unwrap_or_default();
+    let station_items = current_response
+        .as_ref()
+        .map(|response| response.items.clone())
+        .unwrap_or_default();
     let selected_station = selected();
-    let selected_station_id = selected_station.as_ref().map(|station| station.id.clone());
-    let player_panel = if let Some(station) = selected_station.clone() {
-        let stream_url = resolved_stream_url()
-            .unwrap_or_else(|| station.stream_url.clone());
-        rsx! {
-            h3 { class: "radio-title", "{station.name}" }
-            p { class: "station-meta",
-                "Country: "
-                span { class: "text-terminal-green",
-                    "{station.country.clone().unwrap_or_else(|| \"Unknown\".to_string())}"
-                }
-            }
-            if station.hls {
-                p { class: "station-meta", "Mode: HLS" }
-            } else {
-                p { class: "station-meta", "Mode: Direct stream" }
-            }
-            audio {
-                id: "radio-audio",
-                src: "{stream_url}",
-                controls: true,
-                autoplay: true,
-            }
-        }
+    let bounded_index = selected_index()
+        .min(station_items.len().saturating_sub(1));
+    let active_station = selected_station
+        .clone()
+        .or_else(|| station_items.get(bounded_index).cloned());
+    let frequency_label = if station_items.is_empty() || selected_station.is_some() {
+        "Preset".to_string()
     } else {
-        rsx! { p { class: "terminal-muted", "No station selected." } }
+        format!("{} FM", format_frequency(bounded_index))
     };
 
-    rsx! {
-        div { class: "terminal-screen",
-            TerminalWindow { aria_label: Some("Radio control".to_string()),
-                TerminalHeader { display_cwd: "~/radio".to_string(), label: None }
-                div { class: "terminal-body terminal-stack radio-shell",
-                    TerminalPrompt { command: Some("radio status".to_string()), children: rsx! {} }
-                    div { class: "radio-panel",
-                        {player_panel}
+    use_effect(move || {
+        if let Some(Ok(response)) = stations() {
+            if response.items.is_empty() {
+                return;
+            }
+            if selected().is_none() {
+                let idx = selected_index().min(response.items.len().saturating_sub(1));
+                selected.set(Some(response.items[idx].clone()));
+            }
+        }
+    });
+
+    use_effect(move || {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let volume = volume();
+            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+                if let Some(element) = document.get_element_by_id("radio-audio") {
+                    if let Ok(audio) = element.dyn_into::<web_sys::HtmlElement>() {
+                        let _ = js_sys::Reflect::set(
+                            &audio,
+                            &JsValue::from_str("volume"),
+                            &JsValue::from_f64(volume),
+                        );
                     }
-                    div { class: "radio-layout",
+                }
+            }
+        }
+    });
+
+    let active_station_id = active_station.as_ref().map(|station| station.id.clone());
+    let share_link = active_station
+        .as_ref()
+        .map(build_share_url)
+        .unwrap_or_default();
+    let share_link_available = !share_link.is_empty();
+    let station_count = current_response
+        .as_ref()
+        .map(|response| response.meta.matches)
+        .unwrap_or(0);
+
+    rsx! {
+        div { class: "terminal-screen radio-page",
+            TerminalWindow { aria_label: Some("Gitgud radio control center".to_string()),
+                TerminalHeader { display_cwd: "~/radio".to_string(), label: None }
+                div { class: "terminal-body terminal-stack radio-body",
+                    TerminalPrompt {
+                        path: Some("~".to_string()),
+                        children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
+                    }
+                    TerminalPrompt { path: Some("~/radio".to_string()), command: Some("radio --help".to_string()), children: rsx! {} }
+                    div { class: "radio-intro terminal-indent",
+                        p { "Use the controls below to search and tune into stations from the Gitgud directory." }
+                        p { "Adjust filters, choose presets, or scroll the list to lock onto a new frequency. Audio starts automatically when a station is active." }
+                    }
+                    div { class: "radio-grid",
                         div { class: "radio-column",
-                            TerminalPrompt { command: Some("radio filters".to_string()), children: rsx! {} }
+                            TerminalPrompt { path: Some("~/radio".to_string()), command: Some("radio status".to_string()), children: rsx! {} }
                             div { class: "radio-panel",
-                                if let Some(message) = response_error.clone() {
-                                    p { class: "terminal-error", "Failed to load stations: {message}" }
+                                if let Some(station) = active_station.clone() {
+                                    div { class: "radio-station-header",
+                                        div {
+                                            h2 { class: "radio-title text-terminal-yellow", "{station.name}" }
+                                            span { class: "radio-frequency text-terminal-green", "{frequency_label}" }
+                                        }
+                                        button {
+                                            r#type: "button",
+                                            class: if share_link_available { "radio-share-button" } else { "radio-share-button disabled" },
+                                            disabled: !share_link_available,
+                                            onclick: move |_| {
+                                                if share_link_available {
+                                                    share_toast.set(String::new());
+                                                    share_dialog_open.set(true);
+                                                }
+                                            },
+                                            "Share"
+                                        }
+                                    }
+                                    dl { class: "radio-stats",
+                                        div {
+                                            dt { "Origin" }
+                                            dd {
+                                                "{station.country.clone().unwrap_or_else(|| \"Unknown\".to_string())}"
+                                                if let Some(state) = station.state.clone() {
+                                                    " · {state}"
+                                                }
+                                            }
+                                        }
+                                        div {
+                                            dt { "Codec" }
+                                            dd { "{station.codec.clone().unwrap_or_else(|| \"Auto\".to_string())}" }
+                                        }
+                                        div {
+                                            dt { "Bitrate" }
+                                            dd {
+                                                if let Some(bitrate) = station.bitrate {
+                                                    "{bitrate} kbps"
+                                                } else {
+                                                    "Auto"
+                                                }
+                                            }
+                                        }
+                                        div {
+                                            dt { "Status" }
+                                            dd { if station.is_online { "Online" } else { "Offline" } }
+                                        }
+                                    }
+                                    div { class: "radio-tags",
+                                        span { "Tags: " }
+                                        if station.tags.is_empty() {
+                                            "None"
+                                        } else {
+                                            "{station.tags.iter().take(6).cloned().collect::<Vec<_>>().join(\", \")}"
+                                        }
+                                    }
+                                } else {
+                                    p { class: "terminal-muted", "No station selected." }
                                 }
-                                div { class: "filters",
-                                    label { "search" }
-                                    input {
-                                        value: "{search}",
-                                        placeholder: "station name or tag",
-                                        oninput: move |event| search.set(event.value()),
-                                    }
-                                    label { "country" }
-                                    select {
-                                        value: "{country}",
-                                        onchange: move |event| country.set(event.value()),
-                                        option { value: "", "all" }
-                                        for value in available_countries.clone().into_iter() {
-                                            option { value: "{value}", "{value}" }
+                            }
+                            if let Some(secret) = active_station
+                                .as_ref()
+                                .and_then(|station| match_secret(&station.id)) {
+                                div { class: "radio-panel secret",
+                                    p { class: "text-terminal-cyan radio-section-title", "{SECRET_BROADCAST_LABEL}" }
+                                    div { class: "radio-embed",
+                                        iframe {
+                                            class: "secret-frame",
+                                            src: "{secret.stream_url}",
+                                            allow: "autoplay; encrypted-media; picture-in-picture",
+                                            referrerpolicy: "strict-origin-when-cross-origin",
                                         }
                                     }
-                                    label { "genre" }
-                                    select {
-                                        value: "{genre}",
-                                        onchange: move |event| genre.set(event.value()),
-                                        option { value: "", "all" }
-                                        for value in available_genres.clone().into_iter() {
-                                            option { value: "{value}", "{value}" }
+                                    p { class: "radio-muted",
+                                        "{secret.label} · "
+                                        a { href: "{secret.watch_url}", target: "_blank", rel: "noopener noreferrer", class: "terminal-link text-terminal-yellow", "watch on YouTube" }
+                                    }
+                                }
+                            }
+                            TerminalPrompt { path: Some("~/radio".to_string()), command: Some("radio presets --list".to_string()), children: rsx! {} }
+                            div { class: "radio-panel",
+                                div { class: "radio-section-header",
+                                    span { class: "text-terminal-cyan", "Preset Slots" }
+                                    span { class: "radio-muted", "{favorites().len()}/{MAX_PRESET_SLOTS}" }
+                                }
+                                div { class: "radio-presets",
+                                    {
+                                        let favs = favorites();
+                                        let mut slots = Vec::new();
+                                        for idx in 0..MAX_PRESET_SLOTS {
+                                            slots.push(favs.get(idx).cloned());
                                         }
+                                        slots.into_iter().enumerate().map(|(index, station_id)| {
+                                            let color = PRESET_COLORS[index % PRESET_COLORS.len()];
+                                            if let Some(station_id) = station_id {
+                                                let station = station_items
+                                                    .iter()
+                                                    .find(|item| item.id == station_id)
+                                                    .cloned();
+                                                if let Some(station) = station {
+                                                    let station_id = station.id.clone();
+                                                    let is_active = active_station
+                                                        .as_ref()
+                                                        .map(|value| value.id == station_id)
+                                                        .unwrap_or(false);
+                                                    rsx! {
+                                                        div { class: "radio-preset-slot",
+                                                            button {
+                                                                class: if is_active { format!("radio-preset-button active {color}") } else { format!("radio-preset-button {color}") },
+                                                                onclick: move |_| {
+                                                                    selected.set(Some(station.clone()));
+                                                                },
+                                                                span { class: "text-terminal-cyan", "[{index + 1}]" }
+                                                                span { class: "radio-preset-name", "{station.name}" }
+                                                            }
+                                                            button {
+                                                                class: "radio-fav-button active",
+                                                                onclick: move |_| {
+                                                                    let updated = toggle_favorite(favorites(), &station_id);
+                                                                    favorites.set(updated.clone());
+                                                                    save_favorites(&updated);
+                                                                },
+                                                                "♥"
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    rsx! {
+                                                        div { class: "radio-preset-empty",
+                                                            span { class: "text-terminal-cyan", "[{index + 1}]" }
+                                                            span { class: "radio-muted", "Empty slot" }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                rsx! {
+                                                    div { class: "radio-preset-empty",
+                                                        span { class: "text-terminal-cyan", "[{index + 1}]" }
+                                                        span { class: "radio-muted", "Empty slot" }
+                                                    }
+                                                }
+                                            }
+                                        })
+                                    }
+                                }
+                                if favorites().is_empty() {
+                                    p { class: "radio-muted", "Use the heart icon in the directory to pin stations here." }
+                                }
+                            }
+                            if midnight_active() {
+                                TerminalPrompt { path: Some("~/radio".to_string()), command: Some("radio midnight --tune".to_string()), children: rsx! {} }
+                                div { class: "radio-panel midnight",
+                                    p { class: "text-terminal-cyan radio-section-title", "Secret Broadcast" }
+                                    p { class: "radio-muted", "A mysterious preset is available until the clock strikes 01:00." }
+                                    button {
+                                        class: "radio-midnight-button",
+                                        onclick: move |_| {
+                                            selected.set(Some(mystery_station()));
+                                        },
+                                        "Summon Broadcast"
                                     }
                                 }
                             }
                         }
                         div { class: "radio-column",
-                            TerminalPrompt { command: Some("radio stations --limit 40".to_string()), children: rsx! {} }
-                            {
-                                match current_response.clone() {
-                                    None => rsx! { p { class: "terminal-muted", "Loading stations..." } },
-                                    Some(response) => rsx! {
-                                        p { class: "station-meta", "Stations: {response.meta.matches}" }
-                                        ul { class: "station-list",
-                                            {
-                                                let favs = favorites();
-                                                response.items.into_iter().map(move |station| {
-                                                    let station_id = station.id.clone();
-                                                    let station_for_play = station.clone();
-                                                    let is_fav = is_favorite(&favs, &station_id);
-                                                    let mut resolved_stream_url = resolved_stream_url;
-                                                    let is_selected = selected_station_id
-                                                        .as_ref()
-                                                        .map(|value| value == &station_id)
-                                                        .unwrap_or(false);
-                                                    rsx! {
-                                                        li { class: if is_selected { "station active" } else { "station" },
+                            TerminalPrompt { path: Some("~/radio".to_string()), command: Some("radio filters".to_string()), children: rsx! {} }
+                            div { class: "radio-panel",
+                                if let Some(message) = response_error.clone() {
+                                    p { class: "terminal-error", "Failed to load stations: {message}" }
+                                }
+                                fieldset { class: "radio-fieldset",
+                                    legend { "Filters" }
+                                    label { r#for: "radio-search", "Search" }
+                                    input {
+                                        id: "radio-search",
+                                        value: "{search}",
+                                        placeholder: "Station, tag, or language",
+                                        oninput: move |event| search.set(event.value()),
+                                    }
+                                    label { r#for: "radio-country", "Country" }
+                                    select {
+                                        id: "radio-country",
+                                        value: "{country}",
+                                        onchange: move |event| country.set(event.value()),
+                                        option { value: "", "All origins" }
+                                        for value in available_countries.clone().into_iter() {
+                                            option { value: "{value}", "{value}" }
+                                        }
+                                    }
+                                    label { r#for: "radio-genre", "Genre" }
+                                    select {
+                                        id: "radio-genre",
+                                        value: "{genre}",
+                                        onchange: move |event| genre.set(event.value()),
+                                        option { value: "", "All genres" }
+                                        for value in available_genres.clone().into_iter() {
+                                            option { value: "{value}", "{value}" }
+                                        }
+                                    }
+                                    div { class: "radio-volume",
+                                        span { "Volume" }
+                                        div { class: "radio-volume-controls",
+                                            button {
+                                                r#type: "button",
+                                                disabled: volume() <= 0.0,
+                                                onclick: move |_| volume.set((volume() - 0.1).max(0.0)),
+                                                "-"
+                                            }
+                                            span { "{((volume() * 100.0).round())}%" }
+                                            button {
+                                                r#type: "button",
+                                                disabled: volume() >= 1.0,
+                                                onclick: move |_| volume.set((volume() + 0.1).min(1.0)),
+                                                "+"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            TerminalPrompt { path: Some("~/radio".to_string()), command: Some("radio stations --limit 40".to_string()), children: rsx! {} }
+                            div { class: "radio-panel",
+                                div { class: "radio-section-header", span { class: "text-terminal-cyan", "Station Directory" } }
+                                if station_items.is_empty() {
+                                    p { class: "radio-muted", "No stations found. Adjust filters or refresh the cache." }
+                                } else {
+                                    ol { class: "radio-directory",
+                                        {
+                                            let favs = favorites();
+                                            let favs_for_list = favs.clone();
+                                            station_items.iter().enumerate().map({
+                                                let favs_for_list = favs_for_list.clone();
+                                                move |(index, station)| {
+                                                let station_id = station.id.clone();
+                                                let station_for_select = station.clone();
+                                                let is_fav = is_favorite(&favs_for_list, &station_id);
+                                                let is_active = active_station_id
+                                                    .as_ref()
+                                                    .map(|value| value == &station_id)
+                                                    .unwrap_or(false);
+                                                let freq = format!("{} FM", format_frequency(index));
+                                                rsx! {
+                                                    li { class: if is_active { "radio-directory-item active" } else { "radio-directory-item" },
+                                                        div {
+                                                            class: "radio-directory-row",
+                                                            role: "button",
+                                                            tabindex: "0",
+                                                            onclick: move |_| {
+                                                                selected.set(Some(station_for_select.clone()));
+                                                                selected_index.set(index);
+                                                            },
+                                                            span { class: "radio-caret text-terminal-cyan", if is_active { ">" } else { "" } }
+                                                            span { class: "radio-frequency text-terminal-green", "{freq}" }
                                                             button {
-                                                                class: "station-play",
-                                                                onclick: move |_| {
-                                                                    if !station_for_play.hls {
-                                                                        resolved_stream_url
-                                                                            .set(Some(station_for_play.stream_url.clone()));
-                                                                    }
-                                                                    selected.set(Some(station_for_play.clone()));
-                                                                },
-                                                                if is_selected { "▶" } else { "Play" }
-                                                            }
-                                                            button {
-                                                                class: if is_fav {
-                                                                    "station-fav active"
-                                                                } else {
-                                                                    "station-fav"
-                                                                },
-                                                                onclick: move |_| {
+                                                                class: if is_fav { "radio-fav-button active" } else { "radio-fav-button" },
+                                                                onclick: move |event| {
+                                                                    event.stop_propagation();
                                                                     let updated = toggle_favorite(favorites(), &station_id);
                                                                     favorites.set(updated.clone());
                                                                     save_favorites(&updated);
                                                                 },
                                                                 if is_fav { "♥" } else { "♡" }
                                                             }
-                                                            div { class: "station-info",
-                                                                strong { "{station.name}" }
-                                                                if let Some(country) = &station.country {
-                                                                    span { class: "station-meta", " — {country}" }
-                                                                }
-                                                                if station.hls {
-                                                                    span { class: "station-meta", " (HLS)" }
-                                                                }
-                                                            }
+                                                            span { class: "radio-station-name", "{station.name}" }
+                                                            span { class: "radio-country", "{station.country.clone().unwrap_or_else(|| \"Unknown\".to_string())}" }
                                                         }
                                                     }
-                                                })
+                                                }
+                                            }
+                                            })
+                                        }
+                                    }
+                                }
+                                div { class: "radio-footer",
+                                    "Stations: {station_count}"
+                                }
+                            }
+                            div { class: "radio-panel",
+                                div { class: "radio-section-header",
+                                    span { class: "text-terminal-cyan", "Station Scanner" }
+                                    span { class: "text-terminal-yellow", "Index: {bounded_index}" }
+                                }
+                                input {
+                                    r#type: "range",
+                                    min: "0",
+                                    max: "{station_items.len().saturating_sub(1)}",
+                                    value: "{bounded_index}",
+                                    onchange: move |event| {
+                                        if let Ok(parsed) = event.value().parse::<usize>() {
+                                            selected_index.set(parsed);
+                                            if let Some(station) = station_items.get(parsed).cloned() {
+                                                selected.set(Some(station));
                                             }
                                         }
                                     }
                                 }
-                            }
-                        }
-                    }
-                    if is_midnight_hour() {
-                        div { class: "midnight",
-                            h3 { "Midnight Presets" }
-                            p { class: "station-meta", "Tune into a secret broadcast." }
-                            div { class: "midnight-buttons",
-                                {
-                                    MIDNIGHT_PRESETS.into_iter().map(|preset| {
-                                        let label = preset.label;
-                                        let station = secret_station(preset);
-                                        rsx! {
-                                            button {
-                                                class: "midnight-button",
-                                                onclick: move |_| selected.set(Some(station.clone())),
-                                                "{label}"
-                                            }
-                                        }
-                                    })
+                                div { class: "radio-muted radio-scan-labels",
+                                    span { "0" }
+                                    span { if station_items.is_empty() { "0" } else { "{station_items.len().saturating_sub(1)}" } }
                                 }
                             }
                         }
                     }
-                    {
-                        if let Some(station) = selected_station.clone() {
-                            rsx! {
-                                if let Some(secret) = match_secret(&station.id) {
-                                    div { class: "secret",
-                                        h3 { "{SECRET_BROADCAST_LABEL}" }
-                                        iframe {
-                                            class: "secret-frame",
-                                            src: "{secret.stream_url}",
-                                            allow: "autoplay; encrypted-media",
-                                            referrerpolicy: "origin",
-                                        }
-                                        a { href: "{secret.watch_url}", target: "_blank", "Open on YouTube" }
-                                    }
-                                }
-                                div { class: "share",
-                                    button {
-                                        class: "share-button",
-                                        onclick: move |_| {
-                                            let url = build_share_url(&station);
-                                            share_url.set(url);
-                                        },
-                                        "Share"
-                                    }
-                                    if !share_url().is_empty() {
-                                        input {
-                                            class: "share-input",
-                                            value: "{share_url}",
-                                            readonly: true,
-                                        }
-                                    }
-                                }
+                    div { class: "radio-status",
+                        if stations().is_none() {
+                            p { "Scanning the dial…" }
+                        } else if response_error.is_some() {
+                            p { class: "text-terminal-red", "Failed to reach the station directory." }
+                        } else if let Some(response) = current_response.clone() {
+                            p { "Displaying {station_items.len()} of {response.meta.matches} stations · Cache: {response.meta.cache_source.clone().unwrap_or_else(|| \"unknown\".to_string())}" }
+                            if let Some(updated) = response.meta.updated_at.clone() {
+                                p { "Last refresh: {updated}" }
                             }
-                        } else {
-                            rsx! {}
+                            if let Some(origin) = response.meta.origin.clone() {
+                                p { "Radio Browser source: {origin}" }
+                            }
                         }
                     }
                     TerminalPrompt { path: Some("~/radio".to_string()), children: rsx! { TerminalCursor {} } }
+                }
+            }
+            if let Some(station) = active_station {
+                audio {
+                    id: "radio-audio",
+                    src: "{resolved_stream_url().unwrap_or_else(|| station.stream_url.clone())}",
+                    autoplay: true,
+                    controls: true,
+                    hidden: true,
+                }
+            }
+            if share_dialog_open() {
+                div { class: "radio-modal",
+                    div { class: "radio-modal-card",
+                        h3 { class: "text-terminal-yellow", "Share Station" }
+                        p { class: "radio-muted", "The link below opens radio and starts playing this station immediately. It was copied to your clipboard." }
+                        div { class: "radio-share-link", "{share_link}" }
+                        div { class: "radio-modal-actions",
+                            button {
+                                class: "radio-modal-button",
+                                disabled: !share_link_available,
+                                onclick: move |_| {
+                                    #[cfg(target_arch = "wasm32")]
+                                    {
+                                        let link = share_link.clone();
+                                        let mut share_toast = share_toast;
+                                        spawn(async move {
+                                            let window = web_sys::window().ok_or("window missing".to_string());
+                                            if window.is_err() {
+                                                share_toast.set("Copy failed: window missing".to_string());
+                                                return;
+                                            }
+                                            let clipboard = window.unwrap().navigator().clipboard();
+                                            let promise = clipboard.write_text(&link);
+                                            if wasm_bindgen_futures::JsFuture::from(promise).await.is_ok() {
+                                                share_toast.set("Share link copied.".to_string());
+                                            } else {
+                                                share_toast.set("Copy failed.".to_string());
+                                            }
+                                        });
+                                    }
+                                },
+                                "Copy"
+                            }
+                            button {
+                                class: "radio-modal-button ghost",
+                                onclick: move |_| share_dialog_open.set(false),
+                                "Close"
+                            }
+                        }
+                        if !share_toast().is_empty() {
+                            p { class: "text-terminal-green", "{share_toast}" }
+                        }
+                    }
                 }
             }
         }
@@ -558,6 +851,11 @@ fn normalize_values(mut values: Vec<String>) -> Vec<String> {
     values
 }
 
+fn format_frequency(index: usize) -> String {
+    let frequency = 87.5 + (index as f64 * 0.2);
+    format!("{frequency:.1}")
+}
+
 async fn resolve_stream_url(base_url: &str, station: &RadioStation) -> String {
     if !station.hls {
         return station.stream_url.clone();
@@ -676,6 +974,19 @@ fn secret_station(secret: SecretBroadcast) -> RadioStation {
         hls: false,
         is_online: true,
         click_count: 0,
+    }
+}
+
+fn random_midnight_preset() -> SecretBroadcast {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let len = MIDNIGHT_PRESETS.len();
+        let idx = (js_sys::Math::random() * len as f64).floor() as usize;
+        return MIDNIGHT_PRESETS[idx.min(len - 1)];
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        MIDNIGHT_PRESETS[0]
     }
 }
 
