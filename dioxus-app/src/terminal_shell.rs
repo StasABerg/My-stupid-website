@@ -191,8 +191,8 @@ pub fn TerminalPage() -> Element {
 
     let base_url_submit = base_url.clone();
     let base_url_keydown = base_url.clone();
-    let navigator_submit = navigator.clone();
-    let navigator_keydown = navigator.clone();
+    let navigator_submit = navigator;
+    let navigator_keydown = navigator;
 
     rsx! {
         div { class: "terminal-screen",
@@ -232,7 +232,7 @@ pub fn TerminalPage() -> Element {
                             return;
                         }
                         let base_url = base_url_submit.clone();
-                        let navigator = navigator_submit.clone();
+                        let navigator = navigator_submit;
                         let input = input;
                         let history = history;
                         let command_history = command_history;
@@ -317,7 +317,7 @@ pub fn TerminalPage() -> Element {
                                         return;
                                     }
                                     let base_url = base_url_keydown.clone();
-                                    let navigator = navigator_keydown.clone();
+                                    let navigator = navigator_keydown;
                                     let input = input;
                                     let history = history;
                                     let command_history = command_history;
