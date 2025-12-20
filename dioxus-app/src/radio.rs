@@ -242,11 +242,18 @@ pub fn RadioPage() -> Element {
                                 let station_id = station.id.clone();
                                 let station_for_play = station.clone();
                                 let is_fav = is_favorite(&favs, &station_id);
+                                let mut resolved_stream_url = resolved_stream_url;
                                 rsx! {
                                     li { class: "station",
                                         button {
                                             class: "station-play",
-                                            onclick: move |_| selected.set(Some(station_for_play.clone())),
+                                            onclick: move |_| {
+                                                if !station_for_play.hls {
+                                                    resolved_stream_url
+                                                        .set(Some(station_for_play.stream_url.clone()));
+                                                }
+                                                selected.set(Some(station_for_play.clone()));
+                                            },
                                             "Play"
                                         }
                                         button {
@@ -430,24 +437,13 @@ async fn resolve_stream_url(base_url: &str, station: &RadioStation) -> String {
         return station.stream_url.clone();
     }
 
-    let mut stream_url = format!(
+    let stream_url = format!(
         "{}/stations/{}/stream",
         base_url.trim_end_matches('/'),
         urlencoding::encode(&station.id)
     );
 
-    if let Ok((token, proof)) = ensure_gateway_session().await {
-        let mut params = Vec::new();
-        if !token.is_empty() {
-            params.push(format!("csrfToken={}", urlencoding::encode(&token)));
-        }
-        if !proof.is_empty() {
-            params.push(format!("csrfProof={}", urlencoding::encode(&proof)));
-        }
-        if !params.is_empty() {
-            stream_url = format!("{stream_url}?{}", params.join("&"));
-        }
-    }
+    let _ = ensure_gateway_session().await;
 
     stream_url
 }
@@ -471,13 +467,27 @@ async fn attach_hls(stream_url: &str, element_id: &str) -> Result<(), String> {
             const url = {url};
             const elementId = {id};
             const audio = document.getElementById(elementId);
-            if (!audio || !window.Hls) return;
+            if (!audio) return;
             if (window.__gitgud_hls) {{
                 window.__gitgud_hls.destroy();
                 window.__gitgud_hls = null;
             }}
+            if (!window.Hls) {{
+                audio.src = url;
+                audio.play().catch(() => {{}});
+                return;
+            }}
             if (window.Hls.isSupported()) {{
-                const hls = new window.Hls({{ enableWorker: true }});
+                const hls = new window.Hls({{
+                    enableWorker: true,
+                    xhrSetup: function(xhr) {{
+                        xhr.withCredentials = true;
+                    }},
+                    fetchSetup: function(context, init) {{
+                        init.credentials = "include";
+                        return init;
+                    }},
+                }});
                 window.__gitgud_hls = hls;
                 hls.loadSource(url);
                 hls.attachMedia(audio);
