@@ -152,7 +152,7 @@ pub fn HowToTopicPage(topic: String) -> Element {
     {
         use wasm_bindgen::{closure::Closure, JsCast};
 
-        let mut opened = use_signal(|| false);
+        let opened = use_signal(|| false);
         use_effect(move || {
             let Some(info) = topic_info else {
                 return;
@@ -166,7 +166,7 @@ pub fn HowToTopicPage(topic: String) -> Element {
             };
             let window_for_callback = window.clone();
             let query = info.query.to_string();
-            let opened_signal = opened;
+            let mut opened_signal = opened;
             let closure = Closure::wrap(Box::new(move || {
                 let url = format!("https://www.google.com/search?q={}", urlencoding::encode(&query));
                 let _ = window_for_callback.open_with_url_and_target(&url, "_blank");
