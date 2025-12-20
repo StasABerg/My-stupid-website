@@ -1,14 +1,19 @@
 use dioxus::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use dioxus::web::WebEventExt;
 use dioxus_router::use_navigator;
-use dioxus_router::Navigator;
+use dioxus_router::{Link, Navigator};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::RequestCredentials;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::ensure_gateway_session;
+use crate::hooks::use_gateway_get_with_headers;
 use crate::routes::Route;
 use crate::terminal::{TerminalHeader, TerminalPrompt, TerminalWindow};
 
@@ -58,114 +63,93 @@ struct ExecuteBody<'a> {
 pub fn TerminalPage() -> Element {
     let config = use_context::<RuntimeConfig>();
     let base_url = config.terminal_api_base_url.clone();
-    let base_url_for_boot = base_url.clone();
     let navigator = use_navigator();
 
     let mut input = use_signal(String::new);
     let history = use_signal(Vec::<HistoryEntry>::new);
     let command_history = use_signal(Vec::<String>::new);
     let mut history_index = use_signal(|| None::<usize>);
-    let display_cwd = use_signal(|| to_display_path(DEFAULT_VIRTUAL_CWD));
-    let virtual_cwd = use_signal(|| DEFAULT_VIRTUAL_CWD.to_string());
-    let supported_commands = use_signal(Vec::<String>::new);
-    let motd = use_signal(Vec::<String>::new);
-    let loading = use_signal(|| true);
-    let connection_error = use_signal(|| None::<String>);
+    let mut display_cwd = use_signal(|| to_display_path(DEFAULT_VIRTUAL_CWD));
+    let mut virtual_cwd = use_signal(|| DEFAULT_VIRTUAL_CWD.to_string());
+    let mut supported_commands = use_signal(Vec::<String>::new);
+    let mut motd = use_signal(Vec::<String>::new);
+    let mut loading = use_signal(|| true);
+    let mut connection_error = use_signal(|| None::<String>);
     let is_submitting = use_signal(|| false);
     let command_id = use_signal(|| 0u64);
-    let mut booted = use_signal(|| false);
     #[cfg(target_arch = "wasm32")]
-    let mut focus_listener_ready = use_signal(|| false);
+    let mut input_handle = use_signal(|| None::<web_sys::HtmlInputElement>);
+    #[cfg(target_arch = "wasm32")]
+    let mut input_ready = use_signal(|| false);
+    #[cfg(target_arch = "wasm32")]
+    let mut output_handle = use_signal(|| None::<web_sys::HtmlElement>);
     #[cfg(not(target_arch = "wasm32"))]
-    let _focus_listener_ready = ();
+    let _input_handle = ();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _input_ready = ();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _output_handle = ();
 
     const OUTPUT_ID: &str = "terminal-output";
     const INPUT_ID: &str = "terminal-input";
 
+    let info_resource = use_gateway_get_with_headers::<InfoResponse, _, _>(
+        {
+            let base_url = base_url.clone();
+            move || build_terminal_url(&base_url, "info")
+        },
+        || {
+            let debug = encode_debug_header("info");
+            vec![
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("X-Terminal-Debug".to_string(), debug),
+            ]
+        },
+    );
+
     use_effect(move || {
-        if booted() {
-            return;
-        }
-        booted.set(true);
-        let base_url = base_url_for_boot.clone();
-        let mut loading = loading;
-        let mut connection_error = connection_error;
-        let mut supported_commands = supported_commands;
-        let mut motd = motd;
-        let mut virtual_cwd = virtual_cwd;
-        let mut display_cwd = display_cwd;
-        spawn(async move {
-            match fetch_info(&base_url).await {
-                Ok(info) => {
-                    let next_virtual = info
-                        .virtual_cwd
-                        .unwrap_or_else(|| DEFAULT_VIRTUAL_CWD.to_string());
-                    let next_display = resolve_display_cwd(&next_virtual, info.display_cwd.as_deref());
-                    virtual_cwd.set(next_virtual);
-                    display_cwd.set(next_display);
-                    supported_commands.set(info.supported_commands.unwrap_or_default());
-                    motd.set(info.motd.unwrap_or_default());
-                    connection_error.set(None);
-                }
-                Err(message) => {
-                    connection_error.set(Some(message));
-                }
+        match info_resource() {
+            None => {
+                loading.set(true);
             }
-            loading.set(false);
-        });
+            Some(Ok(info)) => {
+                let next_virtual = info
+                    .virtual_cwd
+                    .unwrap_or_else(|| DEFAULT_VIRTUAL_CWD.to_string());
+                let next_display = resolve_display_cwd(&next_virtual, info.display_cwd.as_deref());
+                virtual_cwd.set(next_virtual);
+                display_cwd.set(next_display);
+                supported_commands.set(info.supported_commands.unwrap_or_default());
+                motd.set(info.motd.unwrap_or_default());
+                connection_error.set(None);
+                loading.set(false);
+            }
+            Some(Err(message)) => {
+                connection_error.set(Some(message));
+                loading.set(false);
+            }
+        }
     });
 
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         {
-            use wasm_bindgen::JsCast;
-            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-                if let Some(node) = document.get_element_by_id(OUTPUT_ID) {
-                    if let Ok(element) = node.dyn_into::<web_sys::HtmlElement>() {
-                        element.set_scroll_top(element.scroll_height());
-                    }
-                }
+            let _history_len = history().len();
+            if let Some(element) = output_handle.read().as_ref().cloned() {
+                element.set_scroll_top(element.scroll_height());
             }
         }
-    });
-
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        use wasm_bindgen::closure::Closure;
-        use wasm_bindgen::JsCast;
-
-        if focus_listener_ready() {
-            return;
-        }
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-
-        let focus_closure = Closure::wrap(Box::new(move || {
-            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-                if let Some(node) = document.get_element_by_id(INPUT_ID) {
-                    if let Ok(element) = node.dyn_into::<web_sys::HtmlInputElement>() {
-                        let _ = element.focus();
-                    }
-                }
-            }
-        }) as Box<dyn FnMut()>);
-
-        let _ = window.add_event_listener_with_callback("click", focus_closure.as_ref().unchecked_ref());
-        focus_closure.forget();
-        focus_listener_ready.set(true);
     });
 
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         {
-            use wasm_bindgen::JsCast;
-            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-                if let Some(node) = document.get_element_by_id(INPUT_ID) {
-                    if let Ok(element) = node.dyn_into::<web_sys::HtmlInputElement>() {
-                        let _ = element.focus();
-                    }
-                }
+            if input_ready() {
+                return;
+            }
+            if let Some(element) = input_handle.read().as_ref().cloned() {
+                let _ = element.focus();
+                input_ready.set(true);
             }
         }
     });
@@ -196,9 +180,24 @@ pub fn TerminalPage() -> Element {
 
     rsx! {
         div { class: "terminal-screen",
+            onclick: move |_| {
+                #[cfg(target_arch = "wasm32")]
+                if let Some(element) = input_handle.read().as_ref().cloned() {
+                    let _ = element.focus();
+                }
+            },
             TerminalWindow { aria_label: Some("Sandbox terminal".to_string()),
                 TerminalHeader { display_cwd: display_cwd(), label: Some(header_label) }
                 div { class: "terminal-output terminal-stack", id: OUTPUT_ID,
+                    onmounted: move |_event| {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let element = _event.data.as_ref().as_web_event();
+                            if let Ok(node) = element.dyn_into::<web_sys::HtmlElement>() {
+                                output_handle.set(Some(node));
+                            }
+                        }
+                    },
                     for line in banner_lines.iter() {
                         if line == "Commands run against a locked-down Kubernetes pod with whitelisted binaries and an ephemeral filesystem." {
                             p { class: "text-terminal-white", "{line}" }
@@ -289,6 +288,15 @@ pub fn TerminalPage() -> Element {
                         autocomplete: "off",
                         spellcheck: "false",
                         disabled: loading() || is_submitting(),
+                        onmounted: move |_event| {
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                let element = _event.data.as_ref().as_web_event();
+                                if let Ok(node) = element.dyn_into::<web_sys::HtmlInputElement>() {
+                                    input_handle.set(Some(node));
+                                }
+                            }
+                        },
                         oninput: move |event| input.set(event.value()),
                         onkeydown: move |event| {
                             match event.key() {
@@ -367,26 +375,6 @@ pub fn TerminalPage() -> Element {
             }
         }
     }
-}
-
-async fn fetch_info(base_url: &str) -> Result<InfoResponse, String> {
-    let url = build_terminal_url(base_url, "info");
-    let response = Request::get(&url)
-        .header("Content-Type", "application/json")
-        .header("X-Terminal-Debug", &encode_debug_header("info"))
-        .credentials(RequestCredentials::Include)
-        .send()
-        .await
-        .map_err(|err| format!("request failed: {err}"))?;
-
-    if !response.ok() {
-        return Err(format!("terminal info failed: status {}", response.status()));
-    }
-
-    response
-        .json::<InfoResponse>()
-        .await
-        .map_err(|err| format!("terminal info decode failed: {err}"))
 }
 
 #[allow(clippy::too_many_arguments)]

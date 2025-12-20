@@ -1,4 +1,6 @@
 use dioxus::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
 use dioxus_router::{Link, Routable, Router};
 
 use crate::blog::{BlogPage, BlogPostPage};
@@ -17,6 +19,12 @@ use crate::tools::{ImageToAsciiPage, WebToMarkdownPage};
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
+
+#[cfg(target_arch = "wasm32")]
+struct IntervalHandle {
+    id: i32,
+    _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
+}
 
 #[component]
 pub fn App() -> Element {
@@ -621,27 +629,37 @@ fn Begud() -> Element {
     let index = use_signal(|| 0usize);
     #[cfg(target_arch = "wasm32")]
     {
-        let mut interval_ready = use_signal(|| false);
+        let mut interval_handle = use_signal(|| None::<IntervalHandle>);
         use_effect(move || {
-            if interval_ready() {
-                return;
-            }
-            interval_ready.set(true);
             use wasm_bindgen::closure::Closure;
             use wasm_bindgen::JsCast;
+
+            if interval_handle.read().is_some() {
+                return;
+            }
             let Some(window) = web_sys::window() else {
                 return;
             };
             let mut interval_index = index;
-            let closure = Closure::wrap(Box::new(move || {
+            let closure = Rc::new(Closure::wrap(Box::new(move || {
                 let next = (interval_index() + 1) % INSULTS.len();
                 interval_index.set(next);
-            }) as Box<dyn FnMut()>);
-            let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
-                closure.as_ref().unchecked_ref(),
+            }) as Box<dyn FnMut()>));
+            if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+                closure.as_ref().as_ref().unchecked_ref(),
                 2800,
-            );
-            closure.forget();
+            ) {
+                interval_handle.set(Some(IntervalHandle { id, _closure: closure }));
+            }
+        });
+
+        let interval_handle = interval_handle;
+        use_drop(move || {
+            if let Some(handle) = interval_handle.read().as_ref() {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(handle.id);
+                }
+            }
         });
     }
 
@@ -696,28 +714,38 @@ fn GitGud() -> Element {
     let progress = use_signal(|| 0.0f64);
     #[cfg(target_arch = "wasm32")]
     {
-        let mut interval_ready = use_signal(|| false);
+        let mut interval_handle = use_signal(|| None::<IntervalHandle>);
         use_effect(move || {
-            if interval_ready() {
-                return;
-            }
-            interval_ready.set(true);
             use wasm_bindgen::closure::Closure;
             use wasm_bindgen::JsCast;
+
+            if interval_handle.read().is_some() {
+                return;
+            }
             let Some(window) = web_sys::window() else {
                 return;
             };
             let mut progress_signal = progress;
-            let closure = Closure::wrap(Box::new(move || {
+            let closure = Rc::new(Closure::wrap(Box::new(move || {
                 let next = progress_signal() + random_increment();
                 let clamped = if next > 98.0 { 42.0 } else { next };
                 progress_signal.set(clamped);
-            }) as Box<dyn FnMut()>);
-            let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
-                closure.as_ref().unchecked_ref(),
+            }) as Box<dyn FnMut()>));
+            if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+                closure.as_ref().as_ref().unchecked_ref(),
                 800,
-            );
-            closure.forget();
+            ) {
+                interval_handle.set(Some(IntervalHandle { id, _closure: closure }));
+            }
+        });
+
+        let interval_handle = interval_handle;
+        use_drop(move || {
+            if let Some(handle) = interval_handle.read().as_ref() {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(handle.id);
+                }
+            }
         });
     }
 

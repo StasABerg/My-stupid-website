@@ -1,8 +1,23 @@
 use dioxus::prelude::*;
 use dioxus_router::Link;
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
 
 use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
+
+#[cfg(target_arch = "wasm32")]
+struct IntervalHandle {
+    id: i32,
+    _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct MoveListener {
+    closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::Event)>>,
+}
 
 #[component]
 pub fn DoNothingGamePage() -> Element {
@@ -10,23 +25,23 @@ pub fn DoNothingGamePage() -> Element {
     let mut elapsed_time = use_signal(|| 0.0f64);
     let best_time = use_signal(|| 0.0f64);
     #[cfg(target_arch = "wasm32")]
-    let mut interval_id = use_signal(|| None::<i32>);
+    let mut interval_handle = use_signal(|| None::<IntervalHandle>);
     #[cfg(not(target_arch = "wasm32"))]
-    let _interval_id = ();
+    let _interval_handle = ();
     #[cfg(target_arch = "wasm32")]
     let mut start_time = use_signal(|| None::<f64>);
     #[cfg(not(target_arch = "wasm32"))]
     let _start_time = ();
 
     #[cfg(target_arch = "wasm32")]
-    let mut listeners_ready = use_signal(|| false);
+    let mut move_listener = use_signal(|| None::<MoveListener>);
     #[cfg(not(target_arch = "wasm32"))]
-    let _listeners_ready = ();
+    let _move_listener = ();
 
     #[cfg(target_arch = "wasm32")]
     {
         use_effect(move || {
-            if listeners_ready() {
+            if move_listener.read().is_some() {
                 return;
             }
             let Some(window) = web_sys::window() else {
@@ -38,14 +53,15 @@ pub fn DoNothingGamePage() -> Element {
             let mut on_move_running = is_running;
             let on_move_elapsed = elapsed_time;
             let mut on_move_best = best_time;
-            let mut on_move_interval = interval_id;
+            let mut on_move_interval = interval_handle;
             let mut on_move_start = start_time;
-            let move_closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            let move_closure = Rc::new(Closure::wrap(Box::new(move |_event: web_sys::Event| {
                 if !on_move_running() {
                     return;
                 }
                 on_move_running.set(false);
-                if let Some(id) = on_move_interval() {
+                let current_id = on_move_interval.read().as_ref().map(|handle| handle.id);
+                if let Some(id) = current_id {
                     if let Some(window) = web_sys::window() {
                         window.clear_interval_with_handle(id);
                     }
@@ -56,18 +72,17 @@ pub fn DoNothingGamePage() -> Element {
                 if elapsed > on_move_best() {
                     on_move_best.set(elapsed);
                 }
-            }) as Box<dyn FnMut(_)>);
+            }) as Box<dyn FnMut(_)>));
 
             let _ = window.add_event_listener_with_callback(
                 "mousemove",
-                move_closure.as_ref().unchecked_ref(),
+                move_closure.as_ref().as_ref().unchecked_ref(),
             );
             let _ = window.add_event_listener_with_callback(
                 "touchmove",
-                move_closure.as_ref().unchecked_ref(),
+                move_closure.as_ref().as_ref().unchecked_ref(),
             );
-            move_closure.forget();
-            listeners_ready.set(true);
+            move_listener.set(Some(MoveListener { closure: move_closure }));
         });
 
         use_effect(move || {
@@ -79,10 +94,10 @@ pub fn DoNothingGamePage() -> Element {
                 return;
             };
 
-            let current_id = *interval_id.peek();
+            let current_id = interval_handle.read().as_ref().map(|handle| handle.id);
             if let Some(id) = current_id {
                 window.clear_interval_with_handle(id);
-                interval_id.set(None);
+                interval_handle.set(None);
             }
 
             if !running {
@@ -91,22 +106,46 @@ pub fn DoNothingGamePage() -> Element {
 
             let mut interval_elapsed = elapsed_time;
             let interval_start = start_time;
-            let interval_closure = Closure::wrap(Box::new(move || {
+            let interval_closure = Rc::new(Closure::wrap(Box::new(move || {
                 let Some(start) = *interval_start.peek() else {
                     return;
                 };
                 let now = js_sys::Date::now();
                 let next = (now - start) / 1000.0;
                 interval_elapsed.set(next);
-            }) as Box<dyn FnMut()>);
+            }) as Box<dyn FnMut()>));
 
             if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
-                interval_closure.as_ref().unchecked_ref(),
+                interval_closure.as_ref().as_ref().unchecked_ref(),
                 100,
             ) {
-                interval_id.set(Some(id));
+                interval_handle.set(Some(IntervalHandle {
+                    id,
+                    _closure: interval_closure,
+                }));
             }
-            interval_closure.forget();
+        });
+
+        let move_listener = move_listener;
+        let interval_handle = interval_handle;
+        use_drop(move || {
+            if let Some(handle) = interval_handle.read().as_ref() {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(handle.id);
+                }
+            }
+            if let Some(listener) = move_listener.read().as_ref() {
+                if let Some(window) = web_sys::window() {
+                    let _ = window.remove_event_listener_with_callback(
+                        "mousemove",
+                        listener.closure.as_ref().as_ref().unchecked_ref(),
+                    );
+                    let _ = window.remove_event_listener_with_callback(
+                        "touchmove",
+                        listener.closure.as_ref().as_ref().unchecked_ref(),
+                    );
+                }
+            }
         });
     }
 

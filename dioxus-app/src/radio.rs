@@ -7,12 +7,13 @@ use dioxus_router::Link;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{JsCast, JsValue};
+use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
-use web_sys::RequestCredentials;
+use wasm_bindgen::{JsCast, JsValue};
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::ensure_gateway_session;
+use crate::hooks::use_gateway_get;
 use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
@@ -148,6 +149,12 @@ struct SecretBroadcast {
     label: &'static str,
 }
 
+#[cfg(target_arch = "wasm32")]
+struct IntervalHandle {
+    id: i32,
+    _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
+}
+
 #[component]
 pub fn RadioPage() -> Element {
     let config = use_context::<RuntimeConfig>();
@@ -164,33 +171,31 @@ pub fn RadioPage() -> Element {
     let mut share_toast = use_signal(String::new);
     let midnight_active = use_signal(is_midnight_hour);
     let mystery_station = use_signal(|| secret_station(random_midnight_preset()));
+    #[cfg(target_arch = "wasm32")]
+    let mut midnight_timer = use_signal(|| None::<IntervalHandle>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _midnight_timer = ();
     let mut favorites = use_signal(load_favorites);
     let mut last_response = use_signal(|| None::<StationsResponse>);
 
-    let stations = use_resource({
+    let stations = use_gateway_get::<StationsResponse, _>({
         let base_url = base_url.clone();
         move || {
-            let base_url = base_url.clone();
-            async move {
-                fetch_stations(
-                    base_url,
-                Filters {
-                    search: search.read().clone(),
-                    country: country.read().clone(),
-                    genre: genre.read().clone(),
-                },
-                )
-                .await
-            }
+            let filters = Filters {
+                search: search(),
+                country: country(),
+                genre: genre(),
+            };
+            build_stations_url(&base_url, &filters)
         }
     });
 
     use_effect({
         let mut stations = stations;
         move || {
-            search();
-            country();
-            genre();
+            let _ = search();
+            let _ = country();
+            let _ = genre();
             selected_index.set(0);
             selected.set(None);
             stations.restart();
@@ -217,23 +222,29 @@ pub fn RadioPage() -> Element {
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+
+        if midnight_timer.read().is_some() {
+            return;
+        }
         let mut midnight_active = midnight_active;
         let mut mystery_station = mystery_station;
         let Some(window) = web_sys::window() else {
             return;
         };
-        let closure = Closure::wrap(Box::new(move || {
+        let closure = Rc::new(Closure::wrap(Box::new(move || {
             let active = is_midnight_hour();
             if active && !midnight_active() {
                 mystery_station.set(secret_station(random_midnight_preset()));
             }
             midnight_active.set(active);
-        }) as Box<dyn FnMut()>);
-        let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
-            closure.as_ref().unchecked_ref(),
+        }) as Box<dyn FnMut()>));
+        if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().as_ref().unchecked_ref(),
             60000,
-        );
-        closure.forget();
+        ) {
+            midnight_timer.set(Some(IntervalHandle { id, _closure: closure }));
+        }
     });
 
     use_effect({
@@ -251,6 +262,18 @@ pub fn RadioPage() -> Element {
             }
         }
     });
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let midnight_timer = midnight_timer;
+        use_drop(move || {
+            if let Some(handle) = midnight_timer.read().as_ref() {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(handle.id);
+                }
+            }
+        });
+    }
 
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
@@ -715,29 +738,6 @@ pub fn RadioPage() -> Element {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-async fn fetch_stations(base_url: String, filters: Filters) -> Result<StationsResponse, String> {
-    let url = build_url(&base_url, &filters);
-    let _ = ensure_gateway_session().await;
-    let response = gloo_net::http::Request::get(&url)
-        .credentials(RequestCredentials::Include)
-        .send()
-        .await
-        .map_err(|err| format!("request failed: {err}"))?;
-    if !response.ok() {
-        return Err(format!("http {}", response.status()));
-    }
-    response
-        .json::<StationsResponse>()
-        .await
-        .map_err(|err| format!("decode failed: {err}"))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn fetch_stations(_base_url: String, _filters: Filters) -> Result<StationsResponse, String> {
-    Err("native fetch not implemented yet".to_string())
-}
-
 #[derive(Clone, Debug, PartialEq)]
 struct Filters {
     search: String,
@@ -745,8 +745,7 @@ struct Filters {
     genre: String,
 }
 
-#[cfg(target_arch = "wasm32")]
-fn build_url(base_url: &str, filters: &Filters) -> String {
+fn build_stations_url(base_url: &str, filters: &Filters) -> String {
     let mut params = Vec::new();
     params.push("limit=40".to_string());
     params.push("offset=0".to_string());

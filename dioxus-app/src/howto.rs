@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 use dioxus_router::Link;
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
 
 use crate::date::ls_date_now;
 use crate::routes::Route;
@@ -156,19 +158,32 @@ fn display_slug(title: &str) -> String {
     output
 }
 
+#[cfg(target_arch = "wasm32")]
+struct TimeoutHandle {
+    id: i32,
+    _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
+}
+
 #[component]
 pub fn HowToTopicPage(topic: String) -> Element {
     let topic_info = HOW_TO_TOPICS.iter().find(|entry| entry.slug == topic).cloned();
     #[cfg(target_arch = "wasm32")]
+    let opened = use_signal(|| false);
+    #[cfg(target_arch = "wasm32")]
+    let timeout_handle = use_signal(|| None::<TimeoutHandle>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _opened = ();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _timeout_handle = ();
+    #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::{closure::Closure, JsCast};
 
-        let opened = use_signal(|| false);
         use_effect(move || {
             let Some(info) = topic_info else {
                 return;
             };
-            if opened() {
+            if opened() || timeout_handle.read().is_some() {
                 return;
             }
             let window = web_sys::window();
@@ -178,18 +193,30 @@ pub fn HowToTopicPage(topic: String) -> Element {
             let window_for_callback = window.clone();
             let query = info.query.to_string();
             let mut opened_signal = opened;
-            let closure = Closure::wrap(Box::new(move || {
+            let mut timeout_handle = timeout_handle;
+            let closure = Rc::new(Closure::wrap(Box::new(move || {
                 let url = format!("https://www.google.com/search?q={}", urlencoding::encode(&query));
                 let _ = window_for_callback.open_with_url_and_target(&url, "_blank");
                 opened_signal.set(true);
-            }) as Box<dyn FnMut()>);
-            let _ = window
+                timeout_handle.set(None);
+            }) as Box<dyn FnMut()>));
+            if let Ok(id) = window
                 .set_timeout_with_callback_and_timeout_and_arguments_0(
-                    closure.as_ref().unchecked_ref(),
+                    closure.as_ref().as_ref().unchecked_ref(),
                     3000,
                 )
-                .ok();
-            closure.forget();
+            {
+                timeout_handle.set(Some(TimeoutHandle { id, _closure: closure }));
+            }
+        });
+
+        let timeout_handle = timeout_handle;
+        use_drop(move || {
+            if let Some(handle) = timeout_handle.read().as_ref() {
+                if let Some(window) = web_sys::window() {
+                    window.clear_timeout_with_handle(handle.id);
+                }
+            }
         });
     }
 

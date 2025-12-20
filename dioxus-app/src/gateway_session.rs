@@ -2,6 +2,7 @@ use gloo_net::http::Request;
 use web_sys::RequestCredentials;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 
 const TOKEN_STORAGE_KEY: &str = "gateway.session.token";
 const SESSION_ENDPOINT: &str = "/api/session";
@@ -108,4 +109,67 @@ pub async fn authorized_post(url: &str, body: &str) -> Result<gloo_net::http::Re
         write_cached_token(None);
     }
     Ok(response)
+}
+
+pub async fn authorized_get(url: &str) -> Result<gloo_net::http::Response, String> {
+    let empty: Vec<(String, String)> = Vec::new();
+    authorized_get_with_headers(url, &empty).await
+}
+
+pub async fn authorized_get_with_headers(
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<gloo_net::http::Response, String> {
+    let _ = ensure_gateway_session().await;
+    let mut request = Request::get(url).credentials(RequestCredentials::Include);
+    for (key, value) in headers {
+        request = request.header(key, value);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|err| format!("request failed: {err}"))?;
+
+    if response.status() == 401 || response.status() == 403 {
+        write_cached_token(None);
+        let _ = ensure_gateway_session().await;
+        let mut retry_request = Request::get(url).credentials(RequestCredentials::Include);
+        for (key, value) in headers {
+            retry_request = retry_request.header(key, value);
+        }
+        let retry = retry_request
+            .send()
+            .await
+            .map_err(|err| format!("request failed: {err}"))?;
+        if retry.status() == 401 || retry.status() == 403 {
+            write_cached_token(None);
+        }
+        return Ok(retry);
+    }
+    Ok(response)
+}
+
+pub async fn authorized_get_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
+    let response = authorized_get(url).await?;
+    if !response.ok() {
+        return Err(format!("http {}", response.status()));
+    }
+    response
+        .json::<T>()
+        .await
+        .map_err(|err| format!("decode failed: {err}"))
+}
+
+pub async fn authorized_get_json_with_headers<T: DeserializeOwned>(
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<T, String> {
+    let response = authorized_get_with_headers(url, headers).await?;
+    if !response.ok() {
+        return Err(format!("http {}", response.status()));
+    }
+    response
+        .json::<T>()
+        .await
+        .map_err(|err| format!("decode failed: {err}"))
 }

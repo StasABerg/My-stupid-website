@@ -6,6 +6,7 @@ mod gateway_session;
 mod howto;
 mod blog;
 mod do_nothing;
+mod hooks;
 mod posts;
 mod radio;
 mod routes;

@@ -5,6 +5,8 @@ use crate::routes::Route;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 const CONSENT_COOKIE_NAME: &str = "zaraz-consent";
@@ -15,41 +17,77 @@ const OPEN_EVENT: &str = "openCookieConsentBar";
 #[cfg(target_arch = "wasm32")]
 const LOCAL_CONSENT_KEY: &str = "cookie-consent-choice";
 
+#[cfg(target_arch = "wasm32")]
+struct ConsentListeners {
+    choices: Rc<Closure<dyn FnMut(web_sys::Event)>>,
+    open: Rc<Closure<dyn FnMut(web_sys::Event)>>,
+}
+
 #[component]
 pub fn CookieConsentBanner() -> Element {
     let visible = use_signal(initial_visibility);
+    #[cfg(target_arch = "wasm32")]
+    let mut listeners = use_signal(|| None::<ConsentListeners>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _listeners = ();
 
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
+        if listeners.read().is_some() {
+            return;
+        }
         let document = match web_sys::window().and_then(|window| window.document()) {
             Some(document) => document,
             None => return,
         };
 
         let mut visible_for_choices = visible;
-        let on_choices = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+        let on_choices = Rc::new(Closure::wrap(Box::new(move |_event: web_sys::Event| {
             if consent_exists() {
                 visible_for_choices.set(false);
             }
-        }) as Box<dyn FnMut(_)>);
+        }) as Box<dyn FnMut(_)>));
 
         let mut visible_for_open = visible;
-        let on_open = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+        let on_open = Rc::new(Closure::wrap(Box::new(move |_event: web_sys::Event| {
             visible_for_open.set(true);
-        }) as Box<dyn FnMut(_)>);
+        }) as Box<dyn FnMut(_)>));
 
         let _ = document.add_event_listener_with_callback(
             "zarazConsentChoicesUpdated",
-            on_choices.as_ref().unchecked_ref(),
+            on_choices.as_ref().as_ref().unchecked_ref(),
         );
         let _ = document.add_event_listener_with_callback(
             OPEN_EVENT,
-            on_open.as_ref().unchecked_ref(),
+            on_open.as_ref().as_ref().unchecked_ref(),
         );
 
-        on_choices.forget();
-        on_open.forget();
+        listeners.set(Some(ConsentListeners {
+            choices: on_choices,
+            open: on_open,
+        }));
     });
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let listeners = listeners;
+        use_drop(move || {
+            let binding = listeners.read();
+            let Some(listeners) = binding.as_ref() else {
+                return;
+            };
+            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+                let _ = document.remove_event_listener_with_callback(
+                    "zarazConsentChoicesUpdated",
+                    listeners.choices.as_ref().as_ref().unchecked_ref(),
+                );
+                let _ = document.remove_event_listener_with_callback(
+                    OPEN_EVENT,
+                    listeners.open.as_ref().as_ref().unchecked_ref(),
+                );
+            }
+        });
+    }
 
     if !visible() {
         return rsx! {};
