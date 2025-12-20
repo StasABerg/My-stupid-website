@@ -1,4 +1,7 @@
 [application]
+name = "dioxus-app"
+default_platform = "web"
+public_dir = "public"
 
 [web.app]
 

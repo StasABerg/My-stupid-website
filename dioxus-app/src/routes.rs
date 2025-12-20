@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 use dioxus_router::{Link, Routable, Router};
 
-use crate::config::{use_runtime_config, RuntimeConfig};
+use crate::config::use_runtime_config;
 use crate::radio::RadioPage;
 use crate::swagger::SwaggerEmbed;
+use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 use crate::tools::{ImageToAsciiPage, WebToMarkdownPage};
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
@@ -35,15 +36,36 @@ pub fn App() -> Element {
 
     use_context_provider(|| config);
 
+    #[cfg(target_arch = "wasm32")]
+    use_effect(register_service_worker);
+
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Link { rel: "manifest", href: "/manifest.webmanifest" }
+        document::Meta { name: "theme-color", content: "#0bff96" }
         script {
             src: "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.light.min.js",
             defer: true,
         }
         Router::<Route> {}
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn register_service_worker() {
+    use wasm_bindgen_futures::spawn_local;
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let navigator = window.navigator();
+    if navigator.service_worker().is_undefined() {
+        return;
+    }
+    spawn_local(async move {
+        let promise = navigator.service_worker().register_with_str("/sw.js");
+        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+    });
 }
 
 #[derive(Clone, PartialEq, Routable)]
@@ -127,15 +149,143 @@ fn SiteNav() -> Element {
 
 #[component]
 fn Home() -> Element {
-    let config = use_context::<RuntimeConfig>();
+    let today_label = ls_date_now();
     rsx! {
-        PageShell { title: "home",
-            p { "Dioxus migration in progress." }
-            p { "radio api: {config.radio_api_base_url}" }
-            p { "terminal api: {config.terminal_api_base_url}" }
-            p { "gateway api: {config.gateway_api_base_url}" }
+        div { class: "home",
+            TerminalWindow { aria_label: Some("Gitgud terminal home".to_string()),
+                TerminalHeader { display_cwd: "~".to_string(), label: None }
+                div { class: "terminal-body",
+                    pre { class: "logo-desktop", aria_label: "Gitgud Blog logo",
+                        r#"
+          ██████╗ ██╗████████╗ ██████╗ ██╗   ██╗██████╗     ██████╗ ██╗      ██████╗  ██████╗ 
+         ██╔════╝ ██║╚══██╔══╝██╔════╝ ██║   ██║██╔══██╗    ██╔══██╗██║     ██╔═══██╗██╔════╝ 
+         ██║  ███╗██║   ██║   ██║  ███╗██║   ██║██║  ██║    ██████╔╝██║     ██║   ██║██║  ███╗
+         ██║   ██║██║   ██║   ██║   ██║██║   ██║██║  ██║    ██╔══██╗██║     ██║   ██║██║   ██║
+         ╚██████╔╝██║   ██║   ╚██████╔╝╚██████╔╝██████╔╝    ██████╔╝███████╗╚██████╔╝╚██████╔╝
+          ╚═════╝ ╚═╝   ╚═╝    ╚═════╝  ╚═════╝ ╚═════╝     ╚═════╝ ╚══════╝ ╚═════╝  ╚═════╝ 
+                        "#
+                    }
+                    pre { class: "logo-mobile", aria_label: "Gitgud folded logo",
+                        r#"
+          ██████╗ ██╗████████╗ ██████╗ ██╗   ██╗██████╗  
+         ██╔════╝ ██║╚══██╔══╝██╔════╝ ██║   ██║██╔══██╗ 
+         ██║  ███╗██║   ██║   ██║  ███╗██║   ██║██║  ██║ 
+         ██║   ██║██║   ██║   ██║   ██║██║   ██║██║  ██║ 
+         ╚██████╔╝██║   ██║   ╚██████╔╝╚██████╔╝██████╔╝ 
+          ╚═════╝ ╚═╝   ╚═╝    ╚═════╝  ╚═════╝ ╚═════╝  
+
+               ██████╗ ██╗      ██████╗  ██████╗ 
+               ██╔══██╗██║     ██╔═══██╗██╔════╝ 
+               ██████╔╝██║     ██║   ██║██║  ███╗
+               ██╔══██╗██║     ██║   ██║██║   ██║
+               ██████╔╝███████╗╚██████╔╝╚██████╔╝
+               ╚═════╝ ╚══════╝ ╚═════╝  ╚═════╝ 
+                        "#
+                    }
+                    TerminalPrompt { command: Some("cat welcome.txt".to_string()), children: rsx! {} }
+                    div { class: "terminal-card",
+                        p { "╔═══════════════════════════════════════════╗" }
+                        p { "║ Welcome to my stupid website              ║" }
+                        p { "║ System Status: " span { class: "text-terminal-green", "ONLINE" } "                     ║" }
+                        p { "║ Security Level: " span { class: "text-terminal-cyan", "GITGUD" } "                    ║" }
+                        p { "╚═══════════════════════════════════════════╝" }
+                    }
+                    TerminalPrompt { command: Some("ls -la /home/user".to_string()), children: rsx! {} }
+                    div { class: "terminal-list",
+                        nav { aria_label: "Main directories", role: "navigation",
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Documents {}, class: "text-terminal-magenta", "documents/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Games {}, class: "text-terminal-magenta", "games/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Radio {}, class: "text-terminal-magenta", "radio/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Blog {}, class: "text-terminal-magenta", "blog/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Contact {}, class: "text-terminal-magenta", "contact/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Motivation {}, class: "text-terminal-magenta", "motivation?/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Tools {}, class: "text-terminal-magenta", "tools/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Terminal {}, class: "text-terminal-magenta", "ssh-sandbox/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::Swagger {}, class: "text-terminal-magenta", "swagger/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr-xr-x 2 user user 4096 {today_label} " }
+                                Link { to: Route::HowToIndex {}, class: "text-terminal-magenta", "how-to/" }
+                            }
+                            p { class: "text-terminal-cyan",
+                                span { class: "text-terminal-white", "drwxr----- 2 root root 1337 {today_label} " }
+                                Link { to: Route::Konami {}, class: "text-terminal-yellow", ".secrets/" }
+                            }
+                        }
+                    }
+                    TerminalPrompt { command: Some("tail -n 5 blog/latest.log".to_string()), children: rsx! {} }
+                    p { class: "text-terminal-green terminal-meta", "# Blog migration pending." }
+                    TerminalPrompt { command: Some("fastfetch".to_string()), children: rsx! {} }
+                    pre { class: "terminal-fastfetch", aria_label: "System information",
+                        r#"
+        .---.
+       /     \       OS: Gitgud 2025
+      | O _ O |      Host: Unknown
+      |   >   |      Kernel: 6.6.6
+     /|  ---  |\     Uptime: 420 years, 69 days
+    / \_______/ \    Shell: gitgudsh 4.2.0
+   /  |  / \  |  \
+  /   | /   \ |   \
+      |/     \|
+                        "#
+                    }
+                    TerminalPrompt { children: rsx! { TerminalCursor {} } }
+                }
+            }
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn ls_date_now() -> String {
+    let date = js_sys::Date::new_0();
+    let month = match date.get_month() as u32 {
+        0 => "Jan",
+        1 => "Feb",
+        2 => "Mar",
+        3 => "Apr",
+        4 => "May",
+        5 => "Jun",
+        6 => "Jul",
+        7 => "Aug",
+        8 => "Sep",
+        9 => "Oct",
+        10 => "Nov",
+        _ => "Dec",
+    };
+    let day = date.get_date();
+    format!("{month} {day:02}")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ls_date_now() -> String {
+    "Dec 20".to_string()
 }
 
 #[component]

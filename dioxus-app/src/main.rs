@@ -3,6 +3,7 @@ mod gateway_session;
 mod radio;
 mod routes;
 mod swagger;
+mod terminal;
 mod tools;
 
 fn main() {

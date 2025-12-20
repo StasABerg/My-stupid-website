@@ -964,14 +964,28 @@ fn is_segment_origin_allowed(stream_url: &str, target: &Url) -> bool {
     if stream_host == target_host {
         return true;
     }
-    let parent = stream_host
-        .split_once('.')
-        .map(|(_, suffix)| suffix)
-        .unwrap_or("");
-    if parent.is_empty() {
-        return false;
+    if let Some(parent) = stream_host.split_once('.').map(|(_, suffix)| suffix) {
+        if target_host == parent || target_host.ends_with(&format!(".{parent}")) {
+            return true;
+        }
     }
-    target_host == parent || target_host.ends_with(&format!(".{parent}"))
+    match (base_domain(stream_host), base_domain(target_host)) {
+        (Some(stream_base), Some(target_base)) => stream_base == target_base,
+        _ => false,
+    }
+}
+
+fn base_domain(host: &str) -> Option<String> {
+    let parts: Vec<&str> = host.split('.').filter(|part| !part.is_empty()).collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let base = parts[parts.len() - 2..].join(".");
+    if base.is_empty() {
+        None
+    } else {
+        Some(base)
+    }
 }
 
 fn parse_bool(value: Option<String>) -> bool {
