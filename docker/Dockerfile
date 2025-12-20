@@ -7,12 +7,13 @@ RUN apt-get update \
 RUN rustup target add wasm32-unknown-unknown
 RUN mkdir -p /root/.cargo/bin
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN curl -sSL http://dioxus.dev/install.sh | sh
+RUN curl -sSL https://dioxus.dev/install.sh | sh
 
 WORKDIR /app
 COPY dioxus-app/Cargo.toml dioxus-app/Cargo.lock dioxus-app/Dioxus.toml /app/dioxus-app/
 COPY dioxus-app/src /app/dioxus-app/src
 COPY dioxus-app/assets /app/dioxus-app/assets
+COPY dioxus-app/public /app/dioxus-app/public
 
 RUN cd /app/dioxus-app && dx build --web --release --debug-symbols=false
 

@@ -63,7 +63,7 @@ fn register_service_worker() {
         return;
     }
     spawn_local(async move {
-        let promise = navigator.service_worker().register_with_str("/sw.js");
+        let promise = navigator.service_worker().register("/sw.js");
         let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
     });
 }
