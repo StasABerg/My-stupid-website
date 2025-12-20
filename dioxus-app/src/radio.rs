@@ -196,13 +196,13 @@ pub fn RadioPage() -> Element {
                 });
             } else {
                 spawn(async {
-                    let _ = destroy_hls("radio-audio").await;
+                    let _ = destroy_hls("radio-audio", false).await;
                 });
             }
         } else {
             #[cfg(target_arch = "wasm32")]
             spawn(async {
-                let _ = destroy_hls("radio-audio").await;
+                let _ = destroy_hls("radio-audio", true).await;
             });
         }
     });
@@ -506,18 +506,20 @@ async fn attach_hls(stream_url: &str, element_id: &str) -> Result<(), String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn destroy_hls(element_id: &str) -> Result<(), String> {
+async fn destroy_hls(element_id: &str, reset_src: bool) -> Result<(), String> {
     let id = serde_json::to_string(element_id).map_err(|err| err.to_string())?;
+    let reset = if reset_src { "true" } else { "false" };
     let script = format!(
         r#"
         (function() {{
             const elementId = {id};
+            const reset = {reset};
             const audio = document.getElementById(elementId);
             if (window.__gitgud_hls) {{
                 window.__gitgud_hls.destroy();
                 window.__gitgud_hls = null;
             }}
-            if (audio) {{
+            if (audio && reset) {{
                 audio.pause();
                 audio.removeAttribute("src");
                 audio.load();
