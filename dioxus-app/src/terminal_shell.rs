@@ -198,11 +198,11 @@ pub fn TerminalPage() -> Element {
                             }
                         }
                     },
-                    for line in banner_lines.iter() {
+                    for (index, line) in banner_lines.iter().enumerate() {
                         if line == "Commands run against a locked-down Kubernetes pod with whitelisted binaries and an ephemeral filesystem." {
-                            p { class: "text-terminal-white", "{line}" }
+                            p { key: "banner-{index}", class: "text-terminal-white", "{line}" }
                         } else if line == "Need to leave? cd ~" {
-                            p { class: "text-terminal-white",
+                            p { key: "banner-{index}", class: "text-terminal-white",
                                 "Need to leave? "
                                 Link {
                                     to: Route::Home {},
@@ -212,11 +212,11 @@ pub fn TerminalPage() -> Element {
                                 }
                             }
                         } else {
-                            p { class: "terminal-banner {banner_class}", "{line}" }
+                            p { key: "banner-{index}", class: "terminal-banner {banner_class}", "{line}" }
                         }
                     }
                     for entry in history().iter() {
-                        div { class: "terminal-entry",
+                        div { key: "{entry.id}", class: "terminal-entry",
                             TerminalPrompt {
                                 user: Some(prompt_user.clone()),
                                 host: Some(prompt_host.clone()),
@@ -224,8 +224,12 @@ pub fn TerminalPage() -> Element {
                                 command: Some(entry.command.clone()),
                                 children: rsx! {}
                             }
-                            for line in entry.output.iter() {
-                                p { class: if entry.is_error { "text-terminal-red" } else { "text-terminal-white" }, "{line}" }
+                            for (line_index, line) in entry.output.iter().enumerate() {
+                                p {
+                                    key: "{entry.id}-{line_index}",
+                                    class: if entry.is_error { "text-terminal-red" } else { "text-terminal-white" },
+                                    "{line}"
+                                }
                             }
                         }
                     }

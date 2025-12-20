@@ -28,7 +28,7 @@ pub fn BlogPage() -> Element {
                     TerminalPrompt { path: Some("~/blog".to_string()), command: Some("ls -la".to_string()), children: rsx! {} }
                     div { class: "terminal-indent terminal-stack",
                         for post in posts.iter() {
-                            p { class: "terminal-listing",
+                            p { key: "{post.slug}", class: "terminal-listing",
                                 span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {format_ls_date(post.date)} " }
                                 Link {
                                     to: Route::BlogPost { slug: post.slug.to_string() },

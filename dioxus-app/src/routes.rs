@@ -235,7 +235,7 @@ fn Home() -> Element {
                         TerminalPrompt { command: Some("tail -n 5 blog/latest.log".to_string()), children: rsx! {} }
                         div { class: "terminal-list terminal-stack",
                             for post in latest_posts.iter() {
-                                p { class: "terminal-listing terminal-wrap",
+                                p { key: "{post.slug}", class: "terminal-listing terminal-wrap",
                                     span { class: "text-terminal-white terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {format_ls_date(post.date)} " }
                                     Link { to: Route::BlogPost { slug: post.slug.to_string() }, class: "text-terminal-cyan", "{post.slug}" }
                                     span { class: "text-terminal-green terminal-inline terminal-indent", "# {post.excerpt}" }

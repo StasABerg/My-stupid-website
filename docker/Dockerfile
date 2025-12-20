@@ -1,7 +1,7 @@
 FROM rust:1.91-slim AS dioxus-build
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+ && apt-get install -y --no-install-recommends curl unzip ca-certificates binaryen \
  && rm -rf /var/lib/apt/lists/*
 
 RUN rustup target add wasm32-unknown-unknown
@@ -15,7 +15,12 @@ COPY dioxus-app/src /app/dioxus-app/src
 COPY dioxus-app/assets /app/dioxus-app/assets
 COPY dioxus-app/public /app/dioxus-app/public
 
+ARG WASM_OPT=0
 RUN cd /app/dioxus-app && dx build --web --release --debug-symbols=false
+RUN if [ "${WASM_OPT}" = "1" ]; then \
+    wasm-opt -Oz -o /app/dioxus-app/target/dx/dioxus-app/release/web/public/wasm/dioxus-app_bg.wasm \
+      /app/dioxus-app/target/dx/dioxus-app/release/web/public/wasm/dioxus-app_bg.wasm || true; \
+  fi
 
 FROM nginx:stable-alpine
 RUN apk add --no-cache nginx-mod-http-js

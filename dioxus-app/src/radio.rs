@@ -3,6 +3,8 @@ use base64::Engine;
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use dioxus::prelude::document;
+#[cfg(target_arch = "wasm32")]
+use dioxus::web::WebEventExt;
 use dioxus_router::Link;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
@@ -12,8 +14,7 @@ use std::rc::Rc;
 use wasm_bindgen::{JsCast, JsValue};
 
 use crate::config::RuntimeConfig;
-use crate::gateway_session::ensure_gateway_session;
-use crate::hooks::use_gateway_get;
+use crate::gateway_session::{authorized_get_json, ensure_gateway_session};
 use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
@@ -112,6 +113,7 @@ const SHARE_QUERY_PARAM: &str = "share";
 const SHARE_PAYLOAD_VERSION: i32 = 1;
 const SECRET_BROADCAST_LABEL: &str = "Secret Broadcast";
 const MAX_PRESET_SLOTS: usize = 6;
+const PAGE_SIZE: i64 = 40;
 const PRESET_COLORS: [&str; 5] = [
     "text-terminal-green",
     "text-terminal-cyan",
@@ -155,6 +157,19 @@ struct IntervalHandle {
     _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
 }
 
+#[cfg(target_arch = "wasm32")]
+struct TimeoutHandle {
+    id: i32,
+    _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct ObserverHandle {
+    observer: web_sys::IntersectionObserver,
+    target: web_sys::Element,
+    _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut(js_sys::Array, web_sys::IntersectionObserver)>>,
+}
+
 #[component]
 pub fn RadioPage() -> Element {
     let config = use_context::<RuntimeConfig>();
@@ -165,6 +180,11 @@ pub fn RadioPage() -> Element {
     let mut search = use_signal(String::new);
     let mut country = use_signal(String::new);
     let mut genre = use_signal(String::new);
+    let mut debounced_search = use_signal(String::new);
+    #[cfg(target_arch = "wasm32")]
+    let mut debounce_handle = use_signal(|| None::<TimeoutHandle>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _debounce_handle = ();
     let mut selected_index = use_signal(|| 0usize);
     let mut volume = use_signal(|| 0.65f64);
     let mut share_dialog_open = use_signal(|| false);
@@ -176,35 +196,99 @@ pub fn RadioPage() -> Element {
     #[cfg(not(target_arch = "wasm32"))]
     let _midnight_timer = ();
     let mut favorites = use_signal(load_favorites);
-    let mut last_response = use_signal(|| None::<StationsResponse>);
+    let mut stations_state = use_signal(Vec::<RadioStation>::new);
+    let mut first_meta = use_signal(|| None::<StationsMeta>);
+    let mut last_meta = use_signal(|| None::<StationsMeta>);
+    let mut fetch_error = use_signal(|| None::<String>);
+    let mut is_fetching = use_signal(|| false);
+    let mut is_fetching_next = use_signal(|| false);
+    let mut has_more = use_signal(|| false);
+    #[cfg(target_arch = "wasm32")]
+    let mut load_more_ref = use_signal(|| None::<web_sys::Element>);
+    #[cfg(target_arch = "wasm32")]
+    let load_more_trigger = use_signal(|| 0u64);
+    #[cfg(target_arch = "wasm32")]
+    let mut observer_handle = use_signal(|| None::<ObserverHandle>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _load_more_ref = ();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _load_more_trigger = ();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _observer_handle = ();
 
-    let stations = use_gateway_get::<StationsResponse, _>({
-        let base_url = base_url.clone();
-        move || {
-            let filters = Filters {
-                search: search(),
-                country: country(),
-                genre: genre(),
-            };
-            build_stations_url(&base_url, &filters)
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+
+        let next_search = search();
+        let trimmed = next_search.trim().to_string();
+        if let Some(handle) = debounce_handle.read().as_ref() {
+            if let Some(window) = web_sys::window() {
+                window.clear_timeout_with_handle(handle.id);
+            }
         }
+        if trimmed.is_empty() {
+            debounced_search.set(String::new());
+            debounce_handle.set(None);
+            return;
+        }
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let mut debounced = debounced_search;
+        let mut debounce_handle = debounce_handle;
+        let closure = Rc::new(Closure::wrap(Box::new(move || {
+            debounced.set(trimmed.clone());
+            debounce_handle.set(None);
+        }) as Box<dyn FnMut()>));
+        if let Ok(id) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().as_ref().unchecked_ref(),
+            300,
+        ) {
+            debounce_handle.set(Some(TimeoutHandle { id, _closure: closure }));
+        }
+    });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    use_effect(move || {
+        debounced_search.set(search());
     });
 
     use_effect({
-        let mut stations = stations;
+        let base_url = base_url.clone();
         move || {
-            let _ = search();
-            let _ = country();
-            let _ = genre();
+            let filters = Filters {
+                search: debounced_search(),
+                country: country(),
+                genre: genre(),
+            };
             selected_index.set(0);
             selected.set(None);
-            stations.restart();
-        }
-    });
-
-    use_effect(move || {
-        if let Some(Ok(response)) = stations() {
-            last_response.set(Some(response));
+            stations_state.set(Vec::new());
+            first_meta.set(None);
+            last_meta.set(None);
+            fetch_error.set(None);
+            is_fetching.set(true);
+            is_fetching_next.set(false);
+            has_more.set(false);
+            let base_url = base_url.clone();
+            spawn(async move {
+                match fetch_station_page(&base_url, &filters, 0, PAGE_SIZE).await {
+                    Ok(response) => {
+                        stations_state.set(response.items.clone());
+                        let meta = response.meta.clone();
+                        first_meta.set(Some(meta.clone()));
+                        last_meta.set(Some(meta.clone()));
+                        has_more.set(meta.has_more);
+                        fetch_error.set(None);
+                    }
+                    Err(message) => {
+                        fetch_error.set(Some(message));
+                    }
+                }
+                is_fetching.set(false);
+            });
         }
     });
 
@@ -275,6 +359,97 @@ pub fn RadioPage() -> Element {
         });
     }
 
+    #[cfg(target_arch = "wasm32")]
+    {
+        let debounce_handle = debounce_handle;
+        use_drop(move || {
+            if let Some(handle) = debounce_handle.read().as_ref() {
+                if let Some(window) = web_sys::window() {
+                    window.clear_timeout_with_handle(handle.id);
+                }
+            }
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+
+        let Some(target) = load_more_ref.read().as_ref().cloned() else {
+            return;
+        };
+        if observer_handle.read().is_some() {
+            return;
+        }
+        let mut load_more_trigger = load_more_trigger;
+        let closure = Rc::new(Closure::wrap(Box::new(move |entries: js_sys::Array, _observer: web_sys::IntersectionObserver| {
+            let entry = entries.get(0);
+            if entry.is_null() || entry.is_undefined() {
+                return;
+            }
+            let entry: web_sys::IntersectionObserverEntry = entry.unchecked_into();
+            if entry.is_intersecting() {
+                load_more_trigger.set(load_more_trigger() + 1);
+            }
+        }) as Box<dyn FnMut(js_sys::Array, web_sys::IntersectionObserver)>));
+        let Ok(observer) = web_sys::IntersectionObserver::new(closure.as_ref().as_ref().unchecked_ref()) else {
+            return;
+        };
+        observer.observe(&target);
+        observer_handle.set(Some(ObserverHandle {
+            observer,
+            target,
+            _closure: closure,
+        }));
+    });
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let observer_handle = observer_handle;
+        use_drop(move || {
+            if let Some(handle) = observer_handle.read().as_ref() {
+                handle.observer.unobserve(&handle.target);
+            }
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    use_effect({
+        let base_url = base_url.clone();
+        move || {
+            let _ = load_more_trigger();
+            if !has_more() || is_fetching() || is_fetching_next() {
+                return;
+            }
+            let offset = last_meta()
+                .as_ref()
+                .map(|meta| meta.offset + meta.limit)
+                .unwrap_or(stations_state().len() as i64);
+            let filters = Filters {
+                search: debounced_search(),
+                country: country(),
+                genre: genre(),
+            };
+            let base_url = base_url.clone();
+            is_fetching_next.set(true);
+            spawn(async move {
+                match fetch_station_page(&base_url, &filters, offset, PAGE_SIZE).await {
+                    Ok(response) => {
+                        stations_state.with_mut(|items| items.extend(response.items.clone()));
+                        last_meta.set(Some(response.meta.clone()));
+                        has_more.set(response.meta.has_more);
+                        fetch_error.set(None);
+                    }
+                    Err(message) => {
+                        fetch_error.set(Some(message));
+                    }
+                }
+                is_fetching_next.set(false);
+            });
+        }
+    });
+
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         if let Some(url) = resolved_stream_url() {
@@ -300,19 +475,12 @@ pub fn RadioPage() -> Element {
         }
     });
 
-    let fallback_response = last_response();
-    let current_response = stations()
-        .and_then(|value| value.ok())
-        .or(fallback_response);
-    let response_error = stations().and_then(|value| value.err());
-    let (available_countries, available_genres) = current_response
-        .as_ref()
-        .map(resolve_filter_options)
-        .unwrap_or_default();
-    let station_items = current_response
-        .as_ref()
-        .map(|response| response.items.clone())
-        .unwrap_or_default();
+    let station_items = stations_state();
+    let response_error = fetch_error();
+    let available_filters = use_memo(move || {
+        resolve_filter_options_from(first_meta().as_ref(), &stations_state())
+    });
+    let (available_countries, available_genres) = available_filters();
     let selected_station = selected();
     let bounded_index = selected_index()
         .min(station_items.len().saturating_sub(1));
@@ -326,14 +494,13 @@ pub fn RadioPage() -> Element {
     };
 
     use_effect(move || {
-        if let Some(Ok(response)) = stations() {
-            if response.items.is_empty() {
-                return;
-            }
-            if selected().is_none() {
-                let idx = selected_index().min(response.items.len().saturating_sub(1));
-                selected.set(Some(response.items[idx].clone()));
-            }
+        let items = stations_state();
+        if items.is_empty() {
+            return;
+        }
+        if selected().is_none() {
+            let idx = selected_index().min(items.len().saturating_sub(1));
+            selected.set(Some(items[idx].clone()));
         }
     });
 
@@ -361,10 +528,37 @@ pub fn RadioPage() -> Element {
         .map(build_share_url)
         .unwrap_or_default();
     let share_link_available = !share_link.is_empty();
-    let station_count = current_response
-        .as_ref()
-        .map(|response| response.meta.matches)
-        .unwrap_or(0);
+    let station_totals = use_memo(move || {
+        let station_items = stations_state();
+        let station_count = first_meta()
+            .as_ref()
+            .map(|meta| meta.matches)
+            .unwrap_or(station_items.len() as i64);
+        let next_offset = last_meta()
+            .as_ref()
+            .map(|meta| meta.offset + meta.limit)
+            .unwrap_or(station_items.len() as i64);
+        (station_count, next_offset)
+    });
+    let (station_count, next_offset) = station_totals();
+    let station_list_command = if next_offset > 0 {
+        format!("radio stations --limit {PAGE_SIZE} --offset {next_offset}")
+    } else {
+        format!("radio stations --limit {PAGE_SIZE}")
+    };
+    let directory_status = if station_items.is_empty() {
+        if is_fetching() {
+            "Scanning…"
+        } else {
+            "No results"
+        }
+    } else if is_fetching_next() {
+        "Loading more stations…"
+    } else if has_more() {
+        "Scroll to load more stations"
+    } else {
+        "All stations loaded"
+    };
 
     rsx! {
         div { class: "terminal-screen radio-page",
@@ -490,7 +684,7 @@ pub fn RadioPage() -> Element {
                                                         .map(|value| value.id == station_id)
                                                         .unwrap_or(false);
                                                     rsx! {
-                                                        div { class: "radio-preset-slot",
+                                                        div { key: "preset-{index}", class: "radio-preset-slot",
                                                             button {
                                                                 class: if is_active { format!("radio-preset-button active {color}") } else { format!("radio-preset-button {color}") },
                                                                 onclick: move |_| {
@@ -512,7 +706,7 @@ pub fn RadioPage() -> Element {
                                                     }
                                                 } else {
                                                     rsx! {
-                                                        div { class: "radio-preset-empty",
+                                                        div { key: "preset-empty-{index}", class: "radio-preset-empty",
                                                             span { class: "text-terminal-cyan", "[{index + 1}]" }
                                                             span { class: "radio-muted", "Empty slot" }
                                                         }
@@ -520,7 +714,7 @@ pub fn RadioPage() -> Element {
                                                 }
                                             } else {
                                                 rsx! {
-                                                    div { class: "radio-preset-empty",
+                                                    div { key: "preset-empty-{index}", class: "radio-preset-empty",
                                                         span { class: "text-terminal-cyan", "[{index + 1}]" }
                                                         span { class: "radio-muted", "Empty slot" }
                                                     }
@@ -570,7 +764,7 @@ pub fn RadioPage() -> Element {
                                         onchange: move |event| country.set(event.value()),
                                         option { value: "", "All origins" }
                                         for value in available_countries.clone().into_iter() {
-                                            option { value: "{value}", "{value}" }
+                                            option { key: "{value}", value: "{value}", "{value}" }
                                         }
                                     }
                                     label { r#for: "radio-genre", "Genre" }
@@ -580,7 +774,7 @@ pub fn RadioPage() -> Element {
                                         onchange: move |event| genre.set(event.value()),
                                         option { value: "", "All genres" }
                                         for value in available_genres.clone().into_iter() {
-                                            option { value: "{value}", "{value}" }
+                                            option { key: "{value}", value: "{value}", "{value}" }
                                         }
                                     }
                                     div { class: "radio-volume",
@@ -603,7 +797,7 @@ pub fn RadioPage() -> Element {
                                     }
                                 }
                             }
-                            TerminalPrompt { path: Some("~/radio".to_string()), command: Some("radio stations --limit 40".to_string()), children: rsx! {} }
+                            TerminalPrompt { path: Some("~/radio".to_string()), command: Some(station_list_command), children: rsx! {} }
                             div { class: "radio-panel",
                                 div { class: "radio-section-header", span { class: "text-terminal-cyan", "Station Directory" } }
                                 if station_items.is_empty() {
@@ -625,7 +819,9 @@ pub fn RadioPage() -> Element {
                                                     .unwrap_or(false);
                                                 let freq = format!("{} FM", format_frequency(index));
                                                 rsx! {
-                                                    li { class: if is_active { "radio-directory-item active" } else { "radio-directory-item" },
+                                                    li {
+                                                        key: "{station_id}",
+                                                        class: if is_active { "radio-directory-item active" } else { "radio-directory-item" },
                                                         div {
                                                             class: "radio-directory-row",
                                                             role: "button",
@@ -654,6 +850,19 @@ pub fn RadioPage() -> Element {
                                             }
                                             })
                                         }
+                                        li {
+                                            class: "radio-directory-footer",
+                                            onmounted: move |_event| {
+                                                #[cfg(target_arch = "wasm32")]
+                                                {
+                                                    let element = _event.data.as_ref().as_web_event();
+                                                    if let Ok(node) = element.dyn_into::<web_sys::Element>() {
+                                                        load_more_ref.set(Some(node));
+                                                    }
+                                                }
+                                            },
+                                            "{directory_status}"
+                                        }
                                     }
                                 }
                                 div { class: "radio-footer",
@@ -663,16 +872,16 @@ pub fn RadioPage() -> Element {
                         }
                     }
                     div { class: "radio-status",
-                        if stations().is_none() {
+                        if is_fetching() && station_items.is_empty() {
                             p { "Scanning the dial…" }
                         } else if response_error.is_some() {
                             p { class: "text-terminal-red", "Failed to reach the station directory." }
-                        } else if let Some(response) = current_response.clone() {
-                            p { "Displaying {station_items.len()} of {response.meta.matches} stations · Cache: {response.meta.cache_source.clone().unwrap_or_else(|| \"unknown\".to_string())}" }
-                            if let Some(updated) = response.meta.updated_at.clone() {
+                        } else if let Some(meta) = first_meta() {
+                            p { "Displaying {station_items.len()} of {meta.matches} stations · Cache: {meta.cache_source.clone().unwrap_or_else(|| \"unknown\".to_string())}" }
+                            if let Some(updated) = meta.updated_at.clone() {
                                 p { "Last refresh: {updated}" }
                             }
-                            if let Some(origin) = response.meta.origin.clone() {
+                            if let Some(origin) = meta.origin.clone() {
                                 p { "Radio Browser source: {origin}" }
                             }
                         }
@@ -745,10 +954,20 @@ struct Filters {
     genre: String,
 }
 
-fn build_stations_url(base_url: &str, filters: &Filters) -> String {
+async fn fetch_station_page(
+    base_url: &str,
+    filters: &Filters,
+    offset: i64,
+    limit: i64,
+) -> Result<StationsResponse, String> {
+    let url = build_stations_url(base_url, filters, offset, limit);
+    authorized_get_json(&url).await
+}
+
+fn build_stations_url(base_url: &str, filters: &Filters, offset: i64, limit: i64) -> String {
     let mut params = Vec::new();
-    params.push("limit=40".to_string());
-    params.push("offset=0".to_string());
+    params.push(format!("limit={limit}"));
+    params.push(format!("offset={offset}"));
     if !filters.search.trim().is_empty() {
         params.push(format!("search={}", urlencoding::encode(filters.search.trim())));
     }
@@ -786,19 +1005,18 @@ fn toggle_favorite(mut favorites: Vec<String>, station_id: &str) -> Vec<String> 
     favorites
 }
 
-fn resolve_filter_options(response: &StationsResponse) -> (Vec<String>, Vec<String>) {
-    let countries = response
-        .meta
-        .countries
-        .clone()
+fn resolve_filter_options_from(
+    meta: Option<&StationsMeta>,
+    items: &[RadioStation],
+) -> (Vec<String>, Vec<String>) {
+    let countries = meta
+        .and_then(|meta| meta.countries.clone())
         .filter(|values| !values.is_empty())
-        .unwrap_or_else(|| collect_unique_countries(&response.items));
-    let genres = response
-        .meta
-        .genres
-        .clone()
+        .unwrap_or_else(|| collect_unique_countries(items));
+    let genres = meta
+        .and_then(|meta| meta.genres.clone())
         .filter(|values| !values.is_empty())
-        .unwrap_or_else(|| collect_unique_genres(&response.items));
+        .unwrap_or_else(|| collect_unique_genres(items));
 
     (normalize_values(countries), normalize_values(genres))
 }

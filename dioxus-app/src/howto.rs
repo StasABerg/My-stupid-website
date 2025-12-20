@@ -125,7 +125,7 @@ pub fn HowToIndexPage() -> Element {
                     TerminalPrompt { command: Some("ls -la ./missions".to_string()), children: rsx! {} }
                     div { class: "terminal-indent terminal-stack",
                         for topic in HOW_TO_TOPICS.iter() {
-                            p { class: "terminal-listing",
+                            p { key: "{topic.slug}", class: "terminal-listing",
                                 span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                                 Link {
                                     to: Route::HowToTopic { topic: topic.slug.to_string() },
