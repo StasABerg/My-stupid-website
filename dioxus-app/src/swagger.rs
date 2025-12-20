@@ -13,11 +13,21 @@ const SWAGGER_PRESET_URL: &str =
 pub fn SwaggerEmbed(spec_url: String) -> Element {
     let mut container = use_signal(|| Option::<web_sys::Element>::None);
     let error = use_signal(|| Option::<String>::None);
+    let mut mounted = use_signal(|| false);
+    let mut last_spec = use_signal(|| None::<String>);
 
     use_effect(move || {
         let container = container();
         let spec_url = spec_url.clone();
         let mut error = error;
+        if container.is_none() {
+            return;
+        }
+        if mounted() && last_spec().as_ref() == Some(&spec_url) {
+            return;
+        }
+        mounted.set(true);
+        last_spec.set(Some(spec_url.clone()));
         if let Some(container) = container {
             spawn(async move {
                 if let Err(message) = ensure_assets().await {

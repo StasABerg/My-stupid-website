@@ -203,16 +203,21 @@ pub fn RadioPage() -> Element {
     let mut is_fetching = use_signal(|| false);
     let mut is_fetching_next = use_signal(|| false);
     let mut has_more = use_signal(|| false);
+    let mut last_filters = use_signal(|| None::<Filters>);
     #[cfg(target_arch = "wasm32")]
     let mut load_more_ref = use_signal(|| None::<web_sys::Element>);
     #[cfg(target_arch = "wasm32")]
     let load_more_trigger = use_signal(|| 0u64);
+    #[cfg(target_arch = "wasm32")]
+    let mut last_load_trigger = use_signal(|| 0u64);
     #[cfg(target_arch = "wasm32")]
     let mut observer_handle = use_signal(|| None::<ObserverHandle>);
     #[cfg(not(target_arch = "wasm32"))]
     let _load_more_ref = ();
     #[cfg(not(target_arch = "wasm32"))]
     let _load_more_trigger = ();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _last_load_trigger = ();
     #[cfg(not(target_arch = "wasm32"))]
     let _observer_handle = ();
 
@@ -263,6 +268,10 @@ pub fn RadioPage() -> Element {
                 country: country(),
                 genre: genre(),
             };
+            if last_filters().as_ref() == Some(&filters) {
+                return;
+            }
+            last_filters.set(Some(filters.clone()));
             selected_index.set(0);
             selected.set(None);
             stations_state.set(Vec::new());
@@ -418,7 +427,11 @@ pub fn RadioPage() -> Element {
     use_effect({
         let base_url = base_url.clone();
         move || {
-            let _ = load_more_trigger();
+            let trigger = load_more_trigger();
+            if trigger == last_load_trigger() {
+                return;
+            }
+            last_load_trigger.set(trigger);
             if !has_more() || is_fetching() || is_fetching_next() {
                 return;
             }

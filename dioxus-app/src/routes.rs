@@ -53,7 +53,16 @@ pub fn App() -> Element {
     use_context_provider(|| config);
 
     #[cfg(target_arch = "wasm32")]
-    use_effect(register_service_worker);
+    {
+        let mut sw_registered = use_signal(|| false);
+        use_effect(move || {
+            if sw_registered() {
+                return;
+            }
+            sw_registered.set(true);
+            register_service_worker();
+        });
+    }
 
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
