@@ -10,12 +10,12 @@ pub fn DoNothingGamePage() -> Element {
     let mut elapsed_time = use_signal(|| 0.0f64);
     let best_time = use_signal(|| 0.0f64);
     #[cfg(target_arch = "wasm32")]
-    let interval_id = use_signal(|| None::<i32>);
+    let mut interval_id = use_signal(|| None::<i32>);
     #[cfg(not(target_arch = "wasm32"))]
     let _interval_id = ();
 
     #[cfg(target_arch = "wasm32")]
-    let listeners_ready = use_signal(|| false);
+    let mut listeners_ready = use_signal(|| false);
     #[cfg(not(target_arch = "wasm32"))]
     let _listeners_ready = ();
 
@@ -31,10 +31,10 @@ pub fn DoNothingGamePage() -> Element {
             use wasm_bindgen::closure::Closure;
             use wasm_bindgen::JsCast;
 
-            let on_move_running = is_running;
+            let mut on_move_running = is_running;
             let on_move_elapsed = elapsed_time;
-            let on_move_best = best_time;
-            let on_move_interval = interval_id;
+            let mut on_move_best = best_time;
+            let mut on_move_interval = interval_id;
             let move_closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
                 if !on_move_running() {
                     return;
@@ -86,7 +86,7 @@ pub fn DoNothingGamePage() -> Element {
                 interval_id.set(None);
             }
 
-            let interval_elapsed = elapsed_time;
+            let mut interval_elapsed = elapsed_time;
             let interval_closure = Closure::wrap(Box::new(move || {
                 let next = interval_elapsed() + 0.01;
                 interval_elapsed.set(next);

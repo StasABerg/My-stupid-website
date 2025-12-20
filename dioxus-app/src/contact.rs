@@ -101,7 +101,7 @@ pub fn ContactPage() -> Element {
             return;
         }
         let mut turnstile_widget_id = turnstile_widget_id;
-        let mut turnstile_ready = turnstile_ready;
+        let turnstile_ready = turnstile_ready;
         let Some(site_key) = turnstile_site_key() else {
             return;
         };

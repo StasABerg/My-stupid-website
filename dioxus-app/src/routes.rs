@@ -626,7 +626,7 @@ fn Begud() -> Element {
     let index = use_signal(|| 0usize);
     #[cfg(target_arch = "wasm32")]
     {
-        let interval_ready = use_signal(|| false);
+        let mut interval_ready = use_signal(|| false);
         use_effect(move || {
             if interval_ready() {
                 return;
@@ -637,7 +637,7 @@ fn Begud() -> Element {
             let Some(window) = web_sys::window() else {
                 return;
             };
-            let interval_index = index;
+            let mut interval_index = index;
             let closure = Closure::wrap(Box::new(move || {
                 let next = (interval_index() + 1) % INSULTS.len();
                 interval_index.set(next);
@@ -701,7 +701,7 @@ fn GitGud() -> Element {
     let progress = use_signal(|| 0.0f64);
     #[cfg(target_arch = "wasm32")]
     {
-        let interval_ready = use_signal(|| false);
+        let mut interval_ready = use_signal(|| false);
         use_effect(move || {
             if interval_ready() {
                 return;
@@ -712,7 +712,7 @@ fn GitGud() -> Element {
             let Some(window) = web_sys::window() else {
                 return;
             };
-            let progress_signal = progress;
+            let mut progress_signal = progress;
             let closure = Closure::wrap(Box::new(move || {
                 let next = progress_signal() + random_increment();
                 let clamped = if next > 98.0 { 42.0 } else { next };

@@ -172,19 +172,13 @@ pub fn HowToTopicPage(topic: String) -> Element {
                 let _ = window_for_callback.open_with_url_and_target(&url, "_blank");
                 opened_signal.set(true);
             }) as Box<dyn FnMut()>);
-            let timeout_id = window
+            let _ = window
                 .set_timeout_with_callback_and_timeout_and_arguments_0(
                     closure.as_ref().unchecked_ref(),
                     3000,
                 )
                 .ok();
             closure.forget();
-
-            move || {
-                if let Some(id) = timeout_id {
-                    window.clear_timeout_with_handle(id);
-                }
-            }
         });
     }
 
