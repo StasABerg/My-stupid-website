@@ -18,6 +18,10 @@ use crate::gateway_session::{authorized_get_json, ensure_gateway_session};
 use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
+fn log_debug(message: &str) {
+    tracing::debug!("{message}");
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct RadioStation {
     pub id: String,
@@ -174,6 +178,7 @@ struct ObserverHandle {
 pub fn RadioPage() -> Element {
     let config = use_context::<RuntimeConfig>();
     let base_url = config.radio_api_base_url.clone();
+    let mut mounted = use_signal(|| false);
     let mut selected = use_signal::<Option<RadioStation>>(|| None);
     let mut resolved_stream_url = use_signal::<Option<String>>(|| None);
     let mut share_loaded = use_signal(|| false);
@@ -268,6 +273,10 @@ pub fn RadioPage() -> Element {
     use_effect({
         let base_url = base_url.clone();
         move || {
+            if !mounted() {
+                log_debug("radio: mount");
+                mounted.set(true);
+            }
             let filters = Filters {
                 search: debounced_search(),
                 country: country(),
@@ -277,6 +286,7 @@ pub fn RadioPage() -> Element {
                 return;
             }
             last_filters.set(Some(filters.clone()));
+            log_debug("radio: filter change, fetching first page");
             selected_index.set(0);
             selected.set(None);
             stations_state.set(Vec::new());
@@ -355,6 +365,7 @@ pub fn RadioPage() -> Element {
             }
             last_stream_id.set(selection_id);
             if let Some(station) = selection {
+                log_debug("radio: resolve stream url");
                 let base_url = base_url.clone();
                 let station = station.clone();
                 spawn(async move {
@@ -402,6 +413,7 @@ pub fn RadioPage() -> Element {
         if observer_handle.read().is_some() {
             return;
         }
+        log_debug("radio: setting up intersection observer");
         let mut load_more_trigger = load_more_trigger;
         let closure = Rc::new(Closure::wrap(Box::new(move |entries: js_sys::Array, _observer: web_sys::IntersectionObserver| {
             let entry = entries.get(0);
@@ -410,6 +422,7 @@ pub fn RadioPage() -> Element {
             }
             let entry: web_sys::IntersectionObserverEntry = entry.unchecked_into();
             if entry.is_intersecting() {
+                log_debug("radio: intersection observer trigger");
                 load_more_trigger.set(load_more_trigger() + 1);
             }
         }) as Box<dyn FnMut(js_sys::Array, web_sys::IntersectionObserver)>));
@@ -446,6 +459,7 @@ pub fn RadioPage() -> Element {
             if !has_more() || is_fetching() || is_fetching_next() {
                 return;
             }
+            log_debug("radio: loading next page");
             let offset = last_meta()
                 .as_ref()
                 .map(|meta| meta.offset + meta.limit)
@@ -488,10 +502,12 @@ pub fn RadioPage() -> Element {
             }
             last_hls_key.set(Some(key));
             if should_use_hls {
+                log_debug("radio: attach hls");
                 spawn(async move {
                     let _ = attach_hls(&url, "radio-audio").await;
                 });
             } else {
+                log_debug("radio: destroy hls (direct stream)");
                 spawn(async {
                     let _ = destroy_hls("radio-audio", false).await;
                 });
@@ -499,6 +515,7 @@ pub fn RadioPage() -> Element {
         } else {
             #[cfg(target_arch = "wasm32")]
             spawn(async {
+                log_debug("radio: destroy hls (no selection)");
                 let _ = destroy_hls("radio-audio", true).await;
             });
             #[cfg(target_arch = "wasm32")]

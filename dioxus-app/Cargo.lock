@@ -800,6 +800,7 @@ dependencies = [
  "js-sys",
  "serde",
  "serde_json",
+ "tracing",
  "urlencoding",
  "wasm-bindgen",
  "wasm-bindgen-futures",

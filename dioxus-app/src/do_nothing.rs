@@ -25,6 +25,10 @@ pub fn DoNothingGamePage() -> Element {
     let mut elapsed_time = use_signal(|| 0.0f64);
     let best_time = use_signal(|| 0.0f64);
     #[cfg(target_arch = "wasm32")]
+    let mut mounted = use_signal(|| false);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _mounted = ();
+    #[cfg(target_arch = "wasm32")]
     let mut interval_handle = use_signal(|| None::<IntervalHandle>);
     #[cfg(not(target_arch = "wasm32"))]
     let _interval_handle = ();
@@ -45,9 +49,14 @@ pub fn DoNothingGamePage() -> Element {
     #[cfg(target_arch = "wasm32")]
     {
         use_effect(move || {
+            if !mounted() {
+                tracing::debug!("do-nothing: mount");
+                mounted.set(true);
+            }
             if move_listener.read().is_some() {
                 return;
             }
+            tracing::debug!("do-nothing: attach move listeners");
             let Some(window) = web_sys::window() else {
                 return;
             };
@@ -98,6 +107,11 @@ pub fn DoNothingGamePage() -> Element {
                 return;
             }
             last_running.set(Some(running));
+            if running {
+                tracing::debug!("do-nothing: start timer");
+            } else {
+                tracing::debug!("do-nothing: stop timer");
+            }
             let Some(window) = web_sys::window() else {
                 return;
             };

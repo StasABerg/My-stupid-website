@@ -16,5 +16,6 @@ mod terminal_shell;
 mod tools;
 
 fn main() {
+    let _ = dioxus::logger::init(tracing::Level::DEBUG);
     dioxus::launch(routes::App);
 }
