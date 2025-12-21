@@ -1,4 +1,4 @@
-FROM rust:1.91-slim AS dioxus-build
+FROM rust:slim AS dioxus-build
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl unzip ca-certificates binaryen \

@@ -10,6 +10,8 @@ use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 #[cfg(target_arch = "wasm32")]
 use gloo_timers::callback::Timeout;
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::TimeoutFuture;
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
@@ -172,13 +174,6 @@ struct TimeoutHandle {
     _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
 }
 
-#[cfg(target_arch = "wasm32")]
-struct ObserverHandle {
-    observer: web_sys::IntersectionObserver,
-    target: web_sys::Element,
-    _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut(js_sys::Array, web_sys::IntersectionObserver)>>,
-}
-
 #[component]
 pub fn RadioPage() -> Element {
     let config = use_context::<RuntimeConfig>();
@@ -224,13 +219,9 @@ pub fn RadioPage() -> Element {
     #[cfg(not(target_arch = "wasm32"))]
     let _fetch_timeout = ();
     #[cfg(target_arch = "wasm32")]
-    let mut load_more_ref = use_signal(|| None::<web_sys::Element>);
-    #[cfg(target_arch = "wasm32")]
-    let mut observer_handle = use_signal(|| None::<ObserverHandle>);
+    let mut directory_list_ref = use_signal(|| None::<web_sys::HtmlElement>);
     #[cfg(not(target_arch = "wasm32"))]
-    let _load_more_ref = ();
-    #[cfg(not(target_arch = "wasm32"))]
-    let _observer_handle = ();
+    let _directory_list_ref = ();
 
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
@@ -430,85 +421,58 @@ pub fn RadioPage() -> Element {
     }
 
     #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        use wasm_bindgen::closure::Closure;
-        use wasm_bindgen::JsCast;
-
-        let Some(target) = load_more_ref.read().as_ref().cloned() else {
-            return;
-        };
-        if observer_handle.read().is_some() {
-            return;
-        }
-        log_debug("radio: setting up intersection observer");
+    let load_next_page = use_callback({
         let base_url = base_url.clone();
-        let is_fetching = is_fetching;
-        let mut is_fetching_next = is_fetching_next;
-        let mut has_more = has_more;
-        let debounced_search = debounced_search;
-        let country = country;
-        let genre = genre;
-        let mut last_meta = last_meta;
-        let mut stations_state = stations_state;
-        let mut fetch_error = fetch_error;
-        let closure = Rc::new(Closure::wrap(Box::new(move |entries: js_sys::Array, _observer: web_sys::IntersectionObserver| {
-            let entry = entries.get(0);
-            if entry.is_null() || entry.is_undefined() {
+        move |_| {
+            if !has_more() || is_fetching() || is_fetching_next() {
                 return;
             }
-            let entry: web_sys::IntersectionObserverEntry = entry.unchecked_into();
-            if entry.is_intersecting() {
-                if is_fetching() || is_fetching_next() || !has_more() {
-                    return;
-                }
-                log_debug("radio: intersection observer trigger");
-                let offset = last_meta()
-                    .as_ref()
-                    .map(|meta| meta.offset + meta.limit)
-                    .unwrap_or(stations_state().len() as i64);
-                let filters = Filters {
-                    search: debounced_search(),
-                    country: country(),
-                    genre: genre(),
-                };
-                let base_url = base_url.clone();
-                is_fetching_next.set(true);
-                spawn(async move {
-                    match fetch_station_page(&base_url, &filters, offset, PAGE_SIZE).await {
-                        Ok(response) => {
-                            stations_state.with_mut(|items| items.extend(response.items.clone()));
-                            last_meta.set(Some(response.meta.clone()));
-                            has_more.set(response.meta.has_more);
-                            fetch_error.set(None);
-                        }
-                        Err(message) => {
-                            fetch_error.set(Some(message));
-                        }
+            log_debug("radio: loading next page");
+            let offset = last_meta()
+                .as_ref()
+                .map(|meta| meta.offset + meta.limit)
+                .unwrap_or(stations_state().len() as i64);
+            let filters = Filters {
+                search: debounced_search(),
+                country: country(),
+                genre: genre(),
+            };
+            let base_url = base_url.clone();
+            is_fetching_next.set(true);
+            spawn(async move {
+                match fetch_station_page(&base_url, &filters, offset, PAGE_SIZE).await {
+                    Ok(response) => {
+                        stations_state.with_mut(|items| items.extend(response.items.clone()));
+                        last_meta.set(Some(response.meta.clone()));
+                        has_more.set(response.meta.has_more);
+                        fetch_error.set(None);
                     }
-                    is_fetching_next.set(false);
-                });
-            }
-        }) as Box<dyn FnMut(js_sys::Array, web_sys::IntersectionObserver)>));
-        let Ok(observer) = web_sys::IntersectionObserver::new(closure.as_ref().as_ref().unchecked_ref()) else {
-            return;
-        };
-        observer.observe(&target);
-        observer_handle.set(Some(ObserverHandle {
-            observer,
-            target,
-            _closure: closure,
-        }));
+                    Err(message) => {
+                        fetch_error.set(Some(message));
+                    }
+                }
+                is_fetching_next.set(false);
+            });
+        }
     });
+    #[cfg(not(target_arch = "wasm32"))]
+    let _load_next_page = ();
 
     #[cfg(target_arch = "wasm32")]
-    {
-        let observer_handle = observer_handle;
-        use_drop(move || {
-            if let Some(handle) = observer_handle.read().as_ref() {
-                handle.observer.unobserve(&handle.target);
-            }
-        });
-    }
+    use_effect(move || {
+        let items_len = stations_state().len();
+        if items_len == 0 || !has_more() || is_fetching() || is_fetching_next() {
+            return;
+        }
+        let Some(list) = directory_list_ref.read().as_ref().cloned() else {
+            return;
+        };
+        let scroll_height = list.scroll_height();
+        let client_height = list.client_height();
+        if scroll_height <= client_height + 10 {
+            load_next_page.call(());
+        }
+    });
 
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
@@ -869,11 +833,38 @@ pub fn RadioPage() -> Element {
                             }
                             TerminalPrompt { path: Some("~/radio".to_string()), command: Some(station_list_command), children: rsx! {} }
                             div { class: "radio-panel",
-                                div { class: "radio-section-header", span { class: "text-terminal-cyan", "Station Directory" } }
+                                div { class: "radio-section-header",
+                                    span { class: "text-terminal-cyan", "Station Directory" }
+                                    span { class: "radio-muted", "{station_items.len()}/{station_count}" }
+                                }
                                 if station_items.is_empty() {
                                     p { class: "radio-muted", "No stations found. Adjust filters or refresh the cache." }
                                 } else {
-                                    ol { class: "radio-directory",
+                                    ol {
+                                        class: "radio-directory",
+                                        onmounted: move |_event| {
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                let element = _event.data.as_ref().as_web_event();
+                                                if let Ok(node) = element.dyn_into::<web_sys::HtmlElement>() {
+                                                    directory_list_ref.set(Some(node));
+                                                }
+                                            }
+                                        },
+                                        onscroll: move |_event| {
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                let element = _event.data.as_ref().as_web_event();
+                                                if let Ok(node) = element.dyn_into::<web_sys::HtmlElement>() {
+                                                    let scroll_top = node.scroll_top();
+                                                    let scroll_height = node.scroll_height();
+                                                    let client_height = node.client_height();
+                                                    if scroll_height - (scroll_top + client_height) <= 160 {
+                                                        load_next_page.call(());
+                                                    }
+                                                }
+                                            }
+                                        },
                                         {
                                             let favs = favorites();
                                             let favs_for_list = favs.clone();
@@ -920,19 +911,7 @@ pub fn RadioPage() -> Element {
                                             }
                                             })
                                         }
-                                        li {
-                                            class: "radio-directory-footer",
-                                            onmounted: move |_event| {
-                                                #[cfg(target_arch = "wasm32")]
-                                                {
-                                                    let element = _event.data.as_ref().as_web_event();
-                                                    if let Ok(node) = element.dyn_into::<web_sys::Element>() {
-                                                        load_more_ref.set(Some(node));
-                                                    }
-                                                }
-                                            },
-                                            "{directory_status}"
-                                        }
+                                        li { class: "radio-directory-footer", "{directory_status}" }
                                     }
                                 }
                                 div { class: "radio-footer",
@@ -1031,26 +1010,56 @@ async fn fetch_station_page(
     limit: i64,
 ) -> Result<StationsResponse, String> {
     let url = build_stations_url(base_url, filters, offset, limit);
-    log_debug("radio: fetch start");
-    let request = Request::get(&url);
-    #[cfg(target_arch = "wasm32")]
-    let request = request.credentials(RequestCredentials::Include);
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format!("request failed: {err}"))?;
-    if !response.ok() {
-        log_debug("radio: fetch error");
-        return Err(format!("http {}", response.status()));
+    let mut attempt = 0usize;
+    loop {
+        attempt += 1;
+        log_debug(&format!("radio: fetch start (attempt {attempt})"));
+        let request = Request::get(&url);
+        #[cfg(target_arch = "wasm32")]
+        let request = request.credentials(RequestCredentials::Include);
+        match request.send().await {
+            Ok(response) => {
+                if !response.ok() {
+                    log_debug("radio: fetch error");
+                    let status = response.status();
+                    let message = format!("http {status}");
+                    if status >= 500 && attempt < 3 {
+                        #[cfg(target_arch = "wasm32")]
+                        TimeoutFuture::new(retry_backoff_ms(attempt)).await;
+                        continue;
+                    }
+                    return Err(message);
+                }
+                log_debug("radio: fetch response");
+                let body = response
+                    .text()
+                    .await
+                    .map_err(|err| format!("decode failed: {err}"))?;
+                let parsed: StationsResponse =
+                    serde_json::from_str(&body).map_err(|err| format!("decode failed: {err}"))?;
+                return Ok(parsed);
+            }
+            Err(err) => {
+                log_debug("radio: fetch error");
+                let message = format!("request failed: {err}");
+                if attempt < 3 {
+                    #[cfg(target_arch = "wasm32")]
+                    TimeoutFuture::new(retry_backoff_ms(attempt)).await;
+                    continue;
+                }
+                return Err(message);
+            }
+        }
     }
-    log_debug("radio: fetch response");
-    let body = response
-        .text()
-        .await
-        .map_err(|err| format!("decode failed: {err}"))?;
-    let parsed: StationsResponse =
-        serde_json::from_str(&body).map_err(|err| format!("decode failed: {err}"))?;
-    Ok(parsed)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn retry_backoff_ms(attempt: usize) -> u32 {
+    match attempt {
+        1 => 400,
+        2 => 900,
+        _ => 1400,
+    }
 }
 
 fn build_stations_url(base_url: &str, filters: &Filters, offset: i64, limit: i64) -> String {

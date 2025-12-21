@@ -847,6 +847,7 @@ a {
 
 .radio-frequency {
     font-size: 12px;
+    min-width: 70px;
 }
 
 .radio-share-button {
@@ -893,6 +894,9 @@ a {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.2em;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
 }
 
 .radio-presets {
@@ -1026,7 +1030,7 @@ a {
 
 .radio-directory {
     margin-top: 12px;
-    max-height: 60vh;
+    max-height: 65vh;
     overflow-y: auto;
     border-top: 1px solid rgba(0, 255, 0, 0.2);
 }
@@ -1036,11 +1040,11 @@ a {
 }
 
 .radio-directory-row {
-    display: grid;
-    grid-template-columns: 16px 70px auto 60px;
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
-    padding: 8px 0;
+    padding: 8px 12px;
     cursor: pointer;
 }
 
@@ -1049,24 +1053,32 @@ a {
 }
 
 .radio-directory-footer {
-    padding: 8px 0;
+    padding: 8px 12px;
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(0, 255, 255, 0.7);
     text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
 }
 
 .radio-caret {
     width: 16px;
+    min-width: 16px;
+    text-align: center;
 }
 
 .radio-station-name {
+    flex: 1;
+    min-width: 0;
     font-size: 11px;
     color: hsl(var(--terminal-white));
+    word-break: break-word;
 }
 
 .radio-country {
     font-size: 10px;
     color: hsl(var(--terminal-cyan));
+    display: none;
 }
 
 .radio-footer {
@@ -1172,6 +1184,22 @@ a {
 
     .radio-grid {
         grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    }
+}
+
+@media (min-width: 640px) {
+    .radio-directory-row {
+        flex-wrap: nowrap;
+    }
+
+    .radio-station-name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .radio-country {
+        display: block;
     }
 }
 
