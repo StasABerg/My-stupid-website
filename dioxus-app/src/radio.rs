@@ -245,8 +245,12 @@ pub fn RadioPage() -> Element {
             }
         }
         if trimmed.is_empty() {
-            debounced_search.set(String::new());
-            debounce_handle.set(None);
+            if !debounced_search().is_empty() {
+                debounced_search.set(String::new());
+            }
+            if debounce_handle.read().is_some() {
+                debounce_handle.set(None);
+            }
             return;
         }
         let Some(window) = web_sys::window() else {
