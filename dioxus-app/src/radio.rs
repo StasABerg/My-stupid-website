@@ -6,25 +6,20 @@ use dioxus::prelude::document;
 #[cfg(target_arch = "wasm32")]
 use dioxus::web::WebEventExt;
 use dioxus_router::Link;
+use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 #[cfg(target_arch = "wasm32")]
 use gloo_timers::callback::Timeout;
-#[cfg(target_arch = "wasm32")]
-use gloo_timers::future::TimeoutFuture;
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{JsCast, JsValue};
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures::JsFuture;
-#[cfg(target_arch = "wasm32")]
-use web_sys::{AbortController, Request, RequestCredentials, RequestInit, Response};
+use web_sys::RequestCredentials;
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::ensure_gateway_session;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::gateway_session::authorized_get_json_with_headers;
 use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
@@ -308,7 +303,7 @@ pub fn RadioPage() -> Element {
                 let mut timeout_is_fetching = is_fetching;
                 let timeout_last_filters = last_filters;
                 let timeout_filters = filters.clone();
-                let handle = Timeout::new(10000, move || {
+                let handle = Timeout::new(12000, move || {
                     if timeout_is_fetching() && timeout_last_filters().as_ref() == Some(&timeout_filters) {
                         log_debug("radio: fetch timeout");
                         timeout_error.set(Some("Radio directory request timed out.".to_string()));
@@ -1044,60 +1039,27 @@ async fn fetch_station_page(
     offset: i64,
     limit: i64,
 ) -> Result<StationsResponse, String> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        return fetch_station_page_web(base_url, filters, offset, limit).await;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let url = build_stations_url(base_url, filters, offset, limit);
-        authorized_get_json_with_headers(&url, &[]).await
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn fetch_station_page_web(
-    base_url: &str,
-    filters: &Filters,
-    offset: i64,
-    limit: i64,
-) -> Result<StationsResponse, String> {
     let url = build_stations_url(base_url, filters, offset, limit);
     log_debug("radio: fetch start");
-    let controller =
-        AbortController::new().map_err(|_| "abort controller unavailable".to_string())?;
-    let signal = controller.signal();
-    let init = RequestInit::new();
-    init.set_method("GET");
-    init.set_credentials(RequestCredentials::Include);
-    init.set_signal(Some(&signal));
-    let request = Request::new_with_str_and_init(&url, &init)
-        .map_err(|_| "request init failed".to_string())?;
-    let window = web_sys::window().ok_or("window unavailable")?;
-    let timeout_controller = controller.clone();
-    spawn(async move {
-        TimeoutFuture::new(8000).await;
-        timeout_controller.abort();
-    });
-    let response_value = JsFuture::from(window.fetch_with_request(&request))
+    let request = Request::get(&url);
+    #[cfg(target_arch = "wasm32")]
+    let request = request.credentials(RequestCredentials::Include);
+    let response = request
+        .send()
         .await
-        .map_err(|err| format!("request failed: {err:?}"))?;
-    log_debug("radio: fetch response");
-    let response: Response = response_value
-        .dyn_into()
-        .map_err(|_| "response decode failed".to_string())?;
+        .map_err(|err| format!("request failed: {err}"))?;
     if !response.ok() {
+        log_debug("radio: fetch error");
         return Err(format!("http {}", response.status()));
     }
-    let json_promise = response
-        .json()
-        .map_err(|_| "json parse failed".to_string())?;
-    let json_value = JsFuture::from(json_promise)
+    log_debug("radio: fetch response");
+    let body = response
+        .text()
         .await
-        .map_err(|err| format!("json decode failed: {err:?}"))?;
-    log_debug("radio: json parsed");
-    serde_wasm_bindgen::from_value(json_value)
-        .map_err(|err| format!("decode failed: {err}"))
+        .map_err(|err| format!("decode failed: {err}"))?;
+    let parsed: StationsResponse =
+        serde_json::from_str(&body).map_err(|err| format!("decode failed: {err}"))?;
+    Ok(parsed)
 }
 
 fn build_stations_url(base_url: &str, filters: &Filters, offset: i64, limit: i64) -> String {

@@ -800,7 +800,6 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "serde",
- "serde-wasm-bindgen",
  "serde_json",
  "tracing",
  "urlencoding",
