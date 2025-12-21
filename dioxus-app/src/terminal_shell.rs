@@ -692,7 +692,7 @@ fn current_origin() -> String {
 fn current_date_string() -> String {
     #[cfg(target_arch = "wasm32")]
     {
-        return js_sys::Date::new_0().to_string().into();
+        js_sys::Date::new_0().to_string().into()
     }
 #[cfg(not(target_arch = "wasm32"))]
     {

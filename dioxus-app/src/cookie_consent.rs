@@ -134,7 +134,7 @@ fn initial_visibility() -> bool {
         if consent_exists() {
             return false;
         }
-        return true;
+        true
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -243,7 +243,6 @@ fn try_apply_consent(granted: bool) -> Result<(), String> {
             }
             js_sys::Reflect::has(&value, &JsValue::from_str(ANALYTICS_PURPOSE_ID))
                 .ok()
-                .map(|has| has)
         })
         .unwrap_or(false);
 

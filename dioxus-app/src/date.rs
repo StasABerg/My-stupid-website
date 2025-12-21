@@ -1,7 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 pub fn ls_date_now() -> String {
     let date = js_sys::Date::new_0();
-    let month = match date.get_month() as u32 {
+    let month = match date.get_month() {
         0 => "Jan",
         1 => "Feb",
         2 => "Mar",

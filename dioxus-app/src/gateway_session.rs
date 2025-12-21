@@ -111,11 +111,6 @@ pub async fn authorized_post(url: &str, body: &str) -> Result<gloo_net::http::Re
     Ok(response)
 }
 
-pub async fn authorized_get(url: &str) -> Result<gloo_net::http::Response, String> {
-    let empty: Vec<(String, String)> = Vec::new();
-    authorized_get_with_headers(url, &empty).await
-}
-
 pub async fn authorized_get_with_headers(
     url: &str,
     headers: &[(String, String)],
@@ -147,17 +142,6 @@ pub async fn authorized_get_with_headers(
         return Ok(retry);
     }
     Ok(response)
-}
-
-pub async fn authorized_get_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
-    let response = authorized_get(url).await?;
-    if !response.ok() {
-        return Err(format!("http {}", response.status()));
-    }
-    response
-        .json::<T>()
-        .await
-        .map_err(|err| format!("decode failed: {err}"))
 }
 
 pub async fn authorized_get_json_with_headers<T: DeserializeOwned>(

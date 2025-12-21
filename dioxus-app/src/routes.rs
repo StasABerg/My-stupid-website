@@ -956,7 +956,7 @@ fn clamp_percent(value: f64) -> u32 {
 fn random_modal_choice() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
-        return js_sys::Math::random() < 0.5;
+        js_sys::Math::random() < 0.5
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -972,7 +972,7 @@ fn random_access_denied_gif() -> String {
     #[cfg(target_arch = "wasm32")]
     {
         let idx = (js_sys::Math::random() * GIFS.len() as f64).floor() as usize;
-        return GIFS[idx.min(GIFS.len() - 1)].to_string();
+        GIFS[idx.min(GIFS.len() - 1)].to_string()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

@@ -20,7 +20,9 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{AbortController, Request, RequestCredentials, RequestInit, Response};
 
 use crate::config::RuntimeConfig;
-use crate::gateway_session::{authorized_get_json, ensure_gateway_session};
+use crate::gateway_session::ensure_gateway_session;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::gateway_session::authorized_get_json_with_headers;
 use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
@@ -1020,8 +1022,11 @@ async fn fetch_station_page(
     {
         return fetch_station_page_web(base_url, filters, offset, limit).await;
     }
-    let url = build_stations_url(base_url, filters, offset, limit);
-    authorized_get_json(&url).await
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let url = build_stations_url(base_url, filters, offset, limit);
+        authorized_get_json_with_headers(&url, &[]).await
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1035,10 +1040,10 @@ async fn fetch_station_page_web(
     let controller =
         AbortController::new().map_err(|_| "abort controller unavailable".to_string())?;
     let signal = controller.signal();
-    let mut init = RequestInit::new();
-    init.method("GET");
-    init.credentials(RequestCredentials::Include);
-    init.signal(Some(&signal));
+    let init = RequestInit::new();
+    init.set_method("GET");
+    init.set_credentials(RequestCredentials::Include);
+    init.set_signal(Some(&signal));
     let request = Request::new_with_str_and_init(&url, &init)
         .map_err(|_| "request init failed".to_string())?;
     let window = web_sys::window().ok_or("window unavailable")?;
@@ -1281,7 +1286,7 @@ fn random_midnight_preset() -> SecretBroadcast {
     {
         let len = MIDNIGHT_PRESETS.len();
         let idx = (js_sys::Math::random() * len as f64).floor() as usize;
-        return MIDNIGHT_PRESETS[idx.min(len - 1)];
+        MIDNIGHT_PRESETS[idx.min(len - 1)]
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

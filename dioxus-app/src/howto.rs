@@ -210,7 +210,6 @@ pub fn HowToTopicPage(topic: String) -> Element {
             }
         });
 
-        let timeout_handle = timeout_handle;
         use_drop(move || {
             if let Some(handle) = timeout_handle.read().as_ref() {
                 if let Some(window) = web_sys::window() {
