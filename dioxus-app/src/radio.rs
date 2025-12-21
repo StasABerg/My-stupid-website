@@ -226,17 +226,9 @@ pub fn RadioPage() -> Element {
     #[cfg(target_arch = "wasm32")]
     let mut load_more_ref = use_signal(|| None::<web_sys::Element>);
     #[cfg(target_arch = "wasm32")]
-    let load_more_trigger = use_signal(|| 0u64);
-    #[cfg(target_arch = "wasm32")]
-    let mut last_load_trigger = use_signal(|| 0u64);
-    #[cfg(target_arch = "wasm32")]
     let mut observer_handle = use_signal(|| None::<ObserverHandle>);
     #[cfg(not(target_arch = "wasm32"))]
     let _load_more_ref = ();
-    #[cfg(not(target_arch = "wasm32"))]
-    let _load_more_trigger = ();
-    #[cfg(not(target_arch = "wasm32"))]
-    let _last_load_trigger = ();
     #[cfg(not(target_arch = "wasm32"))]
     let _observer_handle = ();
 
@@ -445,7 +437,16 @@ pub fn RadioPage() -> Element {
             return;
         }
         log_debug("radio: setting up intersection observer");
-        let mut load_more_trigger = load_more_trigger;
+        let base_url = base_url.clone();
+        let is_fetching = is_fetching;
+        let mut is_fetching_next = is_fetching_next;
+        let mut has_more = has_more;
+        let debounced_search = debounced_search;
+        let country = country;
+        let genre = genre;
+        let mut last_meta = last_meta;
+        let mut stations_state = stations_state;
+        let mut fetch_error = fetch_error;
         let closure = Rc::new(Closure::wrap(Box::new(move |entries: js_sys::Array, _observer: web_sys::IntersectionObserver| {
             let entry = entries.get(0);
             if entry.is_null() || entry.is_undefined() {
@@ -453,8 +454,35 @@ pub fn RadioPage() -> Element {
             }
             let entry: web_sys::IntersectionObserverEntry = entry.unchecked_into();
             if entry.is_intersecting() {
+                if is_fetching() || is_fetching_next() || !has_more() {
+                    return;
+                }
                 log_debug("radio: intersection observer trigger");
-                load_more_trigger.set(load_more_trigger() + 1);
+                let offset = last_meta()
+                    .as_ref()
+                    .map(|meta| meta.offset + meta.limit)
+                    .unwrap_or(stations_state().len() as i64);
+                let filters = Filters {
+                    search: debounced_search(),
+                    country: country(),
+                    genre: genre(),
+                };
+                let base_url = base_url.clone();
+                is_fetching_next.set(true);
+                spawn(async move {
+                    match fetch_station_page(&base_url, &filters, offset, PAGE_SIZE).await {
+                        Ok(response) => {
+                            stations_state.with_mut(|items| items.extend(response.items.clone()));
+                            last_meta.set(Some(response.meta.clone()));
+                            has_more.set(response.meta.has_more);
+                            fetch_error.set(None);
+                        }
+                        Err(message) => {
+                            fetch_error.set(Some(message));
+                        }
+                    }
+                    is_fetching_next.set(false);
+                });
             }
         }) as Box<dyn FnMut(js_sys::Array, web_sys::IntersectionObserver)>));
         let Ok(observer) = web_sys::IntersectionObserver::new(closure.as_ref().as_ref().unchecked_ref()) else {
@@ -477,47 +505,6 @@ pub fn RadioPage() -> Element {
             }
         });
     }
-
-    #[cfg(target_arch = "wasm32")]
-    use_effect({
-        let base_url = base_url.clone();
-        move || {
-            let trigger = load_more_trigger();
-            if trigger == last_load_trigger() {
-                return;
-            }
-            last_load_trigger.set(trigger);
-            if !has_more() || is_fetching() || is_fetching_next() {
-                return;
-            }
-            log_debug("radio: loading next page");
-            let offset = last_meta()
-                .as_ref()
-                .map(|meta| meta.offset + meta.limit)
-                .unwrap_or(stations_state().len() as i64);
-            let filters = Filters {
-                search: debounced_search(),
-                country: country(),
-                genre: genre(),
-            };
-            let base_url = base_url.clone();
-            is_fetching_next.set(true);
-            spawn(async move {
-                match fetch_station_page(&base_url, &filters, offset, PAGE_SIZE).await {
-                    Ok(response) => {
-                        stations_state.with_mut(|items| items.extend(response.items.clone()));
-                        last_meta.set(Some(response.meta.clone()));
-                        has_more.set(response.meta.has_more);
-                        fetch_error.set(None);
-                    }
-                    Err(message) => {
-                        fetch_error.set(Some(message));
-                    }
-                }
-                is_fetching_next.set(false);
-            });
-        }
-    });
 
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]

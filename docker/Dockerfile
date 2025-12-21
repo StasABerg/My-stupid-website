@@ -18,8 +18,12 @@ COPY dioxus-app/public /app/dioxus-app/public
 ARG WASM_OPT=0
 RUN cd /app/dioxus-app && dx build --web --release --debug-symbols=false
 RUN if [ "${WASM_OPT}" = "1" ]; then \
-    WASM_PATH=$(find /app -type f -name "*_bg*.wasm" | head -n 1); \
+    WASM_PATH="/app/dioxus-app/target/dx/dioxus-app/release/web/public/wasm/dioxus-app_bg.wasm"; \
+    if [ ! -f "$WASM_PATH" ]; then \
+      WASM_PATH=$(find /app/dioxus-app/target/dx -type f -name "*_bg*.wasm" | head -n 1); \
+    fi; \
     if [ -n "$WASM_PATH" ] && [ -f "$WASM_PATH" ]; then \
+      echo "wasm-opt: optimizing $WASM_PATH"; \
       wasm-opt -Oz -o "$WASM_PATH" "$WASM_PATH" || true; \
     else \
       echo "wasm-opt skipped: wasm file not found"; \
