@@ -18,11 +18,11 @@ COPY dioxus-app/public /app/dioxus-app/public
 ARG WASM_OPT=0
 RUN cd /app/dioxus-app && dx build --web --release --debug-symbols=false
 RUN if [ "${WASM_OPT}" = "1" ]; then \
-    WASM_PATH=/app/dioxus-app/target/dx/dioxus-app/release/web/public/wasm/dioxus-app_bg.wasm; \
-    if [ -f "$WASM_PATH" ]; then \
+    WASM_PATH=$(find /app/dioxus-app -type f -name "*_bg.wasm" | head -n 1); \
+    if [ -n "$WASM_PATH" ] && [ -f "$WASM_PATH" ]; then \
       wasm-opt -Oz -o "$WASM_PATH" "$WASM_PATH" || true; \
     else \
-      echo "wasm-opt skipped: $WASM_PATH not found"; \
+      echo "wasm-opt skipped: wasm file not found"; \
     fi; \
   fi
 
