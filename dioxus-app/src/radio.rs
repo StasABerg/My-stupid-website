@@ -8,6 +8,8 @@ use dioxus::web::WebEventExt;
 use dioxus_router::Link;
 use gloo_storage::{LocalStorage, Storage};
 #[cfg(target_arch = "wasm32")]
+use gloo_timers::callback::Timeout;
+#[cfg(target_arch = "wasm32")]
 use gloo_timers::future::TimeoutFuture;
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
@@ -220,8 +222,12 @@ pub fn RadioPage() -> Element {
     let mut last_stream_id = use_signal(|| None::<String>);
     #[cfg(target_arch = "wasm32")]
     let mut last_hls_key = use_signal(|| None::<String>);
+    #[cfg(target_arch = "wasm32")]
+    let mut fetch_timeout = use_signal(|| None::<Timeout>);
     #[cfg(not(target_arch = "wasm32"))]
     let _last_hls_key = ();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _fetch_timeout = ();
     #[cfg(target_arch = "wasm32")]
     let mut load_more_ref = use_signal(|| None::<web_sys::Element>);
     #[cfg(target_arch = "wasm32")]
@@ -295,6 +301,22 @@ pub fn RadioPage() -> Element {
             }
             last_filters.set(Some(filters.clone()));
             log_debug("radio: filter change, fetching first page");
+            #[cfg(target_arch = "wasm32")]
+            {
+                fetch_timeout.set(None);
+                let mut timeout_error = fetch_error;
+                let mut timeout_is_fetching = is_fetching;
+                let timeout_last_filters = last_filters;
+                let timeout_filters = filters.clone();
+                let handle = Timeout::new(10000, move || {
+                    if timeout_is_fetching() && timeout_last_filters().as_ref() == Some(&timeout_filters) {
+                        log_debug("radio: fetch timeout");
+                        timeout_error.set(Some("Radio directory request timed out.".to_string()));
+                        timeout_is_fetching.set(false);
+                    }
+                });
+                fetch_timeout.set(Some(handle));
+            }
             selected_index.set(0);
             selected.set(None);
             stations_state.set(Vec::new());
@@ -309,6 +331,8 @@ pub fn RadioPage() -> Element {
                 match fetch_station_page(&base_url, &filters, 0, PAGE_SIZE).await {
                     Ok(response) => {
                         log_debug("radio: first page loaded");
+                        #[cfg(target_arch = "wasm32")]
+                        fetch_timeout.set(None);
                         stations_state.set(response.items.clone());
                         let meta = response.meta.clone();
                         first_meta.set(Some(meta.clone()));
@@ -318,6 +342,8 @@ pub fn RadioPage() -> Element {
                     }
                     Err(message) => {
                         log_debug("radio: first page error");
+                        #[cfg(target_arch = "wasm32")]
+                        fetch_timeout.set(None);
                         fetch_error.set(Some(message));
                     }
                 }
@@ -1037,6 +1063,7 @@ async fn fetch_station_page_web(
     limit: i64,
 ) -> Result<StationsResponse, String> {
     let url = build_stations_url(base_url, filters, offset, limit);
+    log_debug("radio: fetch start");
     let controller =
         AbortController::new().map_err(|_| "abort controller unavailable".to_string())?;
     let signal = controller.signal();
@@ -1055,6 +1082,7 @@ async fn fetch_station_page_web(
     let response_value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(|err| format!("request failed: {err:?}"))?;
+    log_debug("radio: fetch response");
     let response: Response = response_value
         .dyn_into()
         .map_err(|_| "response decode failed".to_string())?;
@@ -1067,6 +1095,7 @@ async fn fetch_station_page_web(
     let json_value = JsFuture::from(json_promise)
         .await
         .map_err(|err| format!("json decode failed: {err:?}"))?;
+    log_debug("radio: json parsed");
     serde_wasm_bindgen::from_value(json_value)
         .map_err(|err| format!("decode failed: {err}"))
 }
