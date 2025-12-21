@@ -32,6 +32,10 @@ pub fn DoNothingGamePage() -> Element {
     let mut start_time = use_signal(|| None::<f64>);
     #[cfg(not(target_arch = "wasm32"))]
     let _start_time = ();
+    #[cfg(target_arch = "wasm32")]
+    let mut last_running = use_signal(|| None::<bool>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _last_running = ();
 
     #[cfg(target_arch = "wasm32")]
     let mut move_listener = use_signal(|| None::<MoveListener>);
@@ -90,6 +94,10 @@ pub fn DoNothingGamePage() -> Element {
             use wasm_bindgen::JsCast;
 
             let running = is_running();
+            if last_running() == Some(running) {
+                return;
+            }
+            last_running.set(Some(running));
             let Some(window) = web_sys::window() else {
                 return;
             };

@@ -204,6 +204,11 @@ pub fn RadioPage() -> Element {
     let mut is_fetching_next = use_signal(|| false);
     let mut has_more = use_signal(|| false);
     let mut last_filters = use_signal(|| None::<Filters>);
+    let mut last_stream_id = use_signal(|| None::<String>);
+    #[cfg(target_arch = "wasm32")]
+    let mut last_hls_key = use_signal(|| None::<String>);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _last_hls_key = ();
     #[cfg(target_arch = "wasm32")]
     let mut load_more_ref = use_signal(|| None::<web_sys::Element>);
     #[cfg(target_arch = "wasm32")]
@@ -343,7 +348,13 @@ pub fn RadioPage() -> Element {
     use_effect({
         let base_url = base_url.clone();
         move || {
-            if let Some(station) = selected() {
+            let selection = selected();
+            let selection_id = selection.as_ref().map(|station| station.id.clone());
+            if last_stream_id() == selection_id {
+                return;
+            }
+            last_stream_id.set(selection_id);
+            if let Some(station) = selection {
                 let base_url = base_url.clone();
                 let station = station.clone();
                 spawn(async move {
@@ -471,6 +482,11 @@ pub fn RadioPage() -> Element {
                 .as_ref()
                 .map(|value| is_hls_station(value, &url))
                 .unwrap_or(false);
+            let key = format!("{}::{}", should_use_hls, url);
+            if last_hls_key() == Some(key.clone()) {
+                return;
+            }
+            last_hls_key.set(Some(key));
             if should_use_hls {
                 spawn(async move {
                     let _ = attach_hls(&url, "radio-audio").await;
@@ -485,6 +501,8 @@ pub fn RadioPage() -> Element {
             spawn(async {
                 let _ = destroy_hls("radio-audio", true).await;
             });
+            #[cfg(target_arch = "wasm32")]
+            last_hls_key.set(None);
         }
     });
 
