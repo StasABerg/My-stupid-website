@@ -187,6 +187,10 @@ pub fn RadioPage() -> Element {
     let mut genre = use_signal(String::new);
     let mut debounced_search = use_signal(String::new);
     #[cfg(target_arch = "wasm32")]
+    let mut last_search_input = use_signal(String::new);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _last_search_input = ();
+    #[cfg(target_arch = "wasm32")]
     let mut debounce_handle = use_signal(|| None::<TimeoutHandle>);
     #[cfg(not(target_arch = "wasm32"))]
     let _debounce_handle = ();
@@ -229,11 +233,18 @@ pub fn RadioPage() -> Element {
         use wasm_bindgen::JsCast;
 
         let next_search = search();
+        if next_search == last_search_input() {
+            return;
+        }
+        last_search_input.set(next_search.clone());
         let trimmed = next_search.trim().to_string();
         if let Some(handle) = debounce_handle.read().as_ref() {
             if let Some(window) = web_sys::window() {
                 window.clear_timeout_with_handle(handle.id);
             }
+        }
+        if trimmed == debounced_search() && debounce_handle.read().is_none() {
+            return;
         }
         if trimmed.is_empty() {
             if !debounced_search().is_empty() {
@@ -728,8 +739,9 @@ pub fn RadioPage() -> Element {
                                                                 span { class: "radio-preset-name", "{station.name}" }
                                                             }
                                                             button {
-                                                                class: "radio-fav-button active",
-                                                                onclick: move |_| {
+                                                                class: "radio-preset-remove",
+                                                                onclick: move |event| {
+                                                                    event.stop_propagation();
                                                                     let updated = toggle_favorite(favorites(), &station_id);
                                                                     favorites.set(updated.clone());
                                                                     save_favorites(&updated);
@@ -854,13 +866,15 @@ pub fn RadioPage() -> Element {
                                         onscroll: move |_event| {
                                             #[cfg(target_arch = "wasm32")]
                                             {
-                                                let element = _event.data.as_ref().as_web_event();
-                                                if let Ok(node) = element.dyn_into::<web_sys::HtmlElement>() {
-                                                    let scroll_top = node.scroll_top();
-                                                    let scroll_height = node.scroll_height();
-                                                    let client_height = node.client_height();
-                                                    if scroll_height - (scroll_top + client_height) <= 160 {
-                                                        load_next_page.call(());
+                                                let event = _event.data.as_ref().as_web_event();
+                                                if let Some(target) = event.target() {
+                                                    if let Ok(node) = target.dyn_into::<web_sys::HtmlElement>() {
+                                                        let scroll_top = node.scroll_top();
+                                                        let scroll_height = node.scroll_height();
+                                                        let client_height = node.client_height();
+                                                        if scroll_height - (scroll_top + client_height) <= 160 {
+                                                            load_next_page.call(());
+                                                        }
                                                     }
                                                 }
                                             }
