@@ -7,11 +7,17 @@ use dioxus::prelude::document;
 use dioxus::web::WebEventExt;
 use dioxus_router::Link;
 use gloo_storage::{LocalStorage, Storage};
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::TimeoutFuture;
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{JsCast, JsValue};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::JsFuture;
+#[cfg(target_arch = "wasm32")]
+use web_sys::{AbortController, Request, RequestCredentials, RequestInit, Response};
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::{authorized_get_json, ensure_gateway_session};
@@ -300,6 +306,7 @@ pub fn RadioPage() -> Element {
             spawn(async move {
                 match fetch_station_page(&base_url, &filters, 0, PAGE_SIZE).await {
                     Ok(response) => {
+                        log_debug("radio: first page loaded");
                         stations_state.set(response.items.clone());
                         let meta = response.meta.clone();
                         first_meta.set(Some(meta.clone()));
@@ -308,6 +315,7 @@ pub fn RadioPage() -> Element {
                         fetch_error.set(None);
                     }
                     Err(message) => {
+                        log_debug("radio: first page error");
                         fetch_error.set(Some(message));
                     }
                 }
@@ -1008,8 +1016,54 @@ async fn fetch_station_page(
     offset: i64,
     limit: i64,
 ) -> Result<StationsResponse, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return fetch_station_page_web(base_url, filters, offset, limit).await;
+    }
     let url = build_stations_url(base_url, filters, offset, limit);
     authorized_get_json(&url).await
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_station_page_web(
+    base_url: &str,
+    filters: &Filters,
+    offset: i64,
+    limit: i64,
+) -> Result<StationsResponse, String> {
+    let url = build_stations_url(base_url, filters, offset, limit);
+    let controller =
+        AbortController::new().map_err(|_| "abort controller unavailable".to_string())?;
+    let signal = controller.signal();
+    let mut init = RequestInit::new();
+    init.method("GET");
+    init.credentials(RequestCredentials::Include);
+    init.signal(Some(&signal));
+    let request = Request::new_with_str_and_init(&url, &init)
+        .map_err(|_| "request init failed".to_string())?;
+    let window = web_sys::window().ok_or("window unavailable")?;
+    let timeout_controller = controller.clone();
+    spawn(async move {
+        TimeoutFuture::new(8000).await;
+        timeout_controller.abort();
+    });
+    let response_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|err| format!("request failed: {err:?}"))?;
+    let response: Response = response_value
+        .dyn_into()
+        .map_err(|_| "response decode failed".to_string())?;
+    if !response.ok() {
+        return Err(format!("http {}", response.status()));
+    }
+    let json_promise = response
+        .json()
+        .map_err(|_| "json parse failed".to_string())?;
+    let json_value = JsFuture::from(json_promise)
+        .await
+        .map_err(|err| format!("json decode failed: {err:?}"))?;
+    serde_wasm_bindgen::from_value(json_value)
+        .map_err(|err| format!("decode failed: {err}"))
 }
 
 fn build_stations_url(base_url: &str, filters: &Filters, offset: i64, limit: i64) -> String {
