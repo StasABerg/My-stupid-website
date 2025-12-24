@@ -17,8 +17,6 @@ use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWi
 use crate::terminal_shell::TerminalPage;
 use crate::tools::{ImageToAsciiPage, WebToMarkdownPage};
 
-const MAIN_CSS: Asset = asset!("/assets/main.css");
-
 #[cfg(target_arch = "wasm32")]
 struct IntervalHandle {
     id: i32,
@@ -64,21 +62,10 @@ pub fn App() -> Element {
     }
 
     rsx! {
-        document::Link { rel: "icon", href: "/favicon.ico" }
-        document::Stylesheet { href: MAIN_CSS }
-        document::Link { rel: "manifest", href: "/manifest.webmanifest" }
-        document::Link { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
-        document::Meta { name: "description", content: "Gitgud Blog" }
-        document::Meta { name: "author", content: "StasBerg" }
-        document::Meta { name: "theme-color", content: "#0bff96" }
-        document::Meta { property: "og:title", content: "Gitgud Blog" }
-        document::Meta { property: "og:description", content: "Some weird project" }
-        document::Meta { property: "og:type", content: "website" }
         script {
             src: "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.light.min.js",
             defer: true,
         }
-        a { href: "#main-content", class: "skip-link", "Skip to main content" }
         main { id: "main-content",
             Router::<Route> {}
         }
