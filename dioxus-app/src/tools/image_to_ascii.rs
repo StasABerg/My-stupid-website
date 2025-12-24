@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use dioxus::html::FileData;
+use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::terminal::TerminalPrompt;
@@ -17,7 +17,11 @@ const ALLOWED_EXTENSIONS: [&str; 5] = ["jpg", "jpeg", "png", "bmp", "gif"];
 enum ConvertState {
     Idle,
     Loading,
-    Success { ascii: String, width: u32, height: u32 },
+    Success {
+        ascii: String,
+        width: u32,
+        height: u32,
+    },
     Error(String),
 }
 
@@ -28,7 +32,12 @@ pub fn ImageToAsciiPage() -> Element {
     let mut state = use_signal(|| ConvertState::Idle);
     let mut toast = use_signal(String::new);
 
-    let filename = use_memo(move || file().as_ref().map(build_filename).unwrap_or("image.txt".into()));
+    let filename = use_memo(move || {
+        file()
+            .as_ref()
+            .map(build_filename)
+            .unwrap_or("image.txt".into())
+    });
     let ascii = match state() {
         ConvertState::Success { ascii, .. } => ascii,
         _ => String::new(),
@@ -140,10 +149,17 @@ pub fn ImageToAsciiPage() -> Element {
     }
 }
 
-async fn convert(file: FileData, width: i32, mut state: Signal<ConvertState>, mut toast: Signal<String>) {
+async fn convert(
+    file: FileData,
+    width: i32,
+    mut state: Signal<ConvertState>,
+    mut toast: Signal<String>,
+) {
     toast.set(String::new());
     if file.size() > MAX_FILE_BYTES {
-        state.set(ConvertState::Error("File too large (max 5 MiB)".to_string()));
+        state.set(ConvertState::Error(
+            "File too large (max 5 MiB)".to_string(),
+        ));
         return;
     }
     if !detect_allowed(&file) {
@@ -186,13 +202,17 @@ async fn convert(file: FileData, width: i32, mut state: Signal<ConvertState>, mu
     let source_width = image.width();
     let source_height = image.height();
     if source_width == 0 || source_height == 0 {
-        state.set(ConvertState::Error("Image dimensions are invalid".to_string()));
+        state.set(ConvertState::Error(
+            "Image dimensions are invalid".to_string(),
+        ));
         return;
     }
 
     let decoded_pixels = source_width as u64 * source_height as u64;
     if decoded_pixels > MAX_DECODED_PIXELS {
-        state.set(ConvertState::Error("Image dimensions too large".to_string()));
+        state.set(ConvertState::Error(
+            "Image dimensions too large".to_string(),
+        ));
         return;
     }
 
@@ -228,18 +248,14 @@ async fn convert(file: FileData, width: i32, mut state: Signal<ConvertState>, mu
         return;
     }
 
-    let image_data = match context.get_image_data(
-        0.0,
-        0.0,
-        target_width as f64,
-        target_height as f64,
-    ) {
-        Ok(data) => data,
-        Err(_) => {
-            state.set(ConvertState::Error("Failed to read image data".to_string()));
-            return;
-        }
-    };
+    let image_data =
+        match context.get_image_data(0.0, 0.0, target_width as f64, target_height as f64) {
+            Ok(data) => data,
+            Err(_) => {
+                state.set(ConvertState::Error("Failed to read image data".to_string()));
+                return;
+            }
+        };
     let pixels = image_data.data().to_vec();
 
     let mut lines = Vec::with_capacity(target_height as usize);
@@ -392,9 +408,7 @@ fn download_text(filename: &str, text: &str) -> Result<(), String> {
         .map_err(|_| "blob failed")?;
     let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(|_| "url failed")?;
 
-    let element = document
-        .create_element("a")
-        .map_err(|_| "anchor failed")?;
+    let element = document.create_element("a").map_err(|_| "anchor failed")?;
     let anchor = element
         .dyn_into::<web_sys::HtmlAnchorElement>()
         .map_err(|_| "anchor cast failed")?;

@@ -7,10 +7,17 @@ use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWi
 
 #[component]
 pub fn BlogPage() -> Element {
-    let posts = all_posts();
     rsx! {
         document::Title { "Blog | My Stupid Website" }
         document::Meta { name: "description", content: "Latest ramblings and updates from the Gitgud terminal." }
+        BlogIndexContent {}
+    }
+}
+
+#[component]
+pub fn BlogIndexContent() -> Element {
+    let posts = all_posts();
+    rsx! {
         div { class: "terminal-screen",
             TerminalWindow { aria_label: Some("Blog index".to_string()),
                 TerminalHeader { display_cwd: "~/blog".to_string(), label: None }
@@ -59,13 +66,29 @@ pub fn BlogPage() -> Element {
 pub fn BlogPostPage(slug: String) -> Element {
     let post = get_post(&slug);
 
-    if let Some(post) = post {
+    if let Some(post) = post.as_ref() {
         rsx! {
             document::Title { "{post.title} | Gitgud Blog" }
             document::Meta { name: "description", content: "{post.excerpt}" }
             document::Meta { property: "og:title", content: "{post.title}" }
             document::Meta { property: "og:description", content: "{post.excerpt}" }
             document::Meta { name: "twitter:card", content: "summary" }
+            BlogPostContent { slug }
+        }
+    } else {
+        rsx! {
+            document::Title { "Entry not found | Blog" }
+            document::Meta { name: "description", content: "Requested blog entry was not found." }
+            BlogPostContent { slug }
+        }
+    }
+}
+
+#[component]
+pub fn BlogPostContent(slug: String) -> Element {
+    let post = get_post(&slug);
+    if let Some(post) = post {
+        rsx! {
             div { class: "terminal-screen",
                 TerminalWindow { aria_label: Some(format!("Blog post {}", post.title)),
                     TerminalHeader { display_cwd: format!("~/blog/{}", post.slug), label: None }
@@ -113,8 +136,6 @@ pub fn BlogPostPage(slug: String) -> Element {
         }
     } else {
         rsx! {
-            document::Title { "Entry not found | Blog" }
-            document::Meta { name: "description", content: "Requested blog entry was not found." }
             div { class: "terminal-screen",
                 TerminalWindow { aria_label: Some("Missing blog post".to_string()),
                     TerminalHeader { display_cwd: "~/blog/404".to_string(), label: None }

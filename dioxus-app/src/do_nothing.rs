@@ -95,7 +95,9 @@ pub fn DoNothingGamePage() -> Element {
                 "touchmove",
                 move_closure.as_ref().as_ref().unchecked_ref(),
             );
-            move_listener.set(Some(MoveListener { closure: move_closure }));
+            move_listener.set(Some(MoveListener {
+                closure: move_closure,
+            }));
         });
 
         use_effect(move || {

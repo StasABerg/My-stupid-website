@@ -4,9 +4,9 @@ use dioxus_router::Link;
 use crate::routes::Route;
 
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{closure::Closure, JsCast, JsValue};
-#[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 
 #[cfg(target_arch = "wasm32")]
 const CONSENT_COOKIE_NAME: &str = "zaraz-consent";
@@ -150,7 +150,6 @@ fn consent_exists() -> bool {
     local_storage_get(LOCAL_CONSENT_KEY).is_some()
 }
 
-
 #[cfg(target_arch = "wasm32")]
 fn get_cookie(name: &str) -> Option<String> {
     let document = web_sys::window().and_then(|window| window.document())?;
@@ -170,15 +169,14 @@ fn get_cookie(name: &str) -> Option<String> {
 
 #[cfg(target_arch = "wasm32")]
 fn local_storage_get(key: &str) -> Option<String> {
-    let storage = web_sys::window()
-        .and_then(|window| window.local_storage().ok().flatten())?;
+    let storage = web_sys::window().and_then(|window| window.local_storage().ok().flatten())?;
     storage.get_item(key).ok().flatten()
 }
 
 #[cfg(target_arch = "wasm32")]
 fn local_storage_set(key: &str, value: &str) {
-    if let Some(storage) = web_sys::window()
-        .and_then(|window| window.local_storage().ok().flatten())
+    if let Some(storage) =
+        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
     {
         let _ = storage.set_item(key, value);
     }
@@ -241,8 +239,7 @@ fn try_apply_consent(granted: bool) -> Result<(), String> {
             if value.is_null() || value.is_undefined() {
                 return None;
             }
-            js_sys::Reflect::has(&value, &JsValue::from_str(ANALYTICS_PURPOSE_ID))
-                .ok()
+            js_sys::Reflect::has(&value, &JsValue::from_str(ANALYTICS_PURPOSE_ID)).ok()
         })
         .unwrap_or(false);
 
@@ -266,7 +263,8 @@ fn try_apply_consent(granted: bool) -> Result<(), String> {
     }
 
     if granted {
-        if let Ok(send_fn) = js_sys::Reflect::get(&consent, &JsValue::from_str("sendQueuedEvents")) {
+        if let Ok(send_fn) = js_sys::Reflect::get(&consent, &JsValue::from_str("sendQueuedEvents"))
+        {
             if let Some(send_fn) = send_fn.dyn_ref::<js_sys::Function>() {
                 let _ = send_fn.call0(&consent);
             }

@@ -12,7 +12,8 @@ pub fn TerminalWindow(children: Element, aria_label: Option<String>) -> Element 
 
 #[component]
 pub fn TerminalHeader(display_cwd: String, label: Option<String>) -> Element {
-    let rendered_label = label.unwrap_or_else(|| format!("sandbox@gitgud.zip:{display_cwd} — isolated pod"));
+    let rendered_label =
+        label.unwrap_or_else(|| format!("sandbox@gitgud.zip:{display_cwd} — isolated pod"));
     rsx! {
         div { class: "terminal-header",
             span { class: "text-terminal-red", "●" }

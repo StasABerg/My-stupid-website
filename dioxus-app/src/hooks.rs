@@ -3,10 +3,7 @@ use serde::de::DeserializeOwned;
 
 use crate::gateway_session::authorized_get_json_with_headers;
 
-pub fn use_gateway_get_with_headers<T, F, H>(
-    builder: F,
-    headers: H,
-) -> Resource<Result<T, String>>
+pub fn use_gateway_get_with_headers<T, F, H>(builder: F, headers: H) -> Resource<Result<T, String>>
 where
     T: DeserializeOwned + 'static,
     F: Fn() -> String + 'static,

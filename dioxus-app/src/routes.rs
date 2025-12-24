@@ -1,15 +1,17 @@
 use dioxus::prelude::*;
+use dioxus_router::{Link, Routable, Router};
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
-use dioxus_router::{Link, Routable, Router};
 
 use crate::blog::{BlogPage, BlogPostPage};
-use crate::cookie_consent::CookieConsentBanner;
 use crate::config::use_runtime_config;
 use crate::contact::ContactPage;
+use crate::cookie_consent::CookieConsentBanner;
 use crate::date::ls_date_now;
 use crate::do_nothing::DoNothingGamePage;
 use crate::howto::{HowToIndexPage, HowToTopicPage};
+#[cfg(feature = "server")]
+use crate::howto::how_to_topics;
 use crate::posts::{all_posts, format_ls_date};
 use crate::radio::RadioPage;
 use crate::swagger::SwaggerEmbed;
@@ -141,6 +143,37 @@ pub enum Route {
     NotFound { route: Vec<String> },
 }
 
+#[cfg(feature = "server")]
+#[server(endpoint = "static_routes", output = server_fn::codec::Json)]
+async fn static_routes() -> Result<Vec<String>, ServerFnError> {
+    let mut routes: Vec<String> = Route::static_routes()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+
+    for post in all_posts() {
+        routes.push(
+            Route::BlogPost {
+                slug: post.slug.to_string(),
+            }
+            .to_string(),
+        );
+    }
+
+    for topic in how_to_topics() {
+        routes.push(
+            Route::HowToTopic {
+                topic: topic.slug().to_string(),
+            }
+            .to_string(),
+        );
+    }
+
+    routes.sort();
+    routes.dedup();
+    Ok(routes)
+}
+
 #[component]
 fn Home() -> Element {
     let today_label = ls_date_now();
@@ -257,7 +290,7 @@ fn Home() -> Element {
      /|  ---  |\     Uptime: 420 years, 69 days
     / \_______/ \    Shell: gitgudsh 4.2.0
    /  |  / \  |  \
-  /   | /   \ |   \
+    /   | /   \ |   \
       |/     \|
                         "#
                     }
@@ -653,7 +686,10 @@ fn Begud() -> Element {
                 closure.as_ref().as_ref().unchecked_ref(),
                 2800,
             ) {
-                interval_handle.set(Some(IntervalHandle { id, _closure: closure }));
+                interval_handle.set(Some(IntervalHandle {
+                    id,
+                    _closure: closure,
+                }));
             }
         });
 
@@ -739,7 +775,10 @@ fn GitGud() -> Element {
                 closure.as_ref().as_ref().unchecked_ref(),
                 800,
             ) {
-                interval_handle.set(Some(IntervalHandle { id, _closure: closure }));
+                interval_handle.set(Some(IntervalHandle {
+                    id,
+                    _closure: closure,
+                }));
             }
         });
 
@@ -940,7 +979,12 @@ fn build_progress_bar(progress: f64) -> String {
     let clamped = clamp_percent(progress);
     let filled = ((clamped as f64 / 100.0) * total as f64).round() as usize;
     let filled = filled.min(total);
-    format!("[{}{}] {}%", "#".repeat(filled), ".".repeat(total - filled), clamped)
+    format!(
+        "[{}{}] {}%",
+        "#".repeat(filled),
+        ".".repeat(total - filled),
+        clamped
+    )
 }
 
 fn clamp_percent(value: f64) -> u32 {

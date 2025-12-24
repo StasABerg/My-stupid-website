@@ -180,7 +180,11 @@ async fn copy_markdown(state: Signal<ConvertState>, mut toast: Signal<String>) {
     }
 }
 
-async fn download_markdown(filename: String, state: Signal<ConvertState>, mut toast: Signal<String>) {
+async fn download_markdown(
+    filename: String,
+    state: Signal<ConvertState>,
+    mut toast: Signal<String>,
+) {
     if let ConvertState::Success(markdown) = state() {
         if let Err(err) = download_text(&filename, &markdown) {
             toast.set(format!("Download failed: {err}"));
@@ -195,7 +199,13 @@ fn sanitize_filename(url: &str) -> String {
         let host = parsed.hostname();
         let mut clean = host
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '-' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>();
         clean.truncate(80);
         if clean.is_empty() {
@@ -226,12 +236,9 @@ fn download_text(filename: &str, text: &str) -> Result<(), String> {
     options.set_type("text/markdown;charset=utf-8");
     let blob = web_sys::Blob::new_with_str_sequence_and_options(&blob_parts, &options)
         .map_err(|_| "blob failed")?;
-    let url = web_sys::Url::create_object_url_with_blob(&blob)
-        .map_err(|_| "url failed")?;
+    let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(|_| "url failed")?;
 
-    let element = document
-        .create_element("a")
-        .map_err(|_| "anchor failed")?;
+    let element = document.create_element("a").map_err(|_| "anchor failed")?;
     let anchor = element
         .dyn_into::<web_sys::HtmlAnchorElement>()
         .map_err(|_| "anchor cast failed")?;

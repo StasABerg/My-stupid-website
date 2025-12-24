@@ -1,21 +1,22 @@
-mod config;
-mod cookie_consent;
-mod contact;
-mod date;
-mod gateway_session;
-mod howto;
-mod blog;
-mod do_nothing;
-mod hooks;
-mod posts;
-mod radio;
-mod routes;
-mod swagger;
-mod terminal;
-mod terminal_shell;
-mod tools;
+use dioxus::prelude::*;
 
 fn main() {
     let _ = dioxus::logger::init(tracing::Level::DEBUG);
-    dioxus::launch(routes::App);
+    dioxus::LaunchBuilder::new()
+        .with_cfg(server_only! {
+            ServeConfig::builder()
+                .incremental(
+                    dioxus::server::IncrementalRendererConfig::new()
+                        .static_dir(
+                            std::env::current_exe()
+                                .unwrap()
+                                .parent()
+                                .unwrap()
+                                .join("public")
+                        )
+                        .clear_cache(false)
+                )
+                .enable_out_of_order_streaming()
+        })
+        .launch(dioxus_app::routes::App);
 }

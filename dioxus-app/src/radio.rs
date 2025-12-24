@@ -1,8 +1,8 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use dioxus::prelude::document;
+use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use dioxus::web::WebEventExt;
 use dioxus_router::Link;
@@ -268,7 +268,10 @@ pub fn RadioPage() -> Element {
             closure.as_ref().as_ref().unchecked_ref(),
             300,
         ) {
-            debounce_handle.set(Some(TimeoutHandle { id, _closure: closure }));
+            debounce_handle.set(Some(TimeoutHandle {
+                id,
+                _closure: closure,
+            }));
         }
     });
 
@@ -302,7 +305,9 @@ pub fn RadioPage() -> Element {
                 let timeout_last_filters = last_filters;
                 let timeout_filters = filters.clone();
                 let handle = Timeout::new(12000, move || {
-                    if timeout_is_fetching() && timeout_last_filters().as_ref() == Some(&timeout_filters) {
+                    if timeout_is_fetching()
+                        && timeout_last_filters().as_ref() == Some(&timeout_filters)
+                    {
                         log_debug("radio: fetch timeout");
                         timeout_error.set(Some("Radio directory request timed out.".to_string()));
                         timeout_is_fetching.set(false);
@@ -380,7 +385,10 @@ pub fn RadioPage() -> Element {
             closure.as_ref().as_ref().unchecked_ref(),
             60000,
         ) {
-            midnight_timer.set(Some(IntervalHandle { id, _closure: closure }));
+            midnight_timer.set(Some(IntervalHandle {
+                id,
+                _closure: closure,
+            }));
         }
     });
 
@@ -522,13 +530,11 @@ pub fn RadioPage() -> Element {
 
     let station_items = stations_state();
     let response_error = fetch_error();
-    let available_filters = use_memo(move || {
-        resolve_filter_options_from(first_meta().as_ref(), &stations_state())
-    });
+    let available_filters =
+        use_memo(move || resolve_filter_options_from(first_meta().as_ref(), &stations_state()));
     let (available_countries, available_genres) = available_filters();
     let selected_station = selected();
-    let bounded_index = selected_index()
-        .min(station_items.len().saturating_sub(1));
+    let bounded_index = selected_index().min(station_items.len().saturating_sub(1));
     let active_station = selected_station
         .clone()
         .or_else(|| station_items.get(bounded_index).cloned());
@@ -1081,13 +1087,22 @@ fn build_stations_url(base_url: &str, filters: &Filters, offset: i64, limit: i64
     params.push(format!("limit={limit}"));
     params.push(format!("offset={offset}"));
     if !filters.search.trim().is_empty() {
-        params.push(format!("search={}", urlencoding::encode(filters.search.trim())));
+        params.push(format!(
+            "search={}",
+            urlencoding::encode(filters.search.trim())
+        ));
     }
     if !filters.country.trim().is_empty() {
-        params.push(format!("country={}", urlencoding::encode(filters.country.trim())));
+        params.push(format!(
+            "country={}",
+            urlencoding::encode(filters.country.trim())
+        ));
     }
     if !filters.genre.trim().is_empty() {
-        params.push(format!("genre={}", urlencoding::encode(filters.genre.trim())));
+        params.push(format!(
+            "genre={}",
+            urlencoding::encode(filters.genre.trim())
+        ));
     }
     format!(
         "{}/stations?{}",

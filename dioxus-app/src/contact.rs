@@ -70,7 +70,9 @@ pub fn ContactPage() -> Element {
             if ensure_gateway_session().await.is_ok() {
                 session_ready.set(true);
             } else {
-                error.set(Some("Failed to initialize session. Please refresh the page.".to_string()));
+                error.set(Some(
+                    "Failed to initialize session. Please refresh the page.".to_string(),
+                ));
             }
         });
     });
@@ -126,7 +128,8 @@ pub fn ContactPage() -> Element {
     let char_count = form().message.len();
     let max_chars = 2000;
     let ready = session_ready();
-    let submit_disabled = loading() || !ready || form().name.trim().is_empty() || form().message.trim().is_empty();
+    let submit_disabled =
+        loading() || !ready || form().name.trim().is_empty() || form().message.trim().is_empty();
     let turnstile_required = turnstile_site_key().is_some();
     let turnstile_blocking = turnstile_required && turnstile_token().is_none();
 
@@ -288,12 +291,21 @@ pub fn ContactPage() -> Element {
     }
 }
 
-fn build_payload(form: ContactForm, honeypot: String, timestamp: i64, turnstile_token: Option<String>) -> ContactPayload {
+fn build_payload(
+    form: ContactForm,
+    honeypot: String,
+    timestamp: i64,
+    turnstile_token: Option<String>,
+) -> ContactPayload {
     let name = form.name.trim().to_string();
     let message = form.message.trim().to_string();
     let email = form.email.trim().to_string();
     let email = if email.is_empty() { None } else { Some(email) };
-    let honeypot = if honeypot.trim().is_empty() { None } else { Some(honeypot.trim().to_string()) };
+    let honeypot = if honeypot.trim().is_empty() {
+        None
+    } else {
+        Some(honeypot.trim().to_string())
+    };
 
     ContactPayload {
         name,
@@ -348,8 +360,7 @@ fn ensure_turnstile_script_loaded(mut ready: Signal<bool>) -> Result<(), String>
     let window = web_sys::window().ok_or("window unavailable")?;
     let document = window.document().ok_or("document unavailable")?;
 
-    if js_sys::Reflect::has(&window, &wasm_bindgen::JsValue::from_str("turnstile"))
-        .unwrap_or(false)
+    if js_sys::Reflect::has(&window, &wasm_bindgen::JsValue::from_str("turnstile")).unwrap_or(false)
     {
         ready.set(true);
         return Ok(());
@@ -420,17 +431,23 @@ fn render_turnstile_widget(
     }) as Box<dyn FnMut(_)>);
 
     let error_callback = Closure::wrap(Box::new(move || {
-        error.set(Some("Turnstile verification failed. Please refresh the page.".to_string()));
+        error.set(Some(
+            "Turnstile verification failed. Please refresh the page.".to_string(),
+        ));
         turnstile_token.set(None);
     }) as Box<dyn FnMut()>);
 
     let expired_callback = Closure::wrap(Box::new(move || {
-        error.set(Some("Turnstile token expired. Please complete the challenge again.".to_string()));
+        error.set(Some(
+            "Turnstile token expired. Please complete the challenge again.".to_string(),
+        ));
         turnstile_token.set(None);
     }) as Box<dyn FnMut()>);
 
     let timeout_callback = Closure::wrap(Box::new(move || {
-        error.set(Some("Turnstile timed out. Please complete the challenge again.".to_string()));
+        error.set(Some(
+            "Turnstile timed out. Please complete the challenge again.".to_string(),
+        ));
         turnstile_token.set(None);
     }) as Box<dyn FnMut()>);
 
@@ -438,10 +455,18 @@ fn render_turnstile_widget(
         .map_err(|_| "callback set failed")?;
     js_sys::Reflect::set(&options, &"error-callback".into(), error_callback.as_ref())
         .map_err(|_| "error callback set failed")?;
-    js_sys::Reflect::set(&options, &"expired-callback".into(), expired_callback.as_ref())
-        .map_err(|_| "expired callback set failed")?;
-    js_sys::Reflect::set(&options, &"timeout-callback".into(), timeout_callback.as_ref())
-        .map_err(|_| "timeout callback set failed")?;
+    js_sys::Reflect::set(
+        &options,
+        &"expired-callback".into(),
+        expired_callback.as_ref(),
+    )
+    .map_err(|_| "expired callback set failed")?;
+    js_sys::Reflect::set(
+        &options,
+        &"timeout-callback".into(),
+        timeout_callback.as_ref(),
+    )
+    .map_err(|_| "timeout callback set failed")?;
 
     let widget_id = render_fn
         .call2(&turnstile, &container.into(), &options)

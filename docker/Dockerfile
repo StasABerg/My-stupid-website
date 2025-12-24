@@ -16,7 +16,9 @@ COPY dioxus-app/assets /app/dioxus-app/assets
 COPY dioxus-app/public /app/dioxus-app/public
 
 ARG WASM_OPT=0
-RUN cd /app/dioxus-app && dx build --web --release --debug-symbols=false
+RUN cd /app/dioxus-app && dx bundle --web --ssg --release --debug-symbols=false --fullstack \
+  @client --features web \
+  @server --server --features fullstack
 RUN if [ "${WASM_OPT}" = "1" ]; then \
     WASM_PATH="/app/dioxus-app/target/dx/dioxus-app/release/web/public/wasm/dioxus-app_bg.wasm"; \
     if [ ! -f "$WASM_PATH" ]; then \
@@ -28,6 +30,16 @@ RUN if [ "${WASM_OPT}" = "1" ]; then \
     else \
       echo "wasm-opt skipped: wasm file not found"; \
     fi; \
+  fi
+RUN CSS_PATH="/app/dioxus-app/target/dx/dioxus-app/release/web/public/assets/main.css"; \
+  if [ -f "$CSS_PATH" ]; then \
+    CSS_HASH=$(sha256sum "$CSS_PATH" | awk '{print substr($1,1,10)}'); \
+    CSS_DIR=$(dirname "$CSS_PATH"); \
+    CSS_NAME="main-${CSS_HASH}.css"; \
+    cp "$CSS_PATH" "${CSS_DIR}/${CSS_NAME}"; \
+    sed -i "s|/assets/main.css|/assets/${CSS_NAME}|g" /app/dioxus-app/target/dx/dioxus-app/release/web/public/index.html; \
+  else \
+    echo "css hash skipped: $CSS_PATH not found"; \
   fi
 
 FROM nginx:stable-alpine

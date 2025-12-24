@@ -1,8 +1,8 @@
 use gloo_net::http::Request;
-use web_sys::RequestCredentials;
 use gloo_storage::{LocalStorage, Storage};
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use web_sys::RequestCredentials;
 
 const TOKEN_STORAGE_KEY: &str = "gateway.session.token";
 const SESSION_ENDPOINT: &str = "/api/session";

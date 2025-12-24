@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use dioxus::web::WebEventExt;
@@ -5,11 +7,9 @@ use dioxus_router::use_navigator;
 use dioxus_router::{Link, Navigator};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use web_sys::RequestCredentials;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
+use web_sys::RequestCredentials;
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::ensure_gateway_session;
@@ -107,27 +107,25 @@ pub fn TerminalPage() -> Element {
         },
     );
 
-    use_effect(move || {
-        match info_resource() {
-            None => {
-                loading.set(true);
-            }
-            Some(Ok(info)) => {
-                let next_virtual = info
-                    .virtual_cwd
-                    .unwrap_or_else(|| DEFAULT_VIRTUAL_CWD.to_string());
-                let next_display = resolve_display_cwd(&next_virtual, info.display_cwd.as_deref());
-                virtual_cwd.set(next_virtual);
-                display_cwd.set(next_display);
-                supported_commands.set(info.supported_commands.unwrap_or_default());
-                motd.set(info.motd.unwrap_or_default());
-                connection_error.set(None);
-                loading.set(false);
-            }
-            Some(Err(message)) => {
-                connection_error.set(Some(message));
-                loading.set(false);
-            }
+    use_effect(move || match info_resource() {
+        None => {
+            loading.set(true);
+        }
+        Some(Ok(info)) => {
+            let next_virtual = info
+                .virtual_cwd
+                .unwrap_or_else(|| DEFAULT_VIRTUAL_CWD.to_string());
+            let next_display = resolve_display_cwd(&next_virtual, info.display_cwd.as_deref());
+            virtual_cwd.set(next_virtual);
+            display_cwd.set(next_display);
+            supported_commands.set(info.supported_commands.unwrap_or_default());
+            motd.set(info.motd.unwrap_or_default());
+            connection_error.set(None);
+            loading.set(false);
+        }
+        Some(Err(message)) => {
+            connection_error.set(Some(message));
+            loading.set(false);
         }
     });
 
@@ -490,15 +488,27 @@ async fn run_command(
         .as_ref()
         .and_then(|value| value.cwd.clone())
         .unwrap_or_else(|| previous_virtual.clone());
-    let next_display = resolve_display_cwd(&next_virtual, payload.as_ref().and_then(|value| value.display_cwd.as_deref()));
-    let is_error = payload.as_ref().and_then(|value| value.error).unwrap_or(false) || !response.ok();
+    let next_display = resolve_display_cwd(
+        &next_virtual,
+        payload
+            .as_ref()
+            .and_then(|value| value.display_cwd.as_deref()),
+    );
+    let is_error = payload
+        .as_ref()
+        .and_then(|value| value.error)
+        .unwrap_or(false)
+        || !response.ok();
     let mut output = payload
         .as_ref()
         .and_then(|value| value.output.clone())
         .unwrap_or_default();
 
     if output.is_empty() && !response.ok() {
-        output.push(format!("Command service returned status {}", response.status()));
+        output.push(format!(
+            "Command service returned status {}",
+            response.status()
+        ));
     }
 
     let entry = HistoryEntry {
@@ -513,7 +523,11 @@ async fn run_command(
             .unwrap_or_else(|| build_prompt_label("sandbox", "gitgud.zip", &previous_display)),
     };
 
-    if payload.as_ref().and_then(|value| value.clear).unwrap_or(false) {
+    if payload
+        .as_ref()
+        .and_then(|value| value.clear)
+        .unwrap_or(false)
+    {
         history.set(Vec::new());
     } else {
         append_entry(&mut history, &mut command_id, entry);
@@ -553,7 +567,8 @@ fn handle_offline_command(
                 "  date     - Print current date".to_string(),
                 "  echo     - Print arguments".to_string(),
                 "".to_string(),
-                "Note: Backend service is unavailable. Some commands may not work as expected.".to_string(),
+                "Note: Backend service is unavailable. Some commands may not work as expected."
+                    .to_string(),
             ],
             false,
         ),
@@ -642,9 +657,15 @@ fn build_banner_lines(
         return lines;
     }
 
-    lines.push("Connected to isolated sandbox pod. Commands run inside a locked-down container.".to_string());
+    lines.push(
+        "Connected to isolated sandbox pod. Commands run inside a locked-down container."
+            .to_string(),
+    );
     if !supported_commands.is_empty() {
-        lines.push(format!("Allowed commands: {}", supported_commands.join(", ")));
+        lines.push(format!(
+            "Allowed commands: {}",
+            supported_commands.join(", ")
+        ));
     }
     if !motd.is_empty() {
         lines.push("---- motd ----".to_string());
@@ -655,7 +676,10 @@ fn build_banner_lines(
     lines
 }
 
-async fn authorized_post_with_debug(url: &str, body: &str) -> Result<gloo_net::http::Response, String> {
+async fn authorized_post_with_debug(
+    url: &str,
+    body: &str,
+) -> Result<gloo_net::http::Response, String> {
     let (token, proof) = ensure_gateway_session().await?;
     let response = Request::post(url)
         .header("Content-Type", "application/json")
@@ -694,7 +718,7 @@ fn current_date_string() -> String {
     {
         js_sys::Date::new_0().to_string().into()
     }
-#[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_arch = "wasm32"))]
     {
         "1970-01-01".to_string()
     }
