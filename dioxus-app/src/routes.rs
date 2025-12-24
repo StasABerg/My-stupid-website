@@ -17,6 +17,7 @@ use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWi
 use crate::terminal_shell::TerminalPage;
 use crate::tools::{ImageToAsciiPage, WebToMarkdownPage};
 
+const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 #[cfg(target_arch = "wasm32")]
 struct IntervalHandle {
@@ -64,6 +65,7 @@ pub fn App() -> Element {
 
     rsx! {
         document::Link { rel: "icon", href: "/favicon.ico" }
+        document::Stylesheet { href: MAIN_CSS }
         document::Link { rel: "manifest", href: "/manifest.webmanifest" }
         document::Link { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
         document::Meta { name: "description", content: "Gitgud Blog" }
