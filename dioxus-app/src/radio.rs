@@ -13,6 +13,7 @@ use gloo_timers::callback::Timeout;
 #[cfg(target_arch = "wasm32")]
 use gloo_timers::future::TimeoutFuture;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
@@ -1112,7 +1113,8 @@ fn build_stations_url(base_url: &str, filters: &Filters, offset: i64, limit: i64
 }
 
 fn load_favorites() -> Vec<String> {
-    LocalStorage::get("radio.favorites").unwrap_or_default()
+    let favorites: Vec<String> = LocalStorage::get("radio.favorites").unwrap_or_default();
+    normalize_favorites(favorites)
 }
 
 fn save_favorites(favorites: &[String]) {
@@ -1126,9 +1128,16 @@ fn is_favorite(favorites: &[String], station_id: &str) -> bool {
 fn toggle_favorite(mut favorites: Vec<String>, station_id: &str) -> Vec<String> {
     if let Some(index) = favorites.iter().position(|id| id == station_id) {
         favorites.remove(index);
-    } else {
+    } else if favorites.len() < MAX_PRESET_SLOTS {
         favorites.push(station_id.to_string());
     }
+    normalize_favorites(favorites)
+}
+
+fn normalize_favorites(mut favorites: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    favorites.retain(|station_id| seen.insert(station_id.clone()));
+    favorites.truncate(MAX_PRESET_SLOTS);
     favorites
 }
 
