@@ -157,3 +157,48 @@ pub async fn authorized_get_json_with_headers<T: DeserializeOwned>(
         .await
         .map_err(|err| format!("decode failed: {err}"))
 }
+
+pub async fn authorized_request_with_headers(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<&str>,
+) -> Result<gloo_net::http::Response, String> {
+    let (token, proof) = ensure_gateway_session().await?;
+    let mut request = match method {
+        "POST" => Request::post(url),
+        "PUT" => Request::put(url),
+        "DELETE" => Request::delete(url),
+        "GET" => Request::get(url),
+        _ => return Err(format!("unsupported method: {method}")),
+    }
+    .header("X-Gateway-CSRF", &token)
+    .header("X-Gateway-CSRF-Proof", &proof)
+    .credentials(RequestCredentials::Include);
+
+    for (key, value) in headers {
+        request = request.header(key, value);
+    }
+
+    let response = if let Some(payload) = body {
+        let request = request
+            .header("Content-Type", "application/json")
+            .body(payload)
+            .map_err(|err| format!("request failed: {err}"))?;
+        request
+            .send()
+            .await
+            .map_err(|err| format!("request failed: {err}"))?
+    } else {
+        request
+            .send()
+            .await
+            .map_err(|err| format!("request failed: {err}"))?
+    };
+
+    if response.status() == 401 || response.status() == 403 {
+        write_cached_token(None);
+    }
+
+    Ok(response)
+}

@@ -7,13 +7,12 @@ use dioxus::prelude::*;
 use dioxus::web::WebEventExt;
 use dioxus_router::Link;
 use gloo_net::http::Request;
-use gloo_storage::{LocalStorage, Storage};
+use gloo_storage::{LocalStorage, SessionStorage, Storage};
 #[cfg(target_arch = "wasm32")]
 use gloo_timers::callback::Timeout;
 #[cfg(target_arch = "wasm32")]
 use gloo_timers::future::TimeoutFuture;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
@@ -22,7 +21,9 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::RequestCredentials;
 
 use crate::config::RuntimeConfig;
-use crate::gateway_session::ensure_gateway_session;
+use crate::gateway_session::{
+    authorized_get_json_with_headers, authorized_request_with_headers, ensure_gateway_session,
+};
 use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
@@ -57,6 +58,18 @@ pub struct RadioStation {
 pub struct StationsResponse {
     pub meta: StationsMeta,
     pub items: Vec<RadioStation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct FavoritesResponse {
+    meta: FavoritesMeta,
+    items: Vec<RadioStation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct FavoritesMeta {
+    #[serde(rename = "maxSlots")]
+    max_slots: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -126,6 +139,8 @@ const SHARE_PAYLOAD_VERSION: i32 = 1;
 const SECRET_BROADCAST_LABEL: &str = "Secret Broadcast";
 const MAX_PRESET_SLOTS: usize = 6;
 const PAGE_SIZE: i64 = 40;
+const FAVORITES_SESSION_KEY: &str = "radio.favorites.session";
+const FAVORITES_SESSION_HEADER: &str = "X-Favorites-Session";
 const PRESET_COLORS: [&str; 5] = [
     "text-terminal-green",
     "text-terminal-cyan",
@@ -205,7 +220,9 @@ pub fn RadioPage() -> Element {
     let mut midnight_timer = use_signal(|| None::<IntervalHandle>);
     #[cfg(not(target_arch = "wasm32"))]
     let _midnight_timer = ();
-    let mut favorites = use_signal(load_favorites);
+    let favorites_session_id = use_signal(get_favorites_session_id);
+    let mut favorites_loaded = use_signal(|| false);
+    let mut favorites = use_signal(Vec::<RadioStation>::new);
     let mut stations_state = use_signal(Vec::<RadioStation>::new);
     let mut first_meta = use_signal(|| None::<StationsMeta>);
     let mut last_meta = use_signal(|| None::<StationsMeta>);
@@ -360,6 +377,26 @@ pub fn RadioPage() -> Element {
             share_dialog_open.set(true);
         }
         share_loaded.set(true);
+    });
+
+    let base_url_for_favorites = base_url.clone();
+    use_effect(move || {
+        if favorites_loaded() {
+            return;
+        }
+        favorites_loaded.set(true);
+        let base_url = base_url_for_favorites.clone();
+        let session_id = favorites_session_id();
+        spawn(async move {
+            match fetch_favorites(&base_url, &session_id).await {
+                Ok(response) => {
+                    favorites.set(response.items);
+                }
+                Err(message) => {
+                    log_debug(&format!("radio: favorites fetch error: {message}"));
+                }
+            }
+        });
     });
 
     #[cfg(target_arch = "wasm32")]
@@ -718,50 +755,52 @@ pub fn RadioPage() -> Element {
                                 div { class: "radio-presets",
                                     {
                                         let favs = favorites();
+                                        let base_url_for_slots = base_url.clone();
+                                        let active_station_for_slots = active_station.clone();
                                         let mut slots = Vec::new();
                                         for idx in 0..MAX_PRESET_SLOTS {
                                             slots.push(favs.get(idx).cloned());
                                         }
-                                        slots.into_iter().enumerate().map(|(index, station_id)| {
+                                        slots
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(move |(index, station_id)| {
                                             let color = PRESET_COLORS[index % PRESET_COLORS.len()];
-                                            if let Some(station_id) = station_id {
-                                                let station = station_items
-                                                    .iter()
-                                                    .find(|item| item.id == station_id)
-                                                    .cloned();
-                                                if let Some(station) = station {
-                                                    let station_id = station.id.clone();
-                                                    let is_active = active_station
-                                                        .as_ref()
-                                                        .map(|value| value.id == station_id)
-                                                        .unwrap_or(false);
-                                                    rsx! {
-                                                        div { key: "preset-{index}", class: "radio-preset-slot",
-                                                            button {
-                                                                class: if is_active { format!("radio-preset-button active {color}") } else { format!("radio-preset-button {color}") },
-                                                                onclick: move |_| {
-                                                                    selected.set(Some(station.clone()));
-                                                                },
-                                                                span { class: "text-terminal-cyan", "[{index + 1}]" }
-                                                                span { class: "radio-preset-name", "{station.name}" }
-                                                            }
-                                                            button {
-                                                                class: "radio-preset-remove",
-                                                                onclick: move |event| {
-                                                                    event.stop_propagation();
-                                                                    let updated = toggle_favorite(favorites(), &station_id);
-                                                                    favorites.set(updated.clone());
-                                                                    save_favorites(&updated);
-                                                                },
-                                                                "♥"
-                                                            }
-                                                        }
-                                                    }
-                                                } else {
-                                                    rsx! {
-                                                        div { key: "preset-empty-{index}", class: "radio-preset-empty",
+                                            if let Some(station) = station_id {
+                                                let base_url_for_slot = base_url_for_slots.clone();
+                                                let station_id = station.id.clone();
+                                                let is_active = active_station_for_slots
+                                                    .as_ref()
+                                                    .map(|value| value.id == station_id)
+                                                    .unwrap_or(false);
+                                                rsx! {
+                                                    div { key: "preset-{index}", class: "radio-preset-slot",
+                                                        button {
+                                                            class: if is_active { format!("radio-preset-button active {color}") } else { format!("radio-preset-button {color}") },
+                                                            onclick: move |_| {
+                                                                selected.set(Some(station.clone()));
+                                                            },
                                                             span { class: "text-terminal-cyan", "[{index + 1}]" }
-                                                            span { class: "radio-muted", "Empty slot" }
+                                                            span { class: "radio-preset-name", "{station.name}" }
+                                                        }
+                                                        button {
+                                                            class: "radio-preset-remove",
+                                                            onclick: move |event| {
+                                                                event.stop_propagation();
+                                                                let base_url = base_url_for_slot.clone();
+                                                                let session_id = favorites_session_id();
+                                                                let mut favorites = favorites;
+                                                                let station_id = station_id.clone();
+                                                                spawn(async move {
+                                                                    match remove_favorite(&base_url, &session_id, &station_id).await {
+                                                                        Ok(response) => favorites.set(response.items),
+                                                                        Err(message) => {
+                                                                            log_debug(&format!("radio: remove favorite failed: {message}"));
+                                                                        }
+                                                                    }
+                                                                });
+                                                            },
+                                                            "♥"
                                                         }
                                                     }
                                                 }
@@ -889,11 +928,13 @@ pub fn RadioPage() -> Element {
                                         {
                                             let favs = favorites();
                                             let favs_for_list = favs.clone();
+                                            let base_url = base_url.clone();
                                             station_items.iter().enumerate().map({
                                                 let favs_for_list = favs_for_list.clone();
                                                 move |(index, station)| {
                                                 let station_id = station.id.clone();
                                                 let station_for_select = station.clone();
+                                                let base_url_for_row = base_url.clone();
                                                 let is_fav = is_favorite(&favs_for_list, &station_id);
                                                 let is_active = active_station_id
                                                     .as_ref()
@@ -915,12 +956,26 @@ pub fn RadioPage() -> Element {
                                                             span { class: "radio-caret text-terminal-cyan", if is_active { ">" } else { "" } }
                                                             span { class: "radio-frequency text-terminal-green", "{freq}" }
                                                             button {
-                                                                class: if is_fav { "radio-fav-button active" } else { "radio-fav-button" },
-                                                                onclick: move |event| {
-                                                                    event.stop_propagation();
-                                                                    let updated = toggle_favorite(favorites(), &station_id);
-                                                                    favorites.set(updated.clone());
-                                                                    save_favorites(&updated);
+                                                            class: if is_fav { "radio-fav-button active" } else { "radio-fav-button" },
+                                                            onclick: move |event| {
+                                                                event.stop_propagation();
+                                                                let base_url = base_url_for_row.clone();
+                                                                let session_id = favorites_session_id();
+                                                                let mut favorites = favorites;
+                                                                let station_id = station_id.clone();
+                                                                    spawn(async move {
+                                                                        let result = if is_fav {
+                                                                            remove_favorite(&base_url, &session_id, &station_id).await
+                                                                        } else {
+                                                                            add_favorite(&base_url, &session_id, &station_id, None).await
+                                                                        };
+                                                                        match result {
+                                                                            Ok(response) => favorites.set(response.items),
+                                                                            Err(message) => {
+                                                                                log_debug(&format!("radio: toggle favorite failed: {message}"));
+                                                                            }
+                                                                        }
+                                                                    });
                                                                 },
                                                                 if is_fav { "♥" } else { "♡" }
                                                             }
@@ -1112,33 +1167,115 @@ fn build_stations_url(base_url: &str, filters: &Filters, offset: i64, limit: i64
     )
 }
 
-fn load_favorites() -> Vec<String> {
-    let favorites: Vec<String> = LocalStorage::get("radio.favorites").unwrap_or_default();
-    normalize_favorites(favorites)
+fn is_favorite(favorites: &[RadioStation], station_id: &str) -> bool {
+    favorites.iter().any(|station| station.id == station_id)
 }
 
-fn save_favorites(favorites: &[String]) {
-    let _ = LocalStorage::set("radio.favorites", favorites);
+async fn fetch_favorites(base_url: &str, session_id: &str) -> Result<FavoritesResponse, String> {
+    let url = format!("{}/favorites", base_url.trim_end_matches('/'));
+    authorized_get_json_with_headers(&url, &favorites_headers(session_id)).await
 }
 
-fn is_favorite(favorites: &[String], station_id: &str) -> bool {
-    favorites.iter().any(|id| id == station_id)
+async fn add_favorite(
+    base_url: &str,
+    session_id: &str,
+    station_id: &str,
+    slot: Option<usize>,
+) -> Result<FavoritesResponse, String> {
+    let url = format!(
+        "{}/favorites/{}",
+        base_url.trim_end_matches('/'),
+        urlencoding::encode(station_id)
+    );
+    let headers = favorites_headers(session_id);
+    let body = slot.map(|slot| format!("{{\"slot\":{slot}}}"));
+    let response =
+        authorized_request_with_headers("PUT", &url, &headers, body.as_deref()).await?;
+    parse_favorites_response(response).await
 }
 
-fn toggle_favorite(mut favorites: Vec<String>, station_id: &str) -> Vec<String> {
-    if let Some(index) = favorites.iter().position(|id| id == station_id) {
-        favorites.remove(index);
-    } else if favorites.len() < MAX_PRESET_SLOTS {
-        favorites.push(station_id.to_string());
+async fn remove_favorite(
+    base_url: &str,
+    session_id: &str,
+    station_id: &str,
+) -> Result<FavoritesResponse, String> {
+    let url = format!(
+        "{}/favorites/{}",
+        base_url.trim_end_matches('/'),
+        urlencoding::encode(station_id)
+    );
+    let headers = favorites_headers(session_id);
+    let response =
+        authorized_request_with_headers("DELETE", &url, &headers, None).await?;
+    parse_favorites_response(response).await
+}
+
+async fn parse_favorites_response(
+    response: gloo_net::http::Response,
+) -> Result<FavoritesResponse, String> {
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|err| format!("decode failed: {err}"))?;
+    if !response.ok() {
+        return Err(format!("http {status}"));
     }
-    normalize_favorites(favorites)
+    serde_json::from_str(&body).map_err(|err| format!("decode failed: {err}"))
 }
 
-fn normalize_favorites(mut favorites: Vec<String>) -> Vec<String> {
-    let mut seen = HashSet::new();
-    favorites.retain(|station_id| seen.insert(station_id.clone()));
-    favorites.truncate(MAX_PRESET_SLOTS);
-    favorites
+fn favorites_headers(session_id: &str) -> Vec<(String, String)> {
+    vec![(
+        FAVORITES_SESSION_HEADER.to_string(),
+        session_id.to_string(),
+    )]
+}
+
+fn get_favorites_session_id() -> String {
+    if let Some(stored) = read_favorites_session_id() {
+        return stored;
+    }
+    let generated = random_favorites_session_id();
+    persist_favorites_session_id(&generated);
+    generated
+}
+
+fn read_favorites_session_id() -> Option<String> {
+    if let Ok(value) = LocalStorage::get::<String>(FAVORITES_SESSION_KEY) {
+        if is_valid_favorites_session(&value) {
+            return Some(value);
+        }
+    }
+    if let Ok(value) = SessionStorage::get::<String>(FAVORITES_SESSION_KEY) {
+        if is_valid_favorites_session(&value) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn persist_favorites_session_id(value: &str) {
+    let _ = LocalStorage::set(FAVORITES_SESSION_KEY, value);
+    let _ = SessionStorage::set(FAVORITES_SESSION_KEY, value);
+}
+
+fn random_favorites_session_id() -> String {
+    let mut value = String::new();
+    for _ in 0..4 {
+        let chunk = (js_sys::Math::random() * (u32::MAX as f64)) as u32;
+        value.push_str(&format!("{chunk:08x}"));
+    }
+    value
+}
+
+fn is_valid_favorites_session(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.len() < 16 || trimmed.len() > 128 {
+        return false;
+    }
+    trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
 fn resolve_filter_options_from(
