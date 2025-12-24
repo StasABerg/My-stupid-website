@@ -6,13 +6,13 @@ public_dir = "public"
 [web.app]
 
 # HTML title tag content
-title = "gitgud.zip"
+title = "Gitgud Blog"
 
 # include `assets` in web platform
 [web.resource]
 
 # Additional CSS style files
-style = []
+style = ["/assets/main.css"]
 
 # Additional JavaScript files
 script = []

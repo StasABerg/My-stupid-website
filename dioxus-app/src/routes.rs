@@ -17,8 +17,6 @@ use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWi
 use crate::terminal_shell::TerminalPage;
 use crate::tools::{ImageToAsciiPage, WebToMarkdownPage};
 
-const FAVICON: Asset = asset!("/assets/favicon.ico");
-const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 #[cfg(target_arch = "wasm32")]
 struct IntervalHandle {
@@ -32,7 +30,7 @@ pub fn App() -> Element {
     let config = match config_resource() {
         None => {
             return rsx! {
-                document::Title { "gitgud.zip" }
+                document::Title { "Gitgud Blog" }
                 div { class: "page loading",
                     h1 { "Loading config..." }
                 }
@@ -41,7 +39,7 @@ pub fn App() -> Element {
         Some(Ok(config)) => config,
         Some(Err(message)) => {
             return rsx! {
-                document::Title { "gitgud.zip" }
+                document::Title { "Gitgud Blog" }
                 div { class: "page loading",
                     h1 { "Config load failed" }
                     p { "{message}" }
@@ -65,15 +63,23 @@ pub fn App() -> Element {
     }
 
     rsx! {
-        document::Link { rel: "icon", href: FAVICON }
-        document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Link { rel: "icon", href: "/favicon.ico" }
         document::Link { rel: "manifest", href: "/manifest.webmanifest" }
+        document::Link { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
+        document::Meta { name: "description", content: "Gitgud Blog" }
+        document::Meta { name: "author", content: "StasBerg" }
         document::Meta { name: "theme-color", content: "#0bff96" }
+        document::Meta { property: "og:title", content: "Gitgud Blog" }
+        document::Meta { property: "og:description", content: "Some weird project" }
+        document::Meta { property: "og:type", content: "website" }
         script {
             src: "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.light.min.js",
             defer: true,
         }
-        Router::<Route> {}
+        a { href: "#main-content", class: "skip-link", "Skip to main content" }
+        main { id: "main-content",
+            Router::<Route> {}
+        }
         CookieConsentBanner {}
     }
 }
