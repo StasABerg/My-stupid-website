@@ -157,8 +157,49 @@ mod web {
             .map_err(|_| "Swagger config url failed")?;
         js_sys::Reflect::set(&config, &JsValue::from_str("domNode"), container)
             .map_err(|_| "Swagger config dom node failed")?;
-        js_sys::Reflect::set(&config, &JsValue::from_str("presets"), &js_sys::Array::new())
-            .map_err(|_| "Swagger config presets failed")?;
+        js_sys::Reflect::set(
+            &config,
+            &JsValue::from_str("deepLinking"),
+            &JsValue::from_bool(false),
+        )
+        .map_err(|_| "Swagger config deepLinking failed")?;
+        js_sys::Reflect::set(
+            &config,
+            &JsValue::from_str("docExpansion"),
+            &JsValue::from_str("list"),
+        )
+        .map_err(|_| "Swagger config docExpansion failed")?;
+        js_sys::Reflect::set(
+            &config,
+            &JsValue::from_str("layout"),
+            &JsValue::from_str("StandaloneLayout"),
+        )
+        .map_err(|_| "Swagger config layout failed")?;
+
+        let presets = js_sys::Array::new();
+        if let Ok(bundle_presets) = js_sys::Reflect::get(&swagger, &JsValue::from_str("presets"))
+        {
+            if !bundle_presets.is_undefined() && !bundle_presets.is_null() {
+                if let Ok(apis) =
+                    js_sys::Reflect::get(&bundle_presets, &JsValue::from_str("apis"))
+                {
+                    if !apis.is_undefined() && !apis.is_null() {
+                        presets.push(&apis);
+                    }
+                }
+            }
+        }
+        if let Ok(standalone) =
+            js_sys::Reflect::get(&window, &JsValue::from_str("SwaggerUIStandalonePreset"))
+        {
+            if !standalone.is_undefined() && !standalone.is_null() {
+                presets.push(&standalone);
+            }
+        }
+        if presets.length() > 0 {
+            js_sys::Reflect::set(&config, &JsValue::from_str("presets"), &presets)
+                .map_err(|_| "Swagger config presets failed")?;
+        }
 
         let function = swagger
             .dyn_into::<js_sys::Function>()
