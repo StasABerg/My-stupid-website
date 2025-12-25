@@ -64,6 +64,15 @@ pub fn App() -> Element {
     }
 
     rsx! {
+        document::Link {
+            rel: "icon",
+            r#type: "image/x-icon",
+            href: asset!("/assets/favicon.ico"),
+        }
+        document::Link { rel: "manifest", href: "/manifest.webmanifest" }
+        document::Link { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
+        document::Meta { name: "theme-color", content: "#0bff96" }
+        document::Meta { name: "author", content: "StasBerg" }
         script {
             src: "https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.light.min.js",
             defer: true,
@@ -180,6 +189,11 @@ fn Home() -> Element {
     let mut latest_posts = all_posts();
     latest_posts.truncate(5);
     rsx! {
+        document::Title { "Gitgud Blog" }
+        document::Meta { name: "description", content: "Gitgud Blog" }
+        document::Meta { property: "og:title", content: "Gitgud Blog" }
+        document::Meta { property: "og:description", content: "Some weird project" }
+        document::Meta { property: "og:type", content: "website" }
         div { class: "home",
             TerminalWindow { aria_label: Some("Gitgud terminal home".to_string()),
                 TerminalHeader { display_cwd: "~".to_string(), label: None }

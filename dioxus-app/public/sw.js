@@ -1,5 +1,5 @@
 const CACHE_NAME = "gitgud-radio-shell-v7";
-const APP_SHELL = ["/", "/radio", "/favicon.ico"];
+const APP_SHELL = ["/", "/radio"];
 const APP_SHELL_PATHS = new Set(APP_SHELL);
 
 self.addEventListener("install", (event) => {

@@ -41,11 +41,6 @@ RUN CSS_PATH="/app/dioxus-app/target/dx/dioxus-app/release/web/public/assets/mai
   else \
     echo "css hash skipped: $CSS_PATH not found"; \
   fi
-RUN PUBLIC_DIR="/app/dioxus-app/target/dx/dioxus-app/release/web/public"; \
-  if [ -f "/app/dioxus-app/public/favicon.ico" ] && [ ! -f "${PUBLIC_DIR}/favicon.ico" ]; then \
-    cp /app/dioxus-app/public/favicon.ico "${PUBLIC_DIR}/favicon.ico"; \
-  fi
-
 FROM nginx:stable-alpine
 RUN apk add --no-cache nginx-mod-http-js
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
