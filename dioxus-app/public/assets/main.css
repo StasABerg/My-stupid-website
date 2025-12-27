@@ -229,6 +229,15 @@ ol {
     outline-offset: 2px;
 }
 
+button.terminal-link {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    appearance: none;
+}
+
 .terminal-desktop-only {
     display: none;
 }

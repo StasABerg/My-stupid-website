@@ -156,6 +156,12 @@ pub fn ContactPage() -> Element {
                                     error.set(None);
                                     success.set(false);
                                     timestamp.set(now_timestamp());
+                                    #[cfg(target_arch = "wasm32")]
+                                    reset_turnstile_widget(
+                                        turnstile_widget_id(),
+                                        turnstile_token,
+                                        turnstile_widget_id,
+                                    );
                                 },
                                 "Send another message"
                             }
@@ -480,4 +486,44 @@ fn render_turnstile_widget(
     widget_id
         .as_string()
         .ok_or_else(|| "turnstile widget id missing".to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn reset_turnstile_widget(
+    widget_id: Option<String>,
+    mut turnstile_token: Signal<Option<String>>,
+    mut turnstile_widget_id: Signal<Option<String>>,
+) {
+    turnstile_token.set(None);
+    if let Some(id) = widget_id {
+        if let Some(window) = web_sys::window() {
+            if let Ok(turnstile) =
+                js_sys::Reflect::get(&window, &JsValue::from_str("turnstile"))
+            {
+                if !turnstile.is_null() && !turnstile.is_undefined() {
+                    let mut removed = false;
+                    if let Ok(remove_fn) =
+                        js_sys::Reflect::get(&turnstile, &JsValue::from_str("remove"))
+                            .map(|value| value.dyn_into::<js_sys::Function>())
+                    {
+                        if let Ok(remove_fn) = remove_fn {
+                            let _ = remove_fn.call1(&turnstile, &JsValue::from_str(&id));
+                            removed = true;
+                        }
+                    }
+                    if !removed {
+                        if let Ok(reset_fn) =
+                            js_sys::Reflect::get(&turnstile, &JsValue::from_str("reset"))
+                                .map(|value| value.dyn_into::<js_sys::Function>())
+                        {
+                            if let Ok(reset_fn) = reset_fn {
+                                let _ = reset_fn.call1(&turnstile, &JsValue::from_str(&id));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    turnstile_widget_id.set(None);
 }

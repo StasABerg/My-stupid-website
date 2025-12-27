@@ -9,6 +9,14 @@ use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
 #[cfg(target_arch = "wasm32")]
+fn log_debug(message: &str) {
+    #[cfg(debug_assertions)]
+    tracing::debug!("{message}");
+    #[cfg(not(debug_assertions))]
+    let _ = message;
+}
+
+#[cfg(target_arch = "wasm32")]
 struct IntervalHandle {
     id: i32,
     _closure: Rc<wasm_bindgen::closure::Closure<dyn FnMut()>>,
@@ -50,13 +58,13 @@ pub fn DoNothingGamePage() -> Element {
     {
         use_effect(move || {
             if !mounted() {
-                tracing::debug!("do-nothing: mount");
+                log_debug("do-nothing: mount");
                 mounted.set(true);
             }
             if move_listener.read().is_some() {
                 return;
             }
-            tracing::debug!("do-nothing: attach move listeners");
+            log_debug("do-nothing: attach move listeners");
             let Some(window) = web_sys::window() else {
                 return;
             };
@@ -110,9 +118,9 @@ pub fn DoNothingGamePage() -> Element {
             }
             last_running.set(Some(running));
             if running {
-                tracing::debug!("do-nothing: start timer");
+                log_debug("do-nothing: start timer");
             } else {
-                tracing::debug!("do-nothing: stop timer");
+                log_debug("do-nothing: stop timer");
             }
             let Some(window) = web_sys::window() else {
                 return;
