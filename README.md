@@ -2,10 +2,11 @@
 
 # My Stupid Website
 
-A small devops playground I built for fun to keep my hands in both infra and app code. It’s a mono-repo with a Vite/React frontend and a few services behind Helm and Docker so I can experiment with builds, routing, and deployment patterns.
+A small devops playground I built for fun to keep my hands in both infra and app code. It’s a mono-repo with a Dioxus (Rust) frontend and a few services behind Helm and Docker so I can experiment with builds, routing, and deployment patterns.
 
 ## What’s inside
-- Frontend (`app/`): Vite + React 19 + Tailwind.
+- Frontend (`dioxus-app/`): Dioxus app (Rust) .
+- Legacy frontend (`app/`): Vite + React 19 + Tailwind.
 - API gateway (`api-gateway-service/`): Rust proxy that fronts the SPA and fans out to backends.
 - FMD service (`fmd/`): Rust fetch→extract→HTML→Markdown service for the Tools page (proxied via the gateway).
 - Radio service (`radio-service-rs/`): Rust Radio service built on Radio Browser API.
