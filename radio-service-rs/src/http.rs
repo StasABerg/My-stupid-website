@@ -948,6 +948,46 @@ fn rewrite_playlist(
         .join("\n")
 }
 
+fn is_segment_origin_allowed(stream_url: &str, target: &Url) -> bool {
+    let Ok(stream_origin) = Url::parse(stream_url) else {
+        return false;
+    };
+    if stream_origin.origin().ascii_serialization() == target.origin().ascii_serialization() {
+        return true;
+    }
+    let Some(stream_host) = stream_origin.host_str() else {
+        return false;
+    };
+    let Some(target_host) = target.host_str() else {
+        return false;
+    };
+    if stream_host == target_host {
+        return true;
+    }
+    if let Some(parent) = stream_host.split_once('.').map(|(_, suffix)| suffix) {
+        if target_host == parent || target_host.ends_with(&format!(".{parent}")) {
+            return true;
+        }
+    }
+    match (base_domain(stream_host), base_domain(target_host)) {
+        (Some(stream_base), Some(target_base)) => stream_base == target_base,
+        _ => false,
+    }
+}
+
+fn base_domain(host: &str) -> Option<String> {
+    let parts: Vec<&str> = host.split('.').filter(|part| !part.is_empty()).collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let base = parts[parts.len() - 2..].join(".");
+    if base.is_empty() {
+        None
+    } else {
+        Some(base)
+    }
+}
+
 fn parse_bool(value: Option<String>) -> bool {
     matches!(
         value
@@ -1319,12 +1359,7 @@ async fn stream_segment(
         .map_err(|_| ApiError::BadRequest("Invalid segment URL provided."))?;
 
     let station = load_station(&state, station_id).await?;
-    let stream_origin = Url::parse(&station.stream_url).ok();
-    if stream_origin
-        .as_ref()
-        .map(|origin: &Url| origin.origin().ascii_serialization())
-        != Some(target.origin().ascii_serialization())
-    {
+    if !is_segment_origin_allowed(&station.stream_url, &target) {
         return Err(ApiError::Forbidden("Segment URL is not permitted."));
     }
     if target.scheme() != "https" {

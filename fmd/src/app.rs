@@ -1,10 +1,11 @@
 use crate::config::Config;
-use crate::fetch_md::{FetchLimits, fetch_markdown};
+use crate::fetch_md::{FetchLimits, RenderMode, fetch_markdown_with_render};
 use crate::logger::Logger;
+use crate::render::{RenderConfig, RenderState};
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -24,6 +25,7 @@ pub struct AppState {
     pub limits: FetchLimits,
     pub logger: Logger,
     pub semaphore: Arc<Semaphore>,
+    pub render: RenderState,
 }
 
 pub fn build_router(config: Arc<Config>, logger: Logger) -> Router {
@@ -32,17 +34,31 @@ pub fn build_router(config: Arc<Config>, logger: Logger) -> Router {
         max_html_bytes: config.max_html_bytes,
         max_md_bytes: config.max_md_bytes,
     };
+    let render_config = RenderConfig {
+        enabled: config.render_enabled,
+        max_concurrency: config.render_max_concurrency,
+        max_subrequests: config.render_max_subrequests,
+        port: config.render_port,
+        timeout: config.render_timeout,
+        startup_timeout: config.render_startup_timeout,
+        spa_text_threshold: config.render_spa_text_threshold,
+        post_load_wait_ms: config.render_post_load_wait_ms,
+        ws_url: config.render_ws_url.clone(),
+        binary: config.render_binary.clone(),
+    };
     let state = Arc::new(AppState {
         semaphore: Arc::new(Semaphore::new(config.max_concurrency)),
         config,
         limits,
         logger,
+        render: RenderState::new(render_config),
     });
 
     Router::new()
         .route("/healthz", get(handle_healthz))
         .route("/v1/fetch-md", post(handle_fetch_md))
         .with_state(state)
+        .layer(DefaultBodyLimit::max(16 * 1024))
 }
 
 async fn handle_healthz() -> impl IntoResponse {
@@ -90,6 +106,7 @@ async fn handle_fetch_md(
             request_id.as_str(),
             uri.to_string(),
             401,
+            None,
         );
         return response;
     }
@@ -108,16 +125,19 @@ async fn handle_fetch_md(
                 request_id.as_str(),
                 uri.to_string(),
                 503,
+                None,
             );
             return response;
         }
     };
 
-    let result = fetch_markdown(&payload.url, &state.limits).await;
+    let result = fetch_markdown_with_render(&payload.url, &state.limits, Some(&state.render)).await;
     drop(permit);
 
+    let mut render_mode = None;
     let response = match result {
-        Ok(markdown) => {
+        Ok(result) => {
+            render_mode = Some(result.render_mode);
             let mut headers = HeaderMap::new();
             headers.insert(
                 header::CONTENT_TYPE,
@@ -129,7 +149,7 @@ async fn handle_fetch_md(
                 HeaderValue::from_str(request_id.as_str())
                     .unwrap_or_else(|_| HeaderValue::from_static("")),
             );
-            (StatusCode::OK, headers, markdown).into_response()
+            (StatusCode::OK, headers, result.markdown).into_response()
         }
         Err(error) => {
             let status = error.status_code();
@@ -143,6 +163,7 @@ async fn handle_fetch_md(
         request_id.as_str(),
         uri.to_string(),
         response.status().as_u16(),
+        render_mode,
     );
     response
 }
@@ -196,6 +217,7 @@ fn log_complete(
     request_id: &str,
     raw_url: String,
     status: u16,
+    render_mode: Option<RenderMode>,
 ) {
     let duration_ms = started_at.elapsed().as_secs_f64() * 1000.0;
     logger.info(
@@ -206,6 +228,7 @@ fn log_complete(
             "rawUrl": raw_url,
             "statusCode": status,
             "durationMs": duration_ms,
+            "renderMode": render_mode.map(|mode| mode.as_str()),
         }),
     );
 }

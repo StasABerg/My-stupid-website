@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - 'app/**'
+      - 'dioxus-app/**'
       - 'docker/Dockerfile'
       - 'deploy/**'
       - '.dockerignore'
@@ -96,6 +97,8 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: true
+          build-args: |
+            WASM_OPT=1
           tags: |
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:${{ steps.out.outputs.sha }}
             ${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_NAMESPACE }}/my-stupid-website:latest

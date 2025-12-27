@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0"
 ammonia = "4.1"
 axum = { version = "0.8", features = ["json"] }
+chromiumoxide = "0.8.0"
 futures-util = "0.3"
 hostname = "0.4.2"
 html2md = "0.2"

@@ -8,12 +8,37 @@ use url::Url;
 
 const MAX_URL_CHARS: usize = 2048;
 const MAX_REDIRECT_LOCATION_CHARS: usize = 256;
+const RENDER_FAILURE_NOTE: &str =
+    "\n\n> Note: failed to fetch SPA-rendered content; please retry or contact the website admin";
 
 #[derive(Clone, Debug)]
 pub struct FetchLimits {
     pub timeout: Duration,
     pub max_html_bytes: usize,
     pub max_md_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RenderMode {
+    Reqwest,
+    Lightpanda,
+    LightpandaFailed,
+}
+
+impl RenderMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RenderMode::Reqwest => "reqwest",
+            RenderMode::Lightpanda => "lightpanda",
+            RenderMode::LightpandaFailed => "lightpanda_failed",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FetchResult {
+    pub markdown: String,
+    pub render_mode: RenderMode,
 }
 
 #[derive(Debug)]
@@ -54,7 +79,18 @@ impl FetchMdError {
 pub async fn fetch_markdown(
     url: &str,
     limits: &FetchLimits,
+    render: Option<&crate::render::RenderState>,
 ) -> std::result::Result<String, FetchMdError> {
+    fetch_markdown_with_render(url, limits, render)
+        .await
+        .map(|result| result.markdown)
+}
+
+pub async fn fetch_markdown_with_render(
+    url: &str,
+    limits: &FetchLimits,
+    render: Option<&crate::render::RenderState>,
+) -> std::result::Result<FetchResult, FetchMdError> {
     let parsed = validate_url(url)?;
     let host = parsed
         .host_str()
@@ -69,18 +105,78 @@ pub async fn fetch_markdown(
     }
 
     let addresses = resolve_public_addrs(host, port).await?;
+    let mut fetched_html = None;
     for addr in addresses.into_iter().take(3) {
         match fetch_html_with_resolved_addr(&parsed, addr, limits).await {
-            Ok(html) => return convert_html_to_md(&html, limits),
+            Ok(html) => {
+                fetched_html = Some(html);
+                break;
+            }
             Err(FetchMdError::Upstream(_)) => continue,
             Err(other) => return Err(other),
         }
     }
 
-    Err(FetchMdError::Upstream("Upstream fetch failed".into()))
+    let Some(html) = fetched_html else {
+        return Err(FetchMdError::Upstream("Upstream fetch failed".into()));
+    };
+
+    if let Some(render_state) = render.filter(|state| state.config.enabled) {
+        let should_render = detect_spa_shell(&html, render_state.config.spa_text_threshold);
+        if should_render {
+            return render_and_convert(&parsed, &html, limits, render_state).await;
+        }
+    }
+
+    let markdown = convert_html_to_md(&html, limits)?;
+    Ok(FetchResult {
+        markdown,
+        render_mode: RenderMode::Reqwest,
+    })
 }
 
-fn validate_url(raw: &str) -> std::result::Result<Url, FetchMdError> {
+async fn render_and_convert(
+    parsed: &Url,
+    fallback_html: &str,
+    limits: &FetchLimits,
+    render_state: &crate::render::RenderState,
+) -> std::result::Result<FetchResult, FetchMdError> {
+    let permit = if let Some(semaphore) = render_state.semaphore.as_ref() {
+        Some(
+            semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|_| FetchMdError::Upstream("Render capacity unavailable".into()))?,
+        )
+    } else {
+        None
+    };
+
+    let render_result =
+        crate::render::render_html_with_lightpanda(parsed, &render_state.config, limits).await;
+    drop(permit);
+
+    match render_result {
+        Ok(rendered_html) => {
+            let markdown = convert_html_to_md(&rendered_html, limits)?;
+            Ok(FetchResult {
+                markdown,
+                render_mode: RenderMode::Lightpanda,
+            })
+        }
+        Err(_) => {
+            let mut markdown = convert_html_to_md(fallback_html, limits)?;
+            markdown.push_str(RENDER_FAILURE_NOTE);
+            Ok(FetchResult {
+                markdown,
+                render_mode: RenderMode::LightpandaFailed,
+            })
+        }
+    }
+}
+
+pub(crate) fn validate_url(raw: &str) -> std::result::Result<Url, FetchMdError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(FetchMdError::BadRequest("URL is required".into()));
@@ -113,7 +209,7 @@ fn validate_url(raw: &str) -> std::result::Result<Url, FetchMdError> {
     Ok(parsed)
 }
 
-async fn resolve_public_addrs(
+pub(crate) async fn resolve_public_addrs(
     host: &str,
     port: u16,
 ) -> std::result::Result<Vec<SocketAddr>, FetchMdError> {
@@ -357,6 +453,41 @@ fn extract_main_html(html: &str) -> String {
     html.to_string()
 }
 
+pub fn detect_spa_shell(html: &str, text_threshold: usize) -> bool {
+    let text_len = html_text_len(html);
+    if text_len >= text_threshold {
+        return false;
+    }
+
+    let has_root_marker = html.contains("id=\"root\"")
+        || html.contains("id=\"__next\"")
+        || html.contains("id=\"app\"")
+        || html.contains("data-reactroot");
+
+    let script_count = count_elements(html, "script");
+    let script_heavy = script_count >= 3;
+
+    has_root_marker || script_heavy
+}
+
+fn html_text_len(html: &str) -> usize {
+    let document = scraper::Html::parse_document(html);
+    document
+        .root_element()
+        .text()
+        .map(|part| part.trim())
+        .collect::<String>()
+        .len()
+}
+
+fn count_elements(html: &str, selector: &str) -> usize {
+    let Ok(sel) = scraper::Selector::parse(selector) else {
+        return 0;
+    };
+    let document = scraper::Html::parse_document(html);
+    document.select(&sel).count()
+}
+
 fn truncate(value: &str, max: usize) -> String {
     if value.len() <= max {
         return value.to_string();
@@ -399,5 +530,36 @@ mod tests {
                 .detail(),
             "URL fragments are not allowed",
         );
+    }
+
+    #[test]
+    fn detects_spa_shell() {
+        let html = r#"
+            <html>
+              <head>
+                <script src="/assets/app.js"></script>
+                <script src="/assets/chunk.js"></script>
+              </head>
+              <body>
+                <div id="root"></div>
+              </body>
+            </html>
+        "#;
+        assert!(detect_spa_shell(html, 200));
+    }
+
+    #[test]
+    fn ignores_server_rendered_page() {
+        let html = r#"
+            <html>
+              <body>
+                <main>
+                  <h1>Hello world</h1>
+                  <p>This is a real page.</p>
+                </main>
+              </body>
+            </html>
+        "#;
+        assert!(!detect_spa_shell(html, 20));
     }
 }

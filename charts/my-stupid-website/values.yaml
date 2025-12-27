@@ -167,3 +167,10 @@ env:
     value: /api/terminal
   - name: VITE_RADIO_DEFAULT_LIMIT
     value: "200"
+
+runtimeConfig:
+  enabled: true
+  data:
+    radio_api_base_url: /api/radio
+    terminal_api_base_url: /api/terminal
+    gateway_api_base_url: /api
