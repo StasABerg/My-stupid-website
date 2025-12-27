@@ -284,7 +284,7 @@ fn Home() -> Element {
                     }
                     if !latest_posts.is_empty() {
                         TerminalPrompt { command: Some("tail -n 5 blog/latest.log".to_string()), children: rsx! {} }
-                        div { class: "terminal-list terminal-stack",
+                        div { class: "terminal-list terminal-stack-xs",
                             for post in latest_posts.iter() {
                                 p { key: "{post.slug}", class: "terminal-listing terminal-wrap",
                                     span { class: "text-terminal-white terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {format_ls_date(post.date)} " }
@@ -328,7 +328,7 @@ fn Documents() -> Element {
                         children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     TerminalPrompt { path: Some("~/documents".to_string()), command: Some("ls -la".to_string()), children: rsx! {} }
-                    div { class: "terminal-indent terminal-stack",
+                    div { class: "terminal-indent terminal-stack-sm",
                         nav { aria_label: "Document links",
                             p { class: "terminal-listing",
                                 span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 1024 {today_label} " }
@@ -376,7 +376,7 @@ fn Games() -> Element {
                         children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     TerminalPrompt { path: Some("~/games".to_string()), command: Some("ls -la".to_string()), children: rsx! {} }
-                    div { class: "terminal-indent terminal-stack",
+                    div { class: "terminal-indent terminal-stack-sm",
                         nav { aria_label: "Games list",
                             p { class: "terminal-listing",
                                 span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rwxr-xr-x 1 user user 2048 {today_label} " }
@@ -499,7 +499,7 @@ fn Swagger() -> Element {
                         children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     TerminalPrompt { path: Some("~/swagger".to_string()), command: Some("ls -la".to_string()), children: rsx! {} }
-                    div { class: "terminal-indent terminal-stack",
+                    div { class: "terminal-indent terminal-stack-sm",
                         div { class: "terminal-listing",
                             span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::RadioDocs {}, class: "terminal-link text-terminal-cyan", "radio-api" }
@@ -588,25 +588,25 @@ fn Privacy() -> Element {
                         children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     TerminalPrompt { command: Some("cat privacy.md".to_string()), children: rsx! {} }
-                    div { class: "terminal-indent terminal-stack",
+                    div { class: "terminal-indent terminal-stack-md",
                         p { class: "terminal-muted",
                             "This site keeps tracking minimal. We only run basic analytics through Cloudflare Zaraz, and only after you choose to allow it. No ads, no cross-site profiling."
                         }
-                        div { class: "terminal-stack",
+                        div { class: "terminal-stack-sm",
                             p { class: "text-terminal-green terminal-title", "What we collect" }
                             ul { class: "terminal-list-bullets",
                                 li { "Page views and simple engagement events (for performance and content insights)." }
                                 li { "Standard request metadata (IP, user agent) may be processed by our providers to keep the service secure, but we do not build visitor profiles." }
                             }
                         }
-                        div { class: "terminal-stack",
+                        div { class: "terminal-stack-sm",
                             p { class: "text-terminal-green terminal-title", "Cookies" }
                             ul { class: "terminal-list-bullets",
                                 li { "`zaraz-consent` — stores whether you accepted or rejected analytics. Lifetime: 12 months or until you clear it." }
                                 li { "No other consent or marketing cookies are set by this site." }
                             }
                         }
-                        div { class: "terminal-stack",
+                        div { class: "terminal-stack-sm",
                             p { class: "text-terminal-green terminal-title", "Change your choice" }
                             button {
                                 r#type: "button",
@@ -644,7 +644,7 @@ fn Motivation() -> Element {
                         children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     TerminalPrompt { command: Some("ls -la ./motivation?".to_string()), children: rsx! {} }
-                    div { class: "terminal-indent terminal-stack",
+                    div { class: "terminal-indent terminal-stack-sm",
                         p { class: "terminal-listing",
                             span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::GitGud {}, class: "terminal-link text-terminal-cyan", "gitgud" }
@@ -872,7 +872,7 @@ fn Tools() -> Element {
                         children: rsx! { Link { to: Route::Home {}, class: "terminal-link text-terminal-yellow", "cd .." } }
                     }
                     TerminalPrompt { command: Some("ls -la ./tools".to_string()), children: rsx! {} }
-                    div { class: "terminal-indent terminal-stack",
+                    div { class: "terminal-indent terminal-stack-sm",
                         p { class: "terminal-listing",
                             span { class: "terminal-muted terminal-inline terminal-desktop-only", "-rw-r--r-- 1 user user 4096 {today_label} " }
                             Link { to: Route::WebToMarkdown {}, class: "terminal-link text-terminal-cyan", "web-to-markdown" }

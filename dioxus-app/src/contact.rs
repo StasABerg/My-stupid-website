@@ -146,7 +146,7 @@ pub fn ContactPage() -> Element {
                     }
                     TerminalPrompt { command: Some("cat contact.txt".to_string()), children: rsx! {} }
                     if success() {
-                        div { class: "terminal-stack terminal-indent",
+                        div { class: "terminal-stack-md terminal-indent",
                             p { class: "text-terminal-green", "✓ Message received" }
                             p { class: "terminal-muted", "We'll get back to you if needed." }
                             button {
@@ -206,7 +206,7 @@ pub fn ContactPage() -> Element {
                                 class: "honeypot",
                                 aria_hidden: "true",
                             }
-                            div { class: "terminal-stack",
+                            div { class: "terminal-stack-sm",
                                 label { r#for: "name", class: "text-terminal-green", "Name: " span { class: "text-terminal-red", "*" } }
                                 input {
                                     id: "name",
@@ -222,7 +222,7 @@ pub fn ContactPage() -> Element {
                                     },
                                 }
                             }
-                            div { class: "terminal-stack",
+                            div { class: "terminal-stack-sm",
                                 label { r#for: "email", class: "text-terminal-green",
                                     "Email: " span { class: "terminal-muted", "(optional)" }
                                 }
@@ -240,7 +240,7 @@ pub fn ContactPage() -> Element {
                                     },
                                 }
                             }
-                            div { class: "terminal-stack",
+                            div { class: "terminal-stack-sm",
                                 label { r#for: "message", class: "text-terminal-green", "Message: " span { class: "text-terminal-red", "*" } }
                                 textarea {
                                     id: "message",

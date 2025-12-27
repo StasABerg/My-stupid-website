@@ -1,7 +1,4 @@
 use dioxus::prelude::*;
-use dioxus_router::Link;
-
-use crate::routes::Route;
 
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
@@ -102,8 +99,8 @@ pub fn CookieConsentBanner() -> Element {
                         p { class: "cookie-consent-text",
                             "We use a single analytics cookie via Cloudflare Zaraz. No ads, no profiling, no cross-site tracking. You can update your choice any time."
                         }
-                        Link {
-                            to: Route::Privacy {},
+                        a {
+                            href: "/privacy",
                             class: "terminal-link text-terminal-cyan cookie-consent-link",
                             "Privacy & Cookies Policy"
                         }
