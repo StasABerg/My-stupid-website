@@ -3,6 +3,8 @@ use dioxus_router::Link;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::RequestCredentials;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::{JsCast, JsValue};
 
 use crate::config::RuntimeConfig;
 use crate::gateway_session::{authorized_post, ensure_gateway_session};
@@ -497,26 +499,23 @@ fn reset_turnstile_widget(
     turnstile_token.set(None);
     if let Some(id) = widget_id {
         if let Some(window) = web_sys::window() {
-            if let Ok(turnstile) =
-                js_sys::Reflect::get(&window, &JsValue::from_str("turnstile"))
+            if let Ok(turnstile) = js_sys::Reflect::get(&window, &JsValue::from_str("turnstile"))
             {
                 if !turnstile.is_null() && !turnstile.is_undefined() {
                     let mut removed = false;
-                    if let Ok(remove_fn) =
+                    if let Ok(remove_value) =
                         js_sys::Reflect::get(&turnstile, &JsValue::from_str("remove"))
-                            .map(|value| value.dyn_into::<js_sys::Function>())
                     {
-                        if let Ok(remove_fn) = remove_fn {
+                        if let Ok(remove_fn) = remove_value.dyn_into::<js_sys::Function>() {
                             let _ = remove_fn.call1(&turnstile, &JsValue::from_str(&id));
                             removed = true;
                         }
                     }
                     if !removed {
-                        if let Ok(reset_fn) =
+                        if let Ok(reset_value) =
                             js_sys::Reflect::get(&turnstile, &JsValue::from_str("reset"))
-                                .map(|value| value.dyn_into::<js_sys::Function>())
                         {
-                            if let Ok(reset_fn) = reset_fn {
+                            if let Ok(reset_fn) = reset_value.dyn_into::<js_sys::Function>() {
                                 let _ = reset_fn.call1(&turnstile, &JsValue::from_str(&id));
                             }
                         }
