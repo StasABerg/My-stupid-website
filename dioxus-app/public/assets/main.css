@@ -130,7 +130,7 @@ ol {
 .terminal-body {
     padding: 12px;
     font-size: 12px;
-    line-height: 1.5;
+    line-height: 1.333;
     font-family: inherit;
     color: hsl(var(--terminal-white));
     white-space: pre-wrap;
@@ -369,6 +369,7 @@ ol {
     .terminal-body {
         padding: 24px;
         font-size: 14px;
+        line-height: 1.428;
     }
 
     .terminal-indent {
@@ -460,6 +461,10 @@ ol {
     margin-bottom: 16px;
     padding-left: 8px;
     overflow-x: auto;
+}
+
+.terminal-list p {
+    white-space: nowrap;
 }
 
 .terminal-list p {
@@ -1450,7 +1455,7 @@ a {
 .cookie-consent-text {
     font-size: 12px;
     opacity: 0.8;
-    line-height: 1.5;
+    line-height: 1.625;
 }
 
 .cookie-consent-actions {
@@ -1484,6 +1489,11 @@ a {
 
 .cookie-consent-button.primary:hover {
     filter: brightness(0.9);
+}
+
+.cookie-consent-link {
+    font-size: 12px;
+    font-weight: 600;
 }
 
 @media (min-width: 640px) {

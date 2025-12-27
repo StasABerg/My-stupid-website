@@ -104,7 +104,7 @@ pub fn CookieConsentBanner() -> Element {
                         }
                         Link {
                             to: Route::Privacy {},
-                            class: "terminal-link text-terminal-cyan",
+                            class: "terminal-link text-terminal-cyan cookie-consent-link",
                             "Privacy & Cookies Policy"
                         }
                     }
