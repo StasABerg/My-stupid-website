@@ -6,11 +6,10 @@ A small devops playground I built for fun to keep my hands in both infra and app
 
 ## What’s inside
 - Frontend (`dioxus-app/`): Dioxus app (Rust) .
-- Legacy frontend (`app/`): Vite + React 19 + Tailwind.
 - API gateway (`api-gateway-service/`): Rust proxy that fronts the SPA and fans out to backends.
 - FMD service (`fmd/`): Rust fetch→extract→HTML→Markdown service for the Tools page (proxied via the gateway).
 - Radio service (`radio-service-rs/`): Rust Radio service built on Radio Browser API.
-- Terminal service (`terminal-service/`): Node sandbox shell with an allowlisted command set.
+- Terminal service (`terminal-service-rs/`): Rust sandbox shell with an allowlisted command set.
 - Helm charts (`charts/`) and Dockerfiles (`docker/`) for each piece.
 
 ## Quick start
