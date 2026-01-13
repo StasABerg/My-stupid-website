@@ -1,5 +1,5 @@
-name: terminal-service-prod
-run-name: "Production Deploy - Terminal Service → ${{ github.event.inputs.image_tag }}"
+name: terminal-service-rs-prod
+run-name: "Production Deploy - Terminal Service (Rust) → ${{ github.event.inputs.image_tag }}"
 
 on:
   workflow_dispatch:
@@ -78,4 +78,4 @@ jobs:
         run: |
           curl -fsSL -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{\"content\":\"✅ **Production deployment successful**\\n**Service:** terminal-service\\n**Tag:** \`${IMAGE_TAG}\`\\n**Deployer:** ${DEPLOYER}\"}"
+            -d "{\"content\":\"✅ **Production deployment successful**\\n**Service:** terminal-service-rs\\n**Tag:** `\${IMAGE_TAG}`\\n**Deployer:** \${DEPLOYER}\"}"
