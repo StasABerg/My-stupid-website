@@ -16,13 +16,13 @@ page_size = "0.6"
 percent-encoding = "2.3"
 rand = "0.9"
 redis = { version = "1.0", features = ["tokio-rustls-comp", "connection-manager"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "cookies"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 async-trait = "0.1"
 time = { version = "0.3", features = ["formatting"] }
-tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal", "process"] }
+tokio = { version = "1.49", features = ["macros", "rt-multi-thread", "signal", "process"] }
 tower = { version = "0.5", features = ["util", "timeout"] }
 uuid = { version = "1.19", features = ["v4"] }
 url = "2.5"
