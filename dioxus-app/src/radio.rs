@@ -28,7 +28,10 @@ use crate::routes::Route;
 use crate::terminal::{TerminalCursor, TerminalHeader, TerminalPrompt, TerminalWindow};
 
 fn log_debug(message: &str) {
+    #[cfg(debug_assertions)]
     tracing::debug!("{message}");
+    #[cfg(not(debug_assertions))]
+    let _ = message;
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

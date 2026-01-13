@@ -5,7 +5,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'terminal-service/**'
+      - 'terminal-service-rs/**'
       - 'docker/terminal.Dockerfile'
       - 'charts/terminal-service/**'
       - '.forgejo/workflows/ssh-terminal.yaml'
