@@ -15,6 +15,7 @@ use config::Config;
 use logger::Logger;
 use sandbox::ensure_sandbox_filesystem;
 use serde_json::json;
+use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -42,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "unknown".to_string());
     let logger = Logger::new(hostname);
 
-    if std::env::args().any(|arg| arg == "--config-check") {
+    if env::var("CONFIG_CHECK").is_ok_and(|value| value.eq_ignore_ascii_case("true")) {
         logger.info(
             "config.check_passed",
             json!({

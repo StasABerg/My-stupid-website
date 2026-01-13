@@ -72,32 +72,23 @@ pub fn normalize_virtual(value: &str) -> Result<String> {
     }
 
     let mut parts: Vec<&str> = Vec::new();
-    for component in Path::new(value).components() {
-        use std::path::Component;
-        match component {
-            Component::RootDir => {
-                parts.clear();
-            }
-            Component::ParentDir => {
+    for segment in value.split('/') {
+        if segment.is_empty() || segment == "." {
+            continue;
+        }
+        if segment == ".." {
+            if !parts.is_empty() {
                 parts.pop();
             }
-            Component::CurDir => {}
-            Component::Normal(segment) => {
-                if let Some(segment) = segment.to_str() {
-                    parts.push(segment);
-                }
-            }
-            _ => {}
+            continue;
         }
+        parts.push(segment);
     }
 
-    let normalized = if parts.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{}", parts.join("/"))
-    };
-
-    Ok(normalized)
+    if parts.is_empty() {
+        return Ok("/".to_string());
+    }
+    Ok(format!("/{}", parts.join("/")))
 }
 
 pub fn sanitize_virtual_path(input: Option<&str>, default_cwd: &str) -> Result<String> {
@@ -117,8 +108,12 @@ pub fn resolve_virtual_path(current: &str, input: Option<&str>, default_cwd: &st
     if input.starts_with('/') {
         return sanitize_virtual_path(Some(input), default_cwd);
     }
-    let combined = Path::new(&base).join(input);
-    normalize_virtual(combined.to_string_lossy().as_ref())
+    let combined = if base.ends_with('/') {
+        format!("{base}{input}")
+    } else {
+        format!("{base}/{input}")
+    };
+    normalize_virtual(&combined)
 }
 
 pub fn to_real_path(virtual_path: &str, config: &Config) -> Result<PathBuf> {
