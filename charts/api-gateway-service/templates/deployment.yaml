@@ -103,23 +103,21 @@ spec:
             - name: LOG_LEVEL
               value: "{{ .Values.logLevel }}"
             {{- end }}
-            {{- if .Values.cache.redis.secretName }}
-            - name: REDIS_URL
+            {{- if .Values.postgres.urlSecretRef }}
+            - name: PG_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.cache.redis.secretName }}
-                  key: {{ .Values.cache.redis.secretKey }}
-                  {{- if .Values.cache.redis.optional }}
+                  name: {{ .Values.postgres.urlSecretRef }}
+                  key: {{ .Values.postgres.urlSecretKey }}
+                  {{- if .Values.postgres.urlOptional }}
                   optional: true
                   {{- end }}
-            {{- else if .Values.cache.redis.url }}
-            - name: CACHE_REDIS_URL
-              value: "{{ .Values.cache.redis.url }}"
+            {{- else if .Values.postgres.url }}
+            - name: PG_URL
+              value: "{{ .Values.postgres.url }}"
             {{- end }}
-            {{- if hasKey .Values.cache.redis "tlsRejectUnauthorized" }}
-            - name: CACHE_REDIS_TLS_REJECT_UNAUTHORIZED
-              value: {{ ternary "true" "false" (default true .Values.cache.redis.tlsRejectUnauthorized) | quote }}
-            {{- end }}
+            - name: PG_MAX_CONNECTIONS
+              value: "{{ .Values.postgres.maxConnections | default 10 }}"
             {{- if .Values.contact }}
             {{- if .Values.contact.secretRef }}
             - name: CONTACT_SMTP_HOST

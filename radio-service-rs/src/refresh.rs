@@ -14,7 +14,7 @@ pub async fn run_refresh(state: &AppState) -> anyhow::Result<RefreshResult> {
     let mut payload = state.radio_browser.fetch_payload().await?;
     let validation = state
         .stream_validator
-        .validate(payload.stations.clone(), &state.redis)
+        .validate(payload.stations.clone(), &state.postgres)
         .await?;
     if validation.dropped > 0 {
         logger().info(

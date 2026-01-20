@@ -13,7 +13,6 @@ pub enum ConfigError {
 #[derive(Debug, Clone, Serialize)]
 pub struct Config {
     pub port: u16,
-    pub redis_url: String,
     pub postgres: PostgresConfig,
     pub api: ApiConfig,
     pub refresh_token: String,
@@ -21,12 +20,8 @@ pub struct Config {
     pub radio_browser: RadioBrowserConfig,
     pub stream_proxy: StreamProxyConfig,
     pub stream_validation: StreamValidationConfig,
-    pub cache_key: String,
-    pub cache_version_key: String,
-    pub cache_ttl_seconds: u64,
     pub memory_cache_ttl_seconds: u64,
     pub refresh_lock_key: String,
-    pub refresh_lock_ttl_seconds: u64,
     pub refresh_lock_retry_attempts: u64,
 }
 
@@ -76,7 +71,6 @@ pub struct StreamValidationConfig {
     pub enabled: bool,
     pub timeout_ms: u64,
     pub concurrency: usize,
-    pub cache_key: String,
     pub cache_ttl_seconds: u64,
     pub failure_cache_ttl_seconds: u64,
 }
@@ -84,7 +78,6 @@ pub struct StreamValidationConfig {
 impl Config {
     pub fn load() -> Result<Self, ConfigError> {
         let port = env_u16("PORT", 4010)?;
-        let redis_url = env_required("REDIS_URL")?;
         let postgres = PostgresConfig::from_env()?;
         let api = ApiConfig::from_env()?;
         let refresh_token = env_required("STATIONS_REFRESH_TOKEN")?;
@@ -94,20 +87,13 @@ impl Config {
         let radio_browser = RadioBrowserConfig::from_env(allow_insecure_transports)?;
         let stream_proxy = StreamProxyConfig::from_env()?;
         let stream_validation = StreamValidationConfig::from_env()?;
-        let cache_key =
-            env::var("STATIONS_CACHE_KEY").unwrap_or_else(|_| "radio:stations:all".into());
-        let cache_version_key = env::var("STATIONS_CACHE_VERSION_KEY")
-            .unwrap_or_else(|_| "radio:stations:version".into());
-        let cache_ttl_seconds = env_u64("STATIONS_CACHE_TTL", 3600)?;
         let memory_cache_ttl_seconds = env_u64("STATIONS_MEMORY_CACHE_TTL", 5)?;
         let refresh_lock_key = env::var("STATIONS_REFRESH_LOCK_KEY")
             .unwrap_or_else(|_| "radio:stations:refresh-lock".into());
-        let refresh_lock_ttl_seconds = env_u64("STATIONS_REFRESH_LOCK_TTL", 180)?;
         let refresh_lock_retry_attempts = env_u64("STATIONS_REFRESH_LOCK_RETRY_ATTEMPTS", 10)?;
 
         let config = Self {
             port,
-            redis_url,
             postgres,
             api,
             refresh_token,
@@ -115,12 +101,8 @@ impl Config {
             radio_browser,
             stream_proxy,
             stream_validation,
-            cache_key,
-            cache_version_key,
-            cache_ttl_seconds,
             memory_cache_ttl_seconds,
             refresh_lock_key,
-            refresh_lock_ttl_seconds,
             refresh_lock_retry_attempts,
         };
 
@@ -394,20 +376,12 @@ impl StreamValidationConfig {
         let enabled = env_bool("STREAM_VALIDATION_ENABLED").unwrap_or(true);
         let timeout_ms = env_u64("STREAM_VALIDATION_TIMEOUT_MS", 5000)?;
         let concurrency = env_usize("STREAM_VALIDATION_CONCURRENCY", 8)?.max(1);
-        let cache_key = env::var("STREAM_VALIDATION_CACHE_KEY")
-            .unwrap_or_else(|_| "radio:streams:validated".into());
-        if cache_key.trim().is_empty() {
-            return Err(ConfigError::Message(
-                "STREAM_VALIDATION_CACHE_KEY must be provided.".into(),
-            ));
-        }
         let cache_ttl_seconds = env_u64("STREAM_VALIDATION_CACHE_TTL", 86400)?;
         let failure_cache_ttl_seconds = env_u64("STREAM_VALIDATION_FAILURE_CACHE_TTL", 3600)?;
         Ok(Self {
             enabled,
             timeout_ms,
             concurrency,
-            cache_key,
             cache_ttl_seconds,
             failure_cache_ttl_seconds,
         })
@@ -416,34 +390,9 @@ impl StreamValidationConfig {
 
 impl Config {
     fn validate(&self) -> Result<(), ConfigError> {
-        if self.cache_ttl_seconds == 0 {
-            return Err(ConfigError::Message(
-                "STATIONS_CACHE_TTL must be greater than zero".into(),
-            ));
-        }
-        if self.memory_cache_ttl_seconds == 0 {
-            return Err(ConfigError::Message(
-                "STATIONS_MEMORY_CACHE_TTL must be greater than zero".into(),
-            ));
-        }
-        if self.cache_key.trim().is_empty() {
-            return Err(ConfigError::Message(
-                "STATIONS_CACHE_KEY must be provided".into(),
-            ));
-        }
-        if self.cache_version_key.trim().is_empty() {
-            return Err(ConfigError::Message(
-                "STATIONS_CACHE_VERSION_KEY must be provided".into(),
-            ));
-        }
         if self.refresh_lock_key.trim().is_empty() {
             return Err(ConfigError::Message(
                 "STATIONS_REFRESH_LOCK_KEY must be provided".into(),
-            ));
-        }
-        if self.refresh_lock_ttl_seconds == 0 {
-            return Err(ConfigError::Message(
-                "STATIONS_REFRESH_LOCK_TTL must be greater than zero".into(),
             ));
         }
         if self.refresh_lock_retry_attempts == 0 {
@@ -459,6 +408,16 @@ impl Config {
         if self.stream_validation.timeout_ms == 0 {
             return Err(ConfigError::Message(
                 "STREAM_VALIDATION_TIMEOUT_MS must be greater than zero".into(),
+            ));
+        }
+        if self.stream_validation.cache_ttl_seconds == 0 {
+            return Err(ConfigError::Message(
+                "STREAM_VALIDATION_CACHE_TTL must be greater than zero".into(),
+            ));
+        }
+        if self.stream_validation.failure_cache_ttl_seconds == 0 {
+            return Err(ConfigError::Message(
+                "STREAM_VALIDATION_FAILURE_CACHE_TTL must be greater than zero".into(),
             ));
         }
         if self.stream_proxy.timeout_ms == 0 {
@@ -482,15 +441,13 @@ mod tests {
     #[test]
     fn config_loads_with_minimum_env() {
         let _guard = ENV_LOCK.lock().unwrap();
-        env::set_var("REDIS_URL", "redis://localhost:6379");
         env::set_var("PG_URL", "postgres://user@localhost/db");
         env::set_var("STATIONS_REFRESH_TOKEN", "dummy");
-        env::set_var("STATIONS_CACHE_TTL", "60");
         env::remove_var("ALLOW_INSECURE_TRANSPORT");
 
         let config = Config::load().expect("config should load with dummy env");
-        assert!(config.cache_ttl_seconds > 0);
         assert!(config.memory_cache_ttl_seconds > 0);
+        assert!(config.refresh_lock_retry_attempts > 0);
         assert!(config.stream_validation.concurrency > 0);
     }
 }

@@ -13,7 +13,6 @@ use lettre::{
     },
     transport::smtp::authentication::Credentials,
 };
-use redis::AsyncCommands;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -383,33 +382,43 @@ async fn check_rate_limit(
     max_requests: u32,
     window_seconds: u64,
 ) -> Result<(), ContactError> {
-    let redis_config = match &state.config.cache.redis {
-        Some(r) => r,
-        None => return Ok(()), // No Redis, skip rate limiting
+    let updated: Result<i64, _> = sqlx::query_scalar(
+        r#"
+        INSERT INTO gateway_contact_rate_limit (client_ip, count, expires_at, updated_at)
+        VALUES ($1, 1, NOW() + ($2 * interval '1 second'), NOW())
+        ON CONFLICT (client_ip) DO UPDATE
+          SET count = CASE
+              WHEN gateway_contact_rate_limit.expires_at <= NOW() THEN 1
+              ELSE gateway_contact_rate_limit.count + 1
+          END,
+          expires_at = CASE
+              WHEN gateway_contact_rate_limit.expires_at <= NOW() THEN NOW() + ($2 * interval '1 second')
+              ELSE gateway_contact_rate_limit.expires_at
+          END,
+          updated_at = NOW()
+        RETURNING count
+        "#,
+    )
+    .bind(client_ip)
+    .bind(i64::try_from(window_seconds).unwrap_or(i64::MAX))
+    .fetch_one(&state.postgres)
+    .await;
+
+    let count = match updated {
+        Ok(value) => value,
+        Err(error) => {
+            state.logger.warn(
+                "contact.rate_limit_store_unavailable",
+                serde_json::json!({
+                    "clientIp": client_ip,
+                    "error": error.to_string(),
+                }),
+            );
+            return Ok(());
+        }
     };
 
-    let mut conn = state
-        .redis_cache_client
-        .as_ref()
-        .ok_or(ContactError::Internal)?
-        .get_multiplexed_async_connection()
-        .await
-        .map_err(|_| ContactError::Internal)?;
-
-    let key = format!("{}contact:ratelimit:{}", redis_config.key_prefix, client_ip);
-    let count: u32 = conn
-        .incr(&key, 1)
-        .await
-        .map_err(|_| ContactError::Internal)?;
-
-    if count == 1 {
-        let _: () = conn
-            .expire(&key, window_seconds as i64)
-            .await
-            .map_err(|_| ContactError::Internal)?;
-    }
-
-    if count > max_requests {
+    if count > max_requests as i64 {
         return Err(ContactError::RateLimited);
     }
 
@@ -421,35 +430,35 @@ async fn check_duplicate(
     fingerprint: &str,
     window_seconds: u64,
 ) -> Result<(), ContactError> {
-    let redis_config = match &state.config.cache.redis {
-        Some(r) => r,
-        None => return Ok(()), // No Redis, skip deduplication
-    };
+    let inserted: Result<Option<i64>, _> = sqlx::query_scalar(
+        r#"
+        INSERT INTO gateway_contact_dedupe (fingerprint, expires_at)
+        VALUES ($1, NOW() + ($2 * interval '1 second'))
+        ON CONFLICT (fingerprint) DO UPDATE
+          SET expires_at = EXCLUDED.expires_at
+        WHERE gateway_contact_dedupe.expires_at <= NOW()
+        RETURNING 1
+        "#,
+    )
+    .bind(fingerprint)
+    .bind(i64::try_from(window_seconds).unwrap_or(i64::MAX))
+    .fetch_optional(&state.postgres)
+    .await;
 
-    let mut conn = state
-        .redis_cache_client
-        .as_ref()
-        .ok_or(ContactError::Internal)?
-        .get_multiplexed_async_connection()
-        .await
-        .map_err(|_| ContactError::Internal)?;
-
-    let key = format!("{}contact:dedupe:{}", redis_config.key_prefix, fingerprint);
-    let exists: bool = conn
-        .exists(&key)
-        .await
-        .map_err(|_| ContactError::Internal)?;
-
-    if exists {
-        return Err(ContactError::Duplicate);
+    match inserted {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(ContactError::Duplicate),
+        Err(error) => {
+            state.logger.warn(
+                "contact.dedupe_store_unavailable",
+                serde_json::json!({
+                    "fingerprint": fingerprint,
+                    "error": error.to_string(),
+                }),
+            );
+            Ok(())
+        }
     }
-
-    let _: () = conn
-        .set_ex(&key, "1", window_seconds)
-        .await
-        .map_err(|_| ContactError::Internal)?;
-
-    Ok(())
 }
 
 fn compute_fingerprint(req: &ContactRequest) -> String {

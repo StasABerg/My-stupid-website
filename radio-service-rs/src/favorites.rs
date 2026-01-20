@@ -1,57 +1,82 @@
 use std::collections::HashSet;
 
-use deadpool_redis::{redis::AsyncCommands, Pool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
 
 const FAVORITES_KEY_PREFIX: &str = "radio:favorites:";
 const FAVORITES_CLIENT_PREFIX: &str = "radio:favorites:client:";
 const FAVORITES_STORAGE_VERSION: u32 = 2;
-pub const FAVORITES_TTL_SECONDS: usize = 60 * 60 * 24 * 30;
+pub const FAVORITES_TTL_SECONDS: i64 = 60 * 60 * 24 * 30;
 pub const MAX_FAVORITES: usize = 6;
 
 #[derive(Clone)]
 pub struct FavoritesStore {
-    pool: Pool,
+    pool: PgPool,
 }
 
 impl FavoritesStore {
-    pub fn new(pool: Pool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
     pub async fn read(&self, key: &str) -> anyhow::Result<Vec<FavoriteEntry>> {
-        let mut conn = self.pool.get().await?;
-        let raw: Option<String> = conn.get(key).await?;
-        if let Some(raw) = raw {
-            let value: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-            Ok(dedupe_entries(normalize_entries_from_raw(&value)))
-        } else {
-            Ok(vec![])
-        }
+        let payload: Option<Value> = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM radio_favorites
+            WHERE key = $1
+              AND expires_at > NOW()
+            "#,
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(match payload {
+            Some(value) => dedupe_entries(normalize_entries_from_raw(&value)),
+            None => vec![],
+        })
     }
 
     pub async fn write(&self, key: &str, favorites: &[FavoriteEntry]) -> anyhow::Result<()> {
-        let mut conn = self.pool.get().await?;
         let payload = FavoritesPayload {
             version: FAVORITES_STORAGE_VERSION,
             entries: favorites,
         };
-        let serialized = serde_json::to_string(&payload)?;
-        conn.set_ex::<_, _, ()>(
-            key,
-            serialized,
-            FAVORITES_TTL_SECONDS.try_into().unwrap_or(u64::MAX),
+        let serialized = serde_json::to_value(&payload)?;
+        sqlx::query(
+            r#"
+            INSERT INTO radio_favorites (key, payload, expires_at, updated_at)
+            VALUES ($1, $2, NOW() + ($3 * interval '1 second'), NOW())
+            ON CONFLICT (key) DO UPDATE
+              SET payload = EXCLUDED.payload,
+                  expires_at = EXCLUDED.expires_at,
+                  updated_at = NOW()
+            "#,
         )
+        .bind(key)
+        .bind(serialized)
+        .bind(FAVORITES_TTL_SECONDS)
+        .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn refresh_ttl(&self, key: &str) -> anyhow::Result<()> {
-        let mut conn = self.pool.get().await?;
-        let _: () = conn
-            .expire(key, FAVORITES_TTL_SECONDS.try_into().unwrap_or(i64::MAX))
-            .await?;
+        sqlx::query(
+            r#"
+            UPDATE radio_favorites
+              SET expires_at = NOW() + ($2 * interval '1 second'),
+                  updated_at = NOW()
+            WHERE key = $1
+              AND expires_at > NOW()
+            "#,
+        )
+        .bind(key)
+        .bind(FAVORITES_TTL_SECONDS)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

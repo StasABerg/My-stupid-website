@@ -6,11 +6,6 @@ use std::{
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use deadpool_redis::{
-    redis::{self, AsyncCommands},
-    Pool as RedisPool,
-};
-use hostname::get as get_hostname;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -18,11 +13,9 @@ use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use sysinfo::System;
 use tokio::sync::{Mutex, RwLock};
-use uuid::Uuid;
 
 use crate::logging::logger;
 use crate::{
-    cache::create_redis_pool,
     config::Config,
     database::create_postgres_pool,
     favorites::FavoritesStore,
@@ -37,7 +30,6 @@ use crate::{
 pub struct AppState {
     pub config: Config,
     pub postgres: PgPool,
-    pub redis: RedisPool,
     pub stations: StationStorage,
     pub favorites: FavoritesStore,
     pub radio_browser: RadioBrowserClient,
@@ -45,14 +37,12 @@ pub struct AppState {
     processed_cache: Arc<RwLock<Option<ProcessedCache>>>,
     pub stream_validator: StreamValidator,
     memory_cache: Arc<RwLock<Option<MemoryEntry>>>,
-    cache_version: Arc<RwLock<Option<String>>>,
-    cache_client: Arc<crate::cache::CacheClient>,
+    cache_state_updated_at: Arc<RwLock<Option<DateTime<Utc>>>>,
     refresh_mutex: Arc<Mutex<()>>,
     rate_limiter: Arc<RateLimiter>,
     status_monitor: Arc<EventLoopMonitor>,
     system: Arc<Mutex<System>>,
     started_at: Instant,
-    refresh_lock_value: String,
 }
 
 #[derive(Clone)]
@@ -234,24 +224,13 @@ impl AppState {
         let postgres = create_postgres_pool(&config.postgres)
             .await
             .context("failed to connect to postgres")?;
-        let redis = create_redis_pool(&config.redis_url).context("failed to create redis pool")?;
         sqlx::query("SELECT 1")
             .execute(&postgres)
             .await
             .context("failed to validate postgres connectivity")?;
-        {
-            let mut conn = redis
-                .get()
-                .await
-                .context("failed to get redis connection")?;
-            let _: () = conn
-                .ping()
-                .await
-                .context("failed to ping redis during startup")?;
-        }
 
         let stations = StationStorage::new(postgres.clone());
-        let favorites = FavoritesStore::new(redis.clone());
+        let favorites = FavoritesStore::new(postgres.clone());
         let http_client = Client::builder()
             .build()
             .context("failed to build http client")?;
@@ -263,14 +242,7 @@ impl AppState {
             StreamValidator::new(config.stream_validation.clone(), http_client.clone());
         let processed_cache = Arc::new(RwLock::new(None));
         let memory_cache = Arc::new(RwLock::new(None));
-        let cache_version = Arc::new(RwLock::new(None));
-
-        // Initialize cache client with MessagePack + LZ4
-        let cache_client = Arc::new(crate::cache::CacheClient::new(
-            redis.clone(),
-            config.cache_key.clone(),
-            config.cache_ttl_seconds,
-        ));
+        let cache_state_updated_at = Arc::new(RwLock::new(None));
 
         let refresh_mutex = Arc::new(Mutex::new(()));
         let rate_limiter = Arc::new(RateLimiter::new(100, Duration::from_secs(60)));
@@ -278,15 +250,10 @@ impl AppState {
         EventLoopMonitor::spawn(status_monitor.clone());
         let system = Arc::new(Mutex::new(System::new_all()));
         let started_at = Instant::now();
-        let hostname = get_hostname()
-            .map(|value| value.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "unknown-host".into());
-        let refresh_lock_value = format!("{}-{}", hostname, Uuid::new_v4());
 
         Ok(Self {
             config,
             postgres,
-            redis,
             stations,
             favorites,
             radio_browser,
@@ -294,14 +261,12 @@ impl AppState {
             processed_cache,
             stream_validator,
             memory_cache,
-            cache_version,
-            cache_client,
+            cache_state_updated_at,
             refresh_mutex,
             rate_limiter,
             status_monitor,
             system,
             started_at,
-            refresh_lock_value,
         })
     }
 }
@@ -371,48 +336,11 @@ impl AppState {
     }
 
     pub async fn load_stations(&self, force_refresh: bool) -> anyhow::Result<LoadStationsResult> {
-        self.ensure_cache_version_sync().await?;
+        self.ensure_cache_state_sync().await?;
+
         if !force_refresh {
             if let Some(entry) = self.get_memory_cache_entry().await {
                 return Ok(entry);
-            }
-
-            if let Some(payload) = self.read_stations_from_cache().await? {
-                if let Some(sanitized) = self.sanitize_payload(payload) {
-                    let mut payload = sanitized.payload;
-                    payload
-                        .ensure_fingerprint()
-                        .context("failed to compute cache fingerprint")?;
-                    if sanitized.upgraded {
-                        logger().info(
-                            "cache.upgraded",
-                            json!({
-                                "source": "redis"
-                            }),
-                        );
-                        self.write_stations_to_cache(&payload).await?;
-                    }
-                    self.cache_in_memory(payload.clone(), "cache").await;
-                    let processed_key = payload.processed_cache_key().unwrap_or_else(|_| {
-                        payload
-                            .fingerprint
-                            .clone()
-                            .unwrap_or_else(|| "cache".into())
-                    });
-                    self.ensure_processed(&processed_key, &payload.stations)
-                        .await;
-                    return Ok(LoadStationsResult {
-                        payload,
-                        cache_source: "cache".into(),
-                    });
-                } else {
-                    logger().info(
-                        "cache.invalid",
-                        json!({
-                            "source": "redis"
-                        }),
-                    );
-                }
             }
 
             if let Some(payload) = self.stations.load_latest_payload().await? {
@@ -423,13 +351,12 @@ impl AppState {
                         .context("failed to compute database fingerprint")?;
                     if sanitized.upgraded {
                         logger().info(
-                            "cache.upgraded",
+                            "stations.payload_upgraded",
                             json!({
                                 "source": "database"
                             }),
                         );
                     }
-                    self.write_stations_to_cache(&payload).await?;
                     self.cache_in_memory(payload.clone(), "database").await;
                     let processed_key = payload.processed_cache_key().unwrap_or_else(|_| {
                         payload
@@ -444,14 +371,14 @@ impl AppState {
                         payload,
                         cache_source: "database".into(),
                     });
-                } else {
-                    logger().info(
-                        "stations.payload_invalid",
-                        json!({
-                            "source": "database"
-                        }),
-                    );
                 }
+
+                logger().info(
+                    "stations.payload_invalid",
+                    json!({
+                        "source": "database"
+                    }),
+                );
             }
         }
 
@@ -474,29 +401,34 @@ impl AppState {
         let process_guard = self.refresh_mutex.lock().await;
         let lock = self.try_acquire_refresh_lock().await?;
         drop(process_guard);
+
         if let Some(refresh_lock) = lock {
             return self.perform_refresh_with_lock(refresh_lock).await;
         }
+
         logger().info(
             "stations.refresh.waiting",
             json!({
                 "lockKey": self.config.refresh_lock_key,
-                "ttlSeconds": self.config.refresh_lock_ttl_seconds
+                "retryAttempts": self.config.refresh_lock_retry_attempts
             }),
         );
+
         self.wait_for_external_refresh().await
     }
 
     async fn perform_refresh_with_lock(
         &self,
-        _lock: RefreshLockGuard,
+        _lock: PgRefreshLockGuard,
     ) -> anyhow::Result<StationsPayload> {
         let mut result = refresh::run_refresh(self).await?;
         result
             .payload
             .ensure_fingerprint()
             .context("failed to compute refreshed fingerprint")?;
-        self.write_stations_to_cache(&result.payload).await?;
+
+        self.update_cache_state_marker().await?;
+
         self.cache_in_memory(result.payload.clone(), "radio-browser")
             .await;
         self.ensure_processed(
@@ -526,32 +458,48 @@ impl AppState {
         });
     }
 
-    async fn ensure_cache_version_sync(&self) -> anyhow::Result<()> {
-        let key = self.config.cache_version_key.trim();
-        if key.is_empty() {
-            return Ok(());
-        }
-        let mut conn = self.redis.get().await?;
-        let current: Option<String> = conn.get(key).await?;
-        let mut stored = self.cache_version.write().await;
+    async fn read_station_state_updated_at(&self) -> anyhow::Result<Option<DateTime<Utc>>> {
+        Ok(sqlx::query_scalar(
+            r#"
+            SELECT updated_at
+            FROM station_state
+            WHERE id = TRUE
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&self.postgres)
+        .await?)
+    }
+
+    async fn ensure_cache_state_sync(&self) -> anyhow::Result<()> {
+        let current = self.read_station_state_updated_at().await?;
+        let mut stored = self.cache_state_updated_at.write().await;
         let changed = current != *stored;
         if changed {
             if stored.is_some() || current.is_some() {
                 logger().info(
-                    "cache.version.changed",
+                    "stations.state.changed",
                     json!({
-                        "previous": stored.clone(),
-                        "next": current.clone()
+                        "previous": stored.as_ref().map(|value| value.to_rfc3339()),
+                        "next": current.as_ref().map(|value| value.to_rfc3339())
                     }),
                 );
             }
             *stored = current;
         }
         drop(stored);
+
         if changed {
             *self.memory_cache.write().await = None;
             *self.processed_cache.write().await = None;
         }
+
+        Ok(())
+    }
+
+    async fn update_cache_state_marker(&self) -> anyhow::Result<()> {
+        let current = self.read_station_state_updated_at().await?;
+        *self.cache_state_updated_at.write().await = current;
         Ok(())
     }
 
@@ -572,100 +520,69 @@ impl AppState {
         })
     }
 
-    async fn read_stations_from_cache(&self) -> anyhow::Result<Option<StationsPayload>> {
-        self.cache_client.read().await
-    }
-
-    async fn write_stations_to_cache(&self, payload: &StationsPayload) -> anyhow::Result<()> {
-        if self.config.cache_key.is_empty() {
-            return Ok(());
-        }
-        self.cache_client.write(payload).await?;
-        self.update_cache_version(payload).await?;
-        Ok(())
-    }
-
-    async fn update_cache_version(&self, payload: &StationsPayload) -> anyhow::Result<()> {
-        let key = self.config.cache_version_key.trim();
-        if key.is_empty() {
-            return Ok(());
-        }
-        let version = payload
-            .fingerprint
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let mut conn = self.redis.get().await?;
-        let _: () = conn.set(key, &version).await?;
-        {
-            let mut stored = self.cache_version.write().await;
-            *stored = Some(version.clone());
-        }
-        logger().info(
-            "stations.cache.version",
-            json!({
-                "version": version
-            }),
-        );
-        Ok(())
-    }
-
-    async fn try_acquire_refresh_lock(&self) -> anyhow::Result<Option<RefreshLockGuard>> {
+    async fn try_acquire_refresh_lock(&self) -> anyhow::Result<Option<PgRefreshLockGuard>> {
         let key = self.config.refresh_lock_key.trim();
         if key.is_empty() {
-            return Ok(Some(RefreshLockGuard::noop()));
+            return Ok(Some(PgRefreshLockGuard::noop()));
         }
-        let mut conn = self.redis.get().await?;
-        let ttl = self.config.refresh_lock_ttl_seconds.max(1) as usize;
-        let response: Option<String> = redis::cmd("SET")
-            .arg(key)
-            .arg(&self.refresh_lock_value)
-            .arg("NX")
-            .arg("EX")
-            .arg(ttl)
-            .query_async(&mut conn)
-            .await?;
-        if response.is_some() {
-            Ok(Some(RefreshLockGuard::new(
-                self.redis.clone(),
-                key.to_string(),
-                self.refresh_lock_value.clone(),
-            )))
+
+        let mut conn = self.postgres.acquire().await?;
+        let locked: bool =
+            sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtextextended($1, 0))")
+                .bind(key)
+                .fetch_one(&mut *conn)
+                .await?;
+
+        if locked {
+            Ok(Some(PgRefreshLockGuard::new(conn, key.to_string())))
         } else {
             Ok(None)
         }
     }
 
     async fn wait_for_external_refresh(&self) -> anyhow::Result<StationsPayload> {
+        let initial = self.read_station_state_updated_at().await?;
+
         for attempt in 0..self.config.refresh_lock_retry_attempts {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            if let Some(payload) = self.read_stations_from_cache().await? {
-                if let Some(sanitized) = self.sanitize_payload(payload) {
-                    let mut payload = sanitized.payload;
-                    payload
-                        .ensure_fingerprint()
-                        .context("failed to compute cache fingerprint")?;
-                    self.ensure_cache_version_sync().await?;
-                    self.cache_in_memory(payload.clone(), "cache").await;
-                    self.ensure_processed(
-                        &payload.processed_cache_key().unwrap_or_else(|_| {
-                            payload
-                                .fingerprint
-                                .clone()
-                                .unwrap_or_else(|| "cache".into())
-                        }),
-                        &payload.stations,
-                    )
-                    .await;
-                    logger().info(
-                        "stations.refresh.wait_success",
-                        json!({
-                            "attempt": attempt + 1
-                        }),
-                    );
-                    return Ok(payload);
+
+            let current = self.read_station_state_updated_at().await?;
+            if current.is_some() && current != initial {
+                self.ensure_cache_state_sync().await?;
+
+                if let Some(payload) = self.stations.load_latest_payload().await? {
+                    if let Some(sanitized) = self.sanitize_payload(payload) {
+                        let mut payload = sanitized.payload;
+                        payload
+                            .ensure_fingerprint()
+                            .context("failed to compute database fingerprint")?;
+
+                        self.cache_in_memory(payload.clone(), "database").await;
+                        self.ensure_processed(
+                            &payload.processed_cache_key().unwrap_or_else(|_| {
+                                payload
+                                    .fingerprint
+                                    .clone()
+                                    .unwrap_or_else(|| "database".into())
+                            }),
+                            &payload.stations,
+                        )
+                        .await;
+
+                        logger().info(
+                            "stations.refresh.wait_success",
+                            json!({
+                                "attempt": attempt + 1,
+                                "updatedAt": current.as_ref().map(|value| value.to_rfc3339())
+                            }),
+                        );
+
+                        return Ok(payload);
+                    }
                 }
             }
         }
+
         Err(anyhow::anyhow!(
             "timed out waiting for another refresh task to complete"
         ))
@@ -692,12 +609,6 @@ impl AppState {
             self.config.allow_insecure_transports,
         )
         .map(|(payload, upgraded)| SanitizedPayload { payload, upgraded })
-    }
-
-    pub async fn ping_redis(&self) -> anyhow::Result<()> {
-        let mut conn = self.redis.get().await?;
-        let _: () = conn.ping().await?;
-        Ok(())
     }
 
     pub async fn ping_postgres(&self) -> anyhow::Result<()> {
@@ -739,56 +650,49 @@ fn instant_to_epoch(target: Instant) -> u64 {
         .as_secs()
 }
 
-struct RefreshLockGuard {
-    pool: Option<RedisPool>,
+struct PgRefreshLockGuard {
+    conn: Option<sqlx::pool::PoolConnection<sqlx::Postgres>>,
     key: String,
-    value: String,
     released: bool,
 }
 
-impl RefreshLockGuard {
-    fn new(pool: RedisPool, key: String, value: String) -> Self {
+impl PgRefreshLockGuard {
+    fn new(conn: sqlx::pool::PoolConnection<sqlx::Postgres>, key: String) -> Self {
         Self {
-            pool: Some(pool),
+            conn: Some(conn),
             key,
-            value,
             released: false,
         }
     }
 
     fn noop() -> Self {
         Self {
-            pool: None,
+            conn: None,
             key: String::new(),
-            value: String::new(),
             released: true,
         }
     }
 }
 
-impl Drop for RefreshLockGuard {
+impl Drop for PgRefreshLockGuard {
     fn drop(&mut self) {
         if self.released || self.key.is_empty() {
             return;
         }
-        let Some(pool) = self.pool.clone() else {
+
+        let Some(mut conn) = self.conn.take() else {
             return;
         };
+
         let key = self.key.clone();
-        let value = self.value.clone();
         self.released = true;
+
         tokio::spawn(async move {
-            if let Ok(mut conn) = pool.get().await {
-                let _: Result<i64, _> = redis::cmd("EVAL")
-                    .arg(
-                        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                    )
-                    .arg(1)
-                    .arg(&key)
-                    .arg(&value)
-                    .query_async(&mut conn)
+            let _ =
+                sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock(hashtextextended($1, 0))")
+                    .bind(key)
+                    .fetch_one(&mut *conn)
                     .await;
-            }
         });
     }
 }

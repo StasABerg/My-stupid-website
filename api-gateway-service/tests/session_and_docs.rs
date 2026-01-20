@@ -129,6 +129,11 @@ impl TestEnv {
             "SESSION_SECRET".to_string(),
             "integration_dummy_session_secret_value_that_is_long".to_string(),
         );
+        values.insert("APP_ENV".to_string(), "test".to_string());
+        values.insert(
+            "PG_URL".to_string(),
+            "postgres://user@localhost/db".to_string(),
+        );
         values.insert("PORT".to_string(), "18080".to_string());
         values.insert(
             "RADIO_SERVICE_URL".to_string(),

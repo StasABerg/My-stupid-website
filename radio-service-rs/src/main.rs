@@ -1,5 +1,4 @@
 mod app_state;
-mod cache;
 mod config;
 mod database;
 mod favorites;
@@ -58,7 +57,6 @@ async fn main() -> anyhow::Result<()> {
         "server.initialized",
         json!({
             "port": config.port,
-            "redisConfigured": true,
             "postgresConfigured": true,
         }),
     );

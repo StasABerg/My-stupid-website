@@ -1,18 +1,17 @@
-use crate::config::{Config, SessionStoreConfig};
+use crate::config::Config;
 use crate::logger::Logger;
-use crate::redis_client::build_redis_client;
 use anyhow::{Result, anyhow};
 use hmac::{Hmac, Mac};
 use http::{HeaderMap, Method, header};
-use rand::{RngCore, SeedableRng, rngs::StdRng};
-use redis::AsyncCommands;
-use redis::aio::ConnectionManager;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::Mutex;
+use tokio::time;
 use url::form_urlencoded;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -51,42 +50,27 @@ pub struct SessionValidationError {
 }
 
 impl SessionManager {
-    pub async fn new(config: Arc<Config>, logger: Logger) -> Result<Self> {
+    pub async fn new(config: Arc<Config>, logger: Logger, postgres: PgPool) -> Result<Self> {
         let ttl = config.session.max_age;
-        let mut session_secret = config.session.secret.clone();
-        let store = SessionStore::new(&config.session.store, ttl).await?;
-        if config.session.secret_generated
-            && let Some(redis) = store.redis_handle()
-        {
-            if let Err(error) = synchronize_secret(redis, &mut session_secret).await {
-                logger.warn(
-                    "session.secret_sync_failed",
-                    serde_json::json!({ "error": error.to_string() }),
-                );
-            } else {
-                logger.info(
-                    "session.secret_synchronized",
-                    serde_json::json!({ "source": "redis" }),
-                );
-            }
-        }
-
+        let session_secret = config.session.secret.clone();
         let proof_secret = if config.csrf_proof_secret.is_empty() {
-            session_secret.clone()
+            session_secret
         } else {
             config.csrf_proof_secret.clone()
         };
 
-        if config.csrf_proof_secret_generated {
-            logger.warn(
-                "session.csrf_proof_secret_derived",
-                serde_json::json!({
-                    "message": "CSRF proof secret derived from session secret; provide CSRF_PROOF_SECRET for stronger guarantees."
-                }),
-            );
-        }
+        let (store, csrf_store) = if config.app_env.eq_ignore_ascii_case("test") {
+            (SessionStore::memory(), CsrfStore::memory())
+        } else {
+            (
+                SessionStore::postgres(postgres.clone()),
+                CsrfStore::postgres(postgres.clone()),
+            )
+        };
 
-        let csrf_store = CsrfStore::new(store.redis_handle(), ttl);
+        if !config.app_env.eq_ignore_ascii_case("test") {
+            spawn_cleanup(postgres, logger.clone());
+        }
 
         Ok(Self {
             cookie_name: config.session.cookie_name.clone(),
@@ -114,8 +98,9 @@ impl SessionManager {
             expires_at,
             csrf_proof: Some(csrf_proof.clone()),
         };
+
         self.store.set(&session_id, &record).await?;
-        self.record_issued_session(&record).await;
+        self.csrf_store.store_record(&record.nonce, &record).await?;
 
         Ok(IssuedSession {
             session_id,
@@ -123,15 +108,6 @@ impl SessionManager {
             csrf_proof,
             expires_at,
         })
-    }
-
-    async fn record_issued_session(&self, record: &SessionRecord) {
-        if let Err(error) = self.csrf_store.store_record(&record.nonce, record).await {
-            self.logger.warn(
-                "session.csrf_store_failed",
-                serde_json::json!({ "error": error.to_string() }),
-            );
-        }
     }
 
     pub async fn validate_session(
@@ -191,18 +167,19 @@ impl SessionManager {
                         status: 500,
                         message: "Session store unavailable",
                     })?;
+
                 return Ok(SessionSnapshot {
                     session_id: session_cookie,
                     nonce: record.nonce.clone(),
                     csrf_proof: record.csrf_proof.clone().unwrap_or_default(),
                     expires_at: record.expires_at,
                 });
-            } else {
-                self.logger.warn(
-                    "session.csrf_proof_invalid",
-                    serde_json::json!({ "proofLength": proof.len() }),
-                );
             }
+
+            self.logger.warn(
+                "session.csrf_proof_invalid",
+                serde_json::json!({ "proofLength": proof.len() }),
+            );
         }
 
         let mut final_nonce = if record.nonce.is_empty() {
@@ -218,55 +195,44 @@ impl SessionManager {
         let mut final_proof = record.csrf_proof.clone();
 
         if final_nonce.is_none()
-            && let Some(token) = csrf_token.as_deref()
+            && let Some(token) = csrf_token.as_ref()
             && let Some(csrf_record) = self.csrf_store.load_by_token(token).await
         {
             if current_millis() > csrf_record.expires_at {
-                let _ = self
-                    .csrf_store
+                self.csrf_store
                     .delete(Some(token), csrf_record.csrf_proof.as_deref())
-                    .await;
+                    .await
+                    .ok();
             } else {
                 final_nonce = Some(csrf_record.nonce.clone());
-                final_expires_at = Some(csrf_record.expires_at);
                 final_proof = csrf_record.csrf_proof.clone();
+                final_expires_at = Some(csrf_record.expires_at);
             }
         }
 
         if final_nonce.is_none()
-            && let Some(proof) = csrf_proof.as_deref()
+            && let Some(proof) = csrf_proof.as_ref()
             && let Some(proof_record) = self.csrf_store.load_by_proof(proof).await
         {
             if current_millis() > proof_record.expires_at {
-                let _ = self
-                    .csrf_store
-                    .delete(Some(&proof_record.nonce), Some(proof))
-                    .await;
+                self.csrf_store.delete(None, Some(proof)).await.ok();
             } else {
                 final_nonce = Some(proof_record.nonce.clone());
-                final_expires_at = Some(proof_record.expires_at);
                 final_proof = proof_record.csrf_proof.clone();
-                if csrf_token.is_none() {
-                    csrf_token = Some(proof_record.nonce);
-                }
+                final_expires_at = Some(proof_record.expires_at);
             }
         }
 
-        let final_nonce = final_nonce.ok_or(SessionValidationError {
-            status: 401,
-            message: "Session required",
-        })?;
-
         let expires = final_expires_at.ok_or(SessionValidationError {
             status: 401,
-            message: "Invalid session",
+            message: "Session expired",
         })?;
-
         if current_millis() > expires {
-            let _ = self
-                .csrf_store
-                .delete(Some(&final_nonce), final_proof.as_deref())
-                .await;
+            self.store.delete(&session_cookie).await.ok();
+            self.csrf_store
+                .delete(final_nonce.as_deref(), final_proof.as_deref())
+                .await
+                .ok();
             return Err(SessionValidationError {
                 status: 401,
                 message: "Session expired",
@@ -274,19 +240,46 @@ impl SessionManager {
         }
 
         let csrf_required = !matches!(method, &Method::GET | &Method::HEAD | &Method::OPTIONS);
-        if csrf_required
-            && (csrf_token.as_deref().is_none() || csrf_token.as_deref() != Some(&final_nonce))
-        {
-            return Err(SessionValidationError {
+        if csrf_required {
+            let token = csrf_token.ok_or(SessionValidationError {
                 status: 403,
                 message: "Missing or invalid CSRF token",
-            });
+            })?;
+            let proof = csrf_proof.ok_or(SessionValidationError {
+                status: 403,
+                message: "Missing or invalid CSRF proof",
+            })?;
+
+            let nonce = final_nonce.clone().ok_or(SessionValidationError {
+                status: 403,
+                message: "Missing or invalid CSRF token",
+            })?;
+
+            if token != nonce {
+                return Err(SessionValidationError {
+                    status: 403,
+                    message: "Missing or invalid CSRF token",
+                });
+            }
+
+            if let Some(verified) = verify_csrf_proof(&self.proof_secret, &proof) {
+                if verified.nonce != nonce {
+                    return Err(SessionValidationError {
+                        status: 403,
+                        message: "Missing or invalid CSRF proof",
+                    });
+                }
+            } else {
+                return Err(SessionValidationError {
+                    status: 403,
+                    message: "Missing or invalid CSRF proof",
+                });
+            }
         }
 
-        record.nonce = final_nonce.clone();
+        record.nonce = final_nonce.unwrap_or_else(|| record.nonce.clone());
         record.expires_at = current_millis() + self.ttl.as_millis() as i64;
         record.csrf_proof = final_proof
-            .clone()
             .or_else(|| build_csrf_proof(&self.proof_secret, &record.nonce, record.expires_at));
 
         self.persist_session(&session_cookie, &record)
@@ -306,28 +299,335 @@ impl SessionManager {
 
     async fn persist_session(&self, session_id: &str, record: &SessionRecord) -> Result<()> {
         self.store.set(session_id, record).await?;
-        self.record_issued_session(record).await;
+        self.csrf_store.store_record(&record.nonce, record).await?;
         Ok(())
     }
 }
 
+fn spawn_cleanup(pool: PgPool, logger: Logger) {
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(60 * 10));
+        loop {
+            interval.tick().await;
+            for table in ["gateway_sessions", "gateway_csrf"] {
+                let query = format!(
+                    "WITH doomed AS (SELECT ctid FROM {table} WHERE expires_at <= NOW() LIMIT 5000) DELETE FROM {table} WHERE ctid IN (SELECT ctid FROM doomed)"
+                );
+                if let Err(error) = sqlx::query(&query).execute(&pool).await {
+                    logger.warn(
+                        "session.cleanup_failed",
+                        serde_json::json!({ "table": table, "error": error.to_string() }),
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[derive(Clone)]
+enum SessionStore {
+    Postgres(PgPool),
+    Memory(Arc<MemorySessionStore>),
+}
+
+impl SessionStore {
+    fn postgres(pool: PgPool) -> Self {
+        Self::Postgres(pool)
+    }
+
+    fn memory() -> Self {
+        Self::Memory(Arc::new(MemorySessionStore::default()))
+    }
+
+    async fn get(&self, session_id: &str) -> Result<Option<SessionRecord>> {
+        match self {
+            SessionStore::Postgres(pool) => {
+                let record: Option<sqlx::types::Json<SessionRecord>> = sqlx::query_scalar(
+                    r#"
+                    SELECT record
+                    FROM gateway_sessions
+                    WHERE session_id = $1
+                      AND expires_at > NOW()
+                    "#,
+                )
+                .bind(session_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(record.map(|json| json.0))
+            }
+            SessionStore::Memory(store) => store.get(session_id).await,
+        }
+    }
+
+    async fn set(&self, session_id: &str, record: &SessionRecord) -> Result<()> {
+        match self {
+            SessionStore::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO gateway_sessions (session_id, record, expires_at, updated_at)
+                    VALUES ($1, $2, to_timestamp($3::double precision / 1000.0), NOW())
+                    ON CONFLICT (session_id) DO UPDATE
+                      SET record = EXCLUDED.record,
+                          expires_at = EXCLUDED.expires_at,
+                          updated_at = NOW()
+                    "#,
+                )
+                .bind(session_id)
+                .bind(serde_json::to_value(record)?)
+                .bind(record.expires_at)
+                .execute(pool)
+                .await?;
+                Ok(())
+            }
+            SessionStore::Memory(store) => store.set(session_id, record).await,
+        }
+    }
+
+    async fn delete(&self, session_id: &str) -> Result<()> {
+        match self {
+            SessionStore::Postgres(pool) => {
+                sqlx::query("DELETE FROM gateway_sessions WHERE session_id = $1")
+                    .bind(session_id)
+                    .execute(pool)
+                    .await?;
+                Ok(())
+            }
+            SessionStore::Memory(store) => store.delete(session_id).await,
+        }
+    }
+}
+
+#[derive(Default)]
+struct MemorySessionStore {
+    entries: Mutex<HashMap<String, SessionRecord>>,
+}
+
+impl MemorySessionStore {
+    async fn get(&self, session_id: &str) -> Result<Option<SessionRecord>> {
+        let mut entries = self.entries.lock().await;
+        if let Some(record) = entries.get(session_id).cloned() {
+            if current_millis() > record.expires_at {
+                entries.remove(session_id);
+                return Ok(None);
+            }
+            return Ok(Some(record));
+        }
+        Ok(None)
+    }
+
+    async fn set(&self, session_id: &str, record: &SessionRecord) -> Result<()> {
+        let mut entries = self.entries.lock().await;
+        entries.insert(session_id.to_string(), record.clone());
+        Ok(())
+    }
+
+    async fn delete(&self, session_id: &str) -> Result<()> {
+        let mut entries = self.entries.lock().await;
+        entries.remove(session_id);
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+enum CsrfStore {
+    Postgres(PgPool),
+    Memory(Arc<MemoryCsrfStore>),
+}
+
+impl CsrfStore {
+    fn postgres(pool: PgPool) -> Self {
+        Self::Postgres(pool)
+    }
+
+    fn memory() -> Self {
+        Self::Memory(Arc::new(MemoryCsrfStore::default()))
+    }
+
+    async fn store_record(&self, token: &str, record: &SessionRecord) -> Result<()> {
+        let stored = StoredCsrfRecord {
+            nonce: record.nonce.clone(),
+            expires_at: record.expires_at,
+            csrf_proof: record.csrf_proof.clone(),
+        };
+
+        match self {
+            CsrfStore::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO gateway_csrf (csrf_token, csrf_proof, record, expires_at, updated_at)
+                    VALUES ($1, $2, $3, to_timestamp($4::double precision / 1000.0), NOW())
+                    ON CONFLICT (csrf_token) DO UPDATE
+                      SET csrf_proof = EXCLUDED.csrf_proof,
+                          record = EXCLUDED.record,
+                          expires_at = EXCLUDED.expires_at,
+                          updated_at = NOW()
+                    "#,
+                )
+                .bind(token)
+                .bind(stored.csrf_proof.clone())
+                .bind(serde_json::to_value(&stored)?)
+                .bind(stored.expires_at)
+                .execute(pool)
+                .await?;
+                Ok(())
+            }
+            CsrfStore::Memory(store) => store.store(token, stored).await,
+        }
+    }
+
+    async fn load_by_token(&self, token: &str) -> Option<StoredCsrfRecord> {
+        match self {
+            CsrfStore::Postgres(pool) => {
+                let record: Option<sqlx::types::Json<StoredCsrfRecord>> = sqlx::query_scalar(
+                    r#"
+                    SELECT record
+                    FROM gateway_csrf
+                    WHERE csrf_token = $1
+                      AND expires_at > NOW()
+                    "#,
+                )
+                .bind(token)
+                .fetch_optional(pool)
+                .await
+                .ok()?;
+                record.map(|json| json.0)
+            }
+            CsrfStore::Memory(store) => store.load_by_token(token).await,
+        }
+    }
+
+    async fn load_by_proof(&self, proof: &str) -> Option<StoredCsrfRecord> {
+        match self {
+            CsrfStore::Postgres(pool) => {
+                let record: Option<sqlx::types::Json<StoredCsrfRecord>> = sqlx::query_scalar(
+                    r#"
+                    SELECT record
+                    FROM gateway_csrf
+                    WHERE csrf_proof = $1
+                      AND expires_at > NOW()
+                    "#,
+                )
+                .bind(proof)
+                .fetch_optional(pool)
+                .await
+                .ok()?;
+                record.map(|json| json.0)
+            }
+            CsrfStore::Memory(store) => store.load_by_proof(proof).await,
+        }
+    }
+
+    async fn delete(&self, token: Option<&str>, proof: Option<&str>) -> Result<()> {
+        match self {
+            CsrfStore::Postgres(pool) => {
+                if let Some(token) = token {
+                    sqlx::query("DELETE FROM gateway_csrf WHERE csrf_token = $1")
+                        .bind(token)
+                        .execute(pool)
+                        .await?;
+                }
+                if let Some(proof) = proof {
+                    sqlx::query("DELETE FROM gateway_csrf WHERE csrf_proof = $1")
+                        .bind(proof)
+                        .execute(pool)
+                        .await?;
+                }
+                Ok(())
+            }
+            CsrfStore::Memory(store) => store.delete(token, proof).await,
+        }
+    }
+}
+
+#[derive(Default)]
+struct MemoryCsrfStore {
+    sessions: Mutex<HashMap<String, StoredCsrfRecord>>,
+    proofs: Mutex<HashMap<String, StoredCsrfRecord>>,
+}
+
+impl MemoryCsrfStore {
+    async fn store(&self, token: &str, record: StoredCsrfRecord) -> Result<()> {
+        let mut sessions = self.sessions.lock().await;
+        sessions.insert(token.to_string(), record.clone());
+        drop(sessions);
+
+        if let Some(proof) = &record.csrf_proof {
+            let mut proofs = self.proofs.lock().await;
+            proofs.insert(proof.clone(), record);
+        }
+        Ok(())
+    }
+
+    async fn load_by_token(&self, token: &str) -> Option<StoredCsrfRecord> {
+        let mut sessions = self.sessions.lock().await;
+        let record = sessions.get(token).cloned()?;
+        if current_millis() > record.expires_at {
+            sessions.remove(token);
+            if let Some(proof) = &record.csrf_proof {
+                self.proofs.lock().await.remove(proof);
+            }
+            None
+        } else {
+            Some(record)
+        }
+    }
+
+    async fn load_by_proof(&self, proof: &str) -> Option<StoredCsrfRecord> {
+        let mut proofs = self.proofs.lock().await;
+        let record = proofs.get(proof).cloned()?;
+        if current_millis() > record.expires_at {
+            proofs.remove(proof);
+            self.sessions.lock().await.remove(&record.nonce);
+            None
+        } else {
+            Some(record)
+        }
+    }
+
+    async fn delete(&self, token: Option<&str>, proof: Option<&str>) -> Result<()> {
+        if let Some(token) = token {
+            self.sessions.lock().await.remove(token);
+        }
+        if let Some(proof) = proof {
+            self.proofs.lock().await.remove(proof);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct SessionRecord {
+    nonce: String,
+    expires_at: i64,
+    csrf_proof: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct StoredCsrfRecord {
+    nonce: String,
+    expires_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    csrf_proof: Option<String>,
+}
+
 fn current_millis() -> i64 {
-    (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0)))
-    .as_millis() as i64
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 fn random_hex(bytes: usize) -> String {
-    let mut buffer = vec![0u8; bytes];
-    let mut rng = StdRng::from_os_rng();
-    rng.fill_bytes(&mut buffer);
-    hex::encode(buffer)
+    let mut rng = rand::rng();
+    let mut buf = vec![0u8; bytes];
+    rng.fill_bytes(&mut buf);
+    hex::encode(buf)
 }
 
-fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
+fn header_value(headers: &HeaderMap, key: &str) -> Option<String> {
     headers
-        .get(name)
+        .get(key)
         .and_then(|value| value.to_str().ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -337,14 +637,10 @@ fn query_param(uri: &http::Uri, key: &str) -> Option<String> {
     let query = uri.query()?;
     form_urlencoded::parse(query.as_bytes())
         .find(|(k, _)| k == key)
-        .map(|(_, v)| v.into_owned())
-        .filter(|value| !value.is_empty())
+        .map(|(_, v)| v.to_string())
 }
 
 fn build_csrf_proof(secret: &str, nonce: &str, expires_at: i64) -> Option<String> {
-    if secret.is_empty() || nonce.is_empty() {
-        return None;
-    }
     let expires_segment = if expires_at > 0 {
         format!("{:x}", expires_at)
     } else {
@@ -388,364 +684,6 @@ fn verify_csrf_proof(secret: &str, proof: &str) -> Option<StoredCsrfRecord> {
         expires_at,
         csrf_proof: Some(proof.to_string()),
     })
-}
-
-async fn synchronize_secret(redis: &RedisHandle, session_secret: &mut String) -> Result<()> {
-    let mut conn = redis.manager.clone();
-    let key = format!("{}__secret", redis.key_prefix);
-    let _: () = redis::cmd("SETNX")
-        .arg(&key)
-        .arg(session_secret.as_str())
-        .query_async(&mut conn)
-        .await
-        .map_err(|e| anyhow!(e.to_string()))?;
-    if let Ok(shared) = conn.get::<_, String>(&key).await
-        && !shared.is_empty()
-    {
-        *session_secret = shared;
-    }
-    Ok(())
-}
-
-#[derive(Clone)]
-struct SessionStore {
-    backend: SessionBackend,
-    ttl: Duration,
-    key_prefix: String,
-    redis_handle: Option<RedisHandle>,
-}
-
-impl SessionStore {
-    async fn new(config: &SessionStoreConfig, ttl: Duration) -> Result<Self> {
-        match config {
-            SessionStoreConfig::Memory => Ok(Self {
-                backend: SessionBackend::Memory(Arc::new(MemoryStore::default())),
-                ttl,
-                key_prefix: "gateway:session:".into(),
-                redis_handle: None,
-            }),
-            SessionStoreConfig::Redis(redis_cfg) => {
-                let client = build_redis_client(&redis_cfg.url, redis_cfg.tls_reject_unauthorized)?;
-                let manager = ConnectionManager::new(client).await?;
-                let handle = RedisHandle {
-                    manager: manager.clone(),
-                    key_prefix: redis_cfg.key_prefix.clone(),
-                };
-                Ok(Self {
-                    backend: SessionBackend::Redis(Arc::new(RedisStore { manager })),
-                    ttl,
-                    key_prefix: redis_cfg.key_prefix.clone(),
-                    redis_handle: Some(handle),
-                })
-            }
-        }
-    }
-
-    fn redis_handle(&self) -> Option<&RedisHandle> {
-        self.redis_handle.as_ref()
-    }
-
-    fn redis_key(&self, session_id: &str) -> String {
-        format!("{}{}", self.key_prefix, session_id)
-    }
-
-    async fn get(&self, session_id: &str) -> Result<Option<SessionRecord>> {
-        match &self.backend {
-            SessionBackend::Memory(store) => store.get(session_id).await,
-            SessionBackend::Redis(store) => store.get(&self.redis_key(session_id)).await,
-        }
-    }
-
-    async fn set(&self, session_id: &str, record: &SessionRecord) -> Result<()> {
-        match &self.backend {
-            SessionBackend::Memory(store) => store.set(session_id, record.clone(), self.ttl).await,
-            SessionBackend::Redis(store) => {
-                store
-                    .set(&self.redis_key(session_id), record, self.ttl)
-                    .await
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-struct RedisHandle {
-    manager: ConnectionManager,
-    key_prefix: String,
-}
-
-#[derive(Clone)]
-enum SessionBackend {
-    Memory(Arc<MemoryStore>),
-    Redis(Arc<RedisStore>),
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct SessionRecord {
-    nonce: String,
-    expires_at: i64,
-    csrf_proof: Option<String>,
-}
-
-#[derive(Default)]
-struct MemoryStore {
-    entries: Mutex<HashMap<String, MemoryEntry>>,
-}
-
-struct MemoryEntry {
-    record: SessionRecord,
-    expires_at: Instant,
-}
-
-impl MemoryStore {
-    async fn get(&self, session_id: &str) -> Result<Option<SessionRecord>> {
-        let mut guard = self.entries.lock().await;
-        if let Some(entry) = guard.get(session_id)
-            && Instant::now() < entry.expires_at
-        {
-            return Ok(Some(entry.record.clone()));
-        }
-        guard.remove(session_id);
-        Ok(None)
-    }
-
-    async fn set(&self, session_id: &str, record: SessionRecord, ttl: Duration) -> Result<()> {
-        let mut guard = self.entries.lock().await;
-        guard.insert(
-            session_id.to_string(),
-            MemoryEntry {
-                record,
-                expires_at: Instant::now() + ttl,
-            },
-        );
-        Ok(())
-    }
-}
-
-struct RedisStore {
-    manager: ConnectionManager,
-}
-
-impl RedisStore {
-    async fn get(&self, key: &str) -> Result<Option<SessionRecord>> {
-        let mut conn = self.manager.clone();
-        let raw: Option<String> = conn.get(key).await?;
-        if let Some(value) = raw {
-            let record = serde_json::from_str(&value)?;
-            Ok(Some(record))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn set(&self, key: &str, record: &SessionRecord, ttl: Duration) -> Result<()> {
-        let mut conn = self.manager.clone();
-        let payload = serde_json::to_string(record)?;
-        let seconds = ttl.as_secs().max(1);
-        conn.set_ex::<_, _, ()>(key, payload, seconds).await?;
-        Ok(())
-    }
-}
-
-enum CsrfStore {
-    Redis(Arc<RedisCsrfStore>),
-    Memory(Arc<MemoryCsrfStore>),
-}
-
-impl Clone for CsrfStore {
-    fn clone(&self) -> Self {
-        match self {
-            CsrfStore::Redis(store) => CsrfStore::Redis(store.clone()),
-            CsrfStore::Memory(store) => CsrfStore::Memory(store.clone()),
-        }
-    }
-}
-
-impl CsrfStore {
-    fn new(handle: Option<&RedisHandle>, ttl: Duration) -> Self {
-        if let Some(redis) = handle {
-            CsrfStore::Redis(Arc::new(RedisCsrfStore::new(redis, ttl)))
-        } else {
-            CsrfStore::Memory(Arc::new(MemoryCsrfStore::new(ttl)))
-        }
-    }
-
-    async fn store_record(&self, token: &str, record: &SessionRecord) -> Result<()> {
-        let stored = StoredCsrfRecord {
-            nonce: record.nonce.clone(),
-            expires_at: record.expires_at,
-            csrf_proof: record.csrf_proof.clone(),
-        };
-        match self {
-            CsrfStore::Redis(store) => store.store(token, &stored).await,
-            CsrfStore::Memory(store) => store.store(token, stored).await,
-        }
-    }
-
-    async fn load_by_token(&self, token: &str) -> Option<StoredCsrfRecord> {
-        match self {
-            CsrfStore::Redis(store) => store.load_by_token(token).await,
-            CsrfStore::Memory(store) => store.load_by_token(token).await,
-        }
-    }
-
-    async fn load_by_proof(&self, proof: &str) -> Option<StoredCsrfRecord> {
-        match self {
-            CsrfStore::Redis(store) => store.load_by_proof(proof).await,
-            CsrfStore::Memory(store) => store.load_by_proof(proof).await,
-        }
-    }
-
-    async fn delete(&self, token: Option<&str>, proof: Option<&str>) -> Result<()> {
-        match self {
-            CsrfStore::Redis(store) => store.delete(token, proof).await,
-            CsrfStore::Memory(store) => store.delete(token, proof).await,
-        }
-    }
-}
-
-struct RedisCsrfStore {
-    manager: ConnectionManager,
-    session_key_prefix: String,
-    proof_key_prefix: String,
-    ttl_seconds: u64,
-}
-
-impl RedisCsrfStore {
-    fn new(handle: &RedisHandle, ttl: Duration) -> Self {
-        Self {
-            manager: handle.manager.clone(),
-            session_key_prefix: format!("{}nonce:", handle.key_prefix),
-            proof_key_prefix: format!("{}proof:", handle.key_prefix),
-            ttl_seconds: ttl.as_secs().max(1),
-        }
-    }
-
-    fn session_key(&self, token: &str) -> String {
-        format!("{}{}", self.session_key_prefix, token)
-    }
-
-    fn proof_key(&self, proof: &str) -> String {
-        format!("{}{}", self.proof_key_prefix, proof)
-    }
-
-    async fn store(&self, token: &str, record: &StoredCsrfRecord) -> Result<()> {
-        let mut conn = self.manager.clone();
-        let payload = serde_json::to_string(record)?;
-        conn.set_ex::<_, _, ()>(&self.session_key(token), payload.clone(), self.ttl_seconds)
-            .await?;
-        if let Some(proof) = &record.csrf_proof {
-            conn.set_ex::<_, _, ()>(&self.proof_key(proof), payload, self.ttl_seconds)
-                .await?;
-        }
-        Ok(())
-    }
-
-    async fn load_by_token(&self, token: &str) -> Option<StoredCsrfRecord> {
-        let mut conn = self.manager.clone();
-        let raw: Option<String> = conn.get(self.session_key(token)).await.ok()?;
-        raw.and_then(|value| serde_json::from_str(&value).ok())
-    }
-
-    async fn load_by_proof(&self, proof: &str) -> Option<StoredCsrfRecord> {
-        let mut conn = self.manager.clone();
-        let raw: Option<String> = conn.get(self.proof_key(proof)).await.ok()?;
-        raw.and_then(|value| serde_json::from_str(&value).ok())
-    }
-
-    async fn delete(&self, token: Option<&str>, proof: Option<&str>) -> Result<()> {
-        if token.is_none() && proof.is_none() {
-            return Ok(());
-        }
-        let mut conn = self.manager.clone();
-        let mut keys = Vec::new();
-        if let Some(token) = token {
-            keys.push(self.session_key(token));
-        }
-        if let Some(proof) = proof {
-            keys.push(self.proof_key(proof));
-        }
-        if !keys.is_empty() {
-            let _: () = redis::cmd("DEL").arg(keys).query_async(&mut conn).await?;
-        }
-        Ok(())
-    }
-}
-
-struct MemoryCsrfStore {
-    sessions: Mutex<HashMap<String, StoredCsrfRecord>>,
-    proofs: Mutex<HashMap<String, StoredCsrfRecord>>,
-}
-
-impl MemoryCsrfStore {
-    fn new(_ttl: Duration) -> Self {
-        Self {
-            sessions: Mutex::new(HashMap::new()),
-            proofs: Mutex::new(HashMap::new()),
-        }
-    }
-
-    async fn store(&self, token: &str, record: StoredCsrfRecord) -> Result<()> {
-        let mut sessions = self.sessions.lock().await;
-        sessions.insert(token.to_string(), record.clone());
-        drop(sessions);
-        if let Some(proof) = &record.csrf_proof {
-            let mut proofs = self.proofs.lock().await;
-            proofs.insert(proof.clone(), record.clone());
-        }
-        // Lazy expiration handled during lookup/delete.
-        Ok(())
-    }
-
-    async fn load_by_token(&self, token: &str) -> Option<StoredCsrfRecord> {
-        let mut sessions = self.sessions.lock().await;
-        if let Some(record) = sessions.get(token).cloned() {
-            if current_millis() > record.expires_at {
-                sessions.remove(token);
-                if let Some(proof) = &record.csrf_proof {
-                    self.proofs.lock().await.remove(proof);
-                }
-                None
-            } else {
-                Some(record)
-            }
-        } else {
-            None
-        }
-    }
-
-    async fn load_by_proof(&self, proof: &str) -> Option<StoredCsrfRecord> {
-        let mut proofs = self.proofs.lock().await;
-        if let Some(record) = proofs.get(proof).cloned() {
-            if current_millis() > record.expires_at {
-                proofs.remove(proof);
-                self.sessions.lock().await.remove(&record.nonce);
-                None
-            } else {
-                Some(record)
-            }
-        } else {
-            None
-        }
-    }
-
-    async fn delete(&self, token: Option<&str>, proof: Option<&str>) -> Result<()> {
-        if let Some(token) = token {
-            self.sessions.lock().await.remove(token);
-        }
-        if let Some(proof) = proof {
-            self.proofs.lock().await.remove(proof);
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct StoredCsrfRecord {
-    nonce: String,
-    expires_at: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    csrf_proof: Option<String>,
 }
 
 fn extract_cookie(headers: &HeaderMap, name: &str) -> Option<String> {

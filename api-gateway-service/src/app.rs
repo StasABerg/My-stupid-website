@@ -9,6 +9,7 @@ use crate::request_context::RequestContextManager;
 use crate::routing::Routing;
 use crate::session::SessionManager;
 use anyhow::Result;
+use anyhow::anyhow;
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
@@ -20,6 +21,8 @@ use axum::routing::{delete, get, head, options, patch, post, put};
 use http::HeaderValue;
 use http_body_util::BodyExt;
 use serde_json::json;
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,7 +53,23 @@ pub async fn build_router_with_proxy(
     logger: Logger,
     proxy: Arc<dyn GatewayProxy>,
 ) -> Result<Router> {
-    let session_manager = Arc::new(SessionManager::new(config.clone(), logger.clone()).await?);
+    let postgres = if config.app_env.eq_ignore_ascii_case("test") {
+        PgPoolOptions::new()
+            .max_connections(config.postgres.max_connections)
+            .connect_lazy(&config.postgres.url)?
+    } else {
+        PgPoolOptions::new()
+            .max_connections(config.postgres.max_connections)
+            .connect(&config.postgres.url)
+            .await?
+    };
+
+    if !config.app_env.eq_ignore_ascii_case("test") {
+        ensure_gateway_schema(&postgres).await?;
+    }
+
+    let session_manager =
+        Arc::new(SessionManager::new(config.clone(), logger.clone(), postgres.clone()).await?);
     let routing = Routing::new(config.clone(), logger.clone());
     routing.validate_base_urls()?;
     let cors = Cors::new(config.allow_origins.clone());
@@ -61,14 +80,9 @@ pub async fn build_router_with_proxy(
         .timeout(Duration::from_secs(10))
         .build()?;
 
-    let redis_cache_client = if let Some(redis_config) = &config.cache.redis {
-        Some(redis::Client::open(redis_config.url.as_str())?)
-    } else {
-        None
-    };
-
     let state = Arc::new(AppState {
         config,
+        postgres,
         session_manager,
         cors,
         routing,
@@ -77,7 +91,6 @@ pub async fn build_router_with_proxy(
         metrics,
         logger,
         http_client,
-        redis_cache_client,
     });
 
     let request_timeout = state.config.request_timeout;
@@ -131,8 +144,33 @@ pub async fn build_router_with_proxy(
         .layer(timeout_layer))
 }
 
+async fn ensure_gateway_schema(pool: &PgPool) -> Result<()> {
+    let tables = [
+        "public.gateway_sessions",
+        "public.gateway_csrf",
+        "public.gateway_contact_rate_limit",
+        "public.gateway_contact_dedupe",
+    ];
+
+    for table in tables {
+        let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(pool)
+            .await?;
+
+        if !exists {
+            return Err(anyhow!(
+                "missing required table {table}; deploy radio-service-rs migrations first"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 pub struct AppState {
     pub config: Arc<Config>,
+    pub postgres: PgPool,
     pub session_manager: Arc<SessionManager>,
     pub cors: Cors,
     pub routing: Routing,
@@ -141,7 +179,6 @@ pub struct AppState {
     pub metrics: GatewayMetrics,
     pub logger: Logger,
     pub http_client: reqwest::Client,
-    pub redis_cache_client: Option<redis::Client>,
 }
 
 async fn handle_session_options(

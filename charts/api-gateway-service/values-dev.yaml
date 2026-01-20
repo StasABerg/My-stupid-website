@@ -22,6 +22,12 @@ fmd:
   tokenSecretKey: FMD_TOKEN
   tokenOptional: false
 
+postgres:
+  urlSecretRef: radio-service-env-dev
+  urlSecretKey: PG_URL
+  urlOptional: false
+  maxConnections: 10
+
 session:
   secretRef: "radio-service-env-dev"
   secretRefKey: SESSION_SECRET
@@ -32,10 +38,6 @@ cache:
   memory:
     enabled: true
     maxEntries: 100
-  redis:
-    secretName: radio-service-env-dev
-    secretKey: REDIS_URL
-    optional: true
 
 logLevel: debug
 

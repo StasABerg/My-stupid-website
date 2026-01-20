@@ -27,6 +27,8 @@ impl EnvSource for SystemEnv {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub port: u16,
+    pub app_env: String,
+    pub postgres: PostgresConfig,
     pub radio_service_url: String,
     pub terminal_service_url: String,
     pub fmd_service_url: String,
@@ -43,49 +45,28 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug)]
+pub struct PostgresConfig {
+    pub url: String,
+    pub max_connections: u32,
+}
+
+#[derive(Clone, Debug)]
 pub struct SessionConfig {
     pub cookie_name: String,
     pub secret: String,
-    pub secret_generated: bool,
     pub max_age: Duration,
-    pub store: SessionStoreConfig,
-}
-
-#[derive(Clone, Debug)]
-pub enum SessionStoreConfig {
-    Memory,
-    Redis(RedisSessionConfig),
-}
-
-#[derive(Clone, Debug)]
-pub struct RedisSessionConfig {
-    pub url: String,
-    pub key_prefix: String,
-    #[allow(dead_code)]
-    pub connect_timeout_ms: u64,
-    pub tls_reject_unauthorized: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct CacheConfig {
     pub ttl: Duration,
     pub memory: MemoryCacheConfig,
-    pub redis: Option<RedisCacheConfig>,
 }
 
 #[derive(Clone, Debug)]
 pub struct MemoryCacheConfig {
     pub enabled: bool,
     pub max_entries: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct RedisCacheConfig {
-    pub url: String,
-    pub key_prefix: String,
-    #[allow(dead_code)]
-    pub connect_timeout_ms: u64,
-    pub tls_reject_unauthorized: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -157,7 +138,6 @@ impl Config {
 
         let session_secret =
             read_required_secret(env.get("SESSION_SECRET"), "SESSION_SECRET", logger)?;
-        let session_secret_generated = false;
         let csrf_secret = env.get("CSRF_PROOF_SECRET");
         let (csrf_proof_secret, csrf_proof_secret_generated) =
             if let Some(secret) = read_optional_secret(csrf_secret, "CSRF_PROOF_SECRET", logger)? {
@@ -181,29 +161,10 @@ impl Config {
             parse_positive_int(env.get("SESSION_MAX_AGE_SECONDS"), 60 * 60 * 24 * 30);
         let session_max_age = Duration::from_secs(session_max_age_seconds as u64);
 
-        let redis_url = env.get("CACHE_REDIS_URL").or_else(|| env.get("REDIS_URL"));
-        let cache_redis_enabled = redis_url
-            .as_ref()
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false);
-        let cache_redis_config = redis_url
-            .as_ref()
-            .filter(|value| !value.is_empty())
-            .map(|url| RedisCacheConfig {
-                url: url.clone(),
-                key_prefix: env
-                    .get("CACHE_KEY_PREFIX")
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| "gateway:cache:".to_string()),
-                connect_timeout_ms: parse_positive_int(
-                    env.get("CACHE_REDIS_CONNECT_TIMEOUT_MS"),
-                    5_000,
-                ) as u64,
-                tls_reject_unauthorized: parse_bool(
-                    env.get("CACHE_REDIS_TLS_REJECT_UNAUTHORIZED"),
-                    true,
-                ),
-            });
+        let postgres = PostgresConfig {
+            url: read_required_string(env.get("PG_URL"), "PG_URL")?,
+            max_connections: parse_positive_int(env.get("PG_MAX_CONNECTIONS"), 10).max(1) as u32,
+        };
 
         let memory_cache_enabled = parse_bool(env.get("CACHE_MEMORY_ENABLED"), true);
         let memory_cache_max_entries =
@@ -217,21 +178,12 @@ impl Config {
                 enabled: memory_cache_enabled,
                 max_entries: memory_cache_max_entries,
             },
-            redis: if cache_redis_enabled {
-                cache_redis_config
-            } else {
-                None
-            },
         };
-
-        let session_store = resolve_session_store(env, &cache_config, logger)?;
 
         let session_config = SessionConfig {
             cookie_name: session_cookie_name,
             secret: session_secret,
-            secret_generated: session_secret_generated,
             max_age: session_max_age,
-            store: session_store,
         };
 
         let app_env = env
@@ -242,6 +194,8 @@ impl Config {
 
         let config = Self {
             port,
+            app_env,
+            postgres,
             radio_service_url,
             terminal_service_url,
             fmd_service_url,
@@ -257,68 +211,9 @@ impl Config {
             contact: contact_config,
         };
 
-        config.validate(&app_env)?;
+        config.validate()?;
         Ok(config)
     }
-}
-
-fn resolve_session_store(
-    env: &impl EnvSource,
-    cache_config: &CacheConfig,
-    logger: &Logger,
-) -> Result<SessionStoreConfig> {
-    if let Some(url) = env
-        .get("SESSION_REDIS_URL")
-        .filter(|value| !value.trim().is_empty())
-    {
-        return Ok(SessionStoreConfig::Redis(RedisSessionConfig {
-            url,
-            key_prefix: env
-                .get("SESSION_REDIS_KEY_PREFIX")
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "gateway:session:".to_string()),
-            connect_timeout_ms: parse_positive_int(
-                env.get("SESSION_REDIS_CONNECT_TIMEOUT_MS"),
-                5_000,
-            ) as u64,
-            tls_reject_unauthorized: parse_bool(
-                env.get("SESSION_REDIS_TLS_REJECT_UNAUTHORIZED"),
-                true,
-            ),
-        }));
-    }
-
-    if let Some(redis) = &cache_config.redis {
-        logger.info(
-            "session.store.redis_fallback",
-            serde_json::json!({
-                "message": "Using cache redis configuration for session storage",
-            }),
-        );
-        return Ok(SessionStoreConfig::Redis(RedisSessionConfig {
-            url: redis.url.clone(),
-            key_prefix: env
-                .get("SESSION_REDIS_KEY_PREFIX")
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "gateway:session:".to_string()),
-            connect_timeout_ms: parse_positive_int(
-                env.get("SESSION_REDIS_CONNECT_TIMEOUT_MS"),
-                5_000,
-            ) as u64,
-            tls_reject_unauthorized: parse_bool(
-                env.get("SESSION_REDIS_TLS_REJECT_UNAUTHORIZED"),
-                true,
-            ),
-        }));
-    }
-
-    logger.warn(
-        "session.store.memory_mode",
-        serde_json::json!({
-            "message": "Session data falling back to in-memory store",
-        }),
-    );
-    Ok(SessionStoreConfig::Memory)
 }
 
 fn load_contact_config(env: &impl EnvSource) -> Option<ContactConfig> {
@@ -467,6 +362,13 @@ fn read_required_secret(value: Option<String>, env_var: &str, logger: &Logger) -
     Ok(value)
 }
 
+fn read_required_string(value: Option<String>, env_var: &str) -> Result<String> {
+    value
+        .map(|raw| raw.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("{env_var} must be set and non-empty"))
+}
+
 fn read_optional_secret(
     value: Option<String>,
     env_var: &str,
@@ -497,7 +399,7 @@ fn read_optional_secret(
 }
 
 impl Config {
-    fn validate(&self, app_env: &str) -> Result<()> {
+    fn validate(&self) -> Result<()> {
         if self.request_timeout.as_millis() == 0 {
             return Err(anyhow!("UPSTREAM_TIMEOUT_MS must be greater than zero"));
         }
@@ -513,18 +415,11 @@ impl Config {
         validate_url(&self.radio_service_url, "RADIO_SERVICE_URL")?;
         validate_url(&self.terminal_service_url, "TERMINAL_SERVICE_URL")?;
         validate_url(&self.fmd_service_url, "FMD_SERVICE_URL")?;
+        validate_postgres_url(&self.postgres.url)?;
 
         if self.allowed_service_hostnames.is_empty() {
             return Err(anyhow!(
                 "ALLOWED_SERVICE_HOSTNAMES must resolve to at least one host"
-            ));
-        }
-
-        if matches!(self.session.store, SessionStoreConfig::Memory)
-            && app_env.eq_ignore_ascii_case("production")
-        {
-            return Err(anyhow!(
-                "session store cannot fall back to memory when APP_ENV=production"
             ));
         }
 
@@ -542,6 +437,18 @@ fn validate_url(value: &str, label: &str) -> Result<()> {
     }
     if url.host_str().unwrap_or_default().is_empty() {
         return Err(anyhow!("{label} must include a host"));
+    }
+    Ok(())
+}
+
+fn validate_postgres_url(value: &str) -> Result<()> {
+    let url = url::Url::parse(value).map_err(|err| anyhow!("PG_URL invalid URL: {err}"))?;
+    match url.scheme() {
+        "postgres" | "postgresql" => {}
+        other => return Err(anyhow!("PG_URL must use postgres/postgresql (got {other})")),
+    }
+    if url.path().is_empty() || url.path() == "/" {
+        return Err(anyhow!("PG_URL must include a database name"));
     }
     Ok(())
 }
@@ -574,6 +481,7 @@ mod tests {
     fn config_loads_with_dummy_env() {
         let env = TestEnv::default()
             .with("SESSION_SECRET", "a_secure_dummy_secret_value_that_is_long")
+            .with("PG_URL", "postgres://user@localhost/db")
             .with("PORT", "18080")
             .with("CONTACT_SMTP_HOST", "smtp.example.com")
             .with("CONTACT_SMTP_USERNAME", "test@example.com")

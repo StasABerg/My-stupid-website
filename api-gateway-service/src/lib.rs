@@ -9,7 +9,6 @@ pub mod headers;
 pub mod logger;
 pub mod metrics;
 pub mod proxy;
-pub mod redis_client;
 pub mod request_context;
 pub mod routing;
 pub mod session;
