@@ -9,6 +9,7 @@ use crate::request_context::RequestContextManager;
 use crate::routing::Routing;
 use crate::session::SessionManager;
 use anyhow::Result;
+use anyhow::anyhow;
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
@@ -52,12 +53,19 @@ pub async fn build_router_with_proxy(
     logger: Logger,
     proxy: Arc<dyn GatewayProxy>,
 ) -> Result<Router> {
-    let postgres = PgPoolOptions::new()
-        .max_connections(config.postgres.max_connections)
-        .connect_lazy(&config.postgres.url)?;
+    let postgres = if config.app_env.eq_ignore_ascii_case("test") {
+        PgPoolOptions::new()
+            .max_connections(config.postgres.max_connections)
+            .connect_lazy(&config.postgres.url)?
+    } else {
+        PgPoolOptions::new()
+            .max_connections(config.postgres.max_connections)
+            .connect(&config.postgres.url)
+            .await?
+    };
 
     if !config.app_env.eq_ignore_ascii_case("test") {
-        crate::migrations::run_migrations(&postgres).await?;
+        ensure_gateway_schema(&postgres).await?;
     }
 
     let session_manager =
@@ -134,6 +142,30 @@ pub async fn build_router_with_proxy(
         .fallback(handle_proxy)
         .with_state(state.clone())
         .layer(timeout_layer))
+}
+
+async fn ensure_gateway_schema(pool: &PgPool) -> Result<()> {
+    let tables = [
+        "public.gateway_sessions",
+        "public.gateway_csrf",
+        "public.gateway_contact_rate_limit",
+        "public.gateway_contact_dedupe",
+    ];
+
+    for table in tables {
+        let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(pool)
+            .await?;
+
+        if !exists {
+            return Err(anyhow!(
+                "missing required table {table}; deploy radio-service-rs migrations first"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 pub struct AppState {

@@ -21,7 +21,6 @@ sqlx = { version = "0.8.6", default-features = false, features = [
     "macros",
     "json",
     "time",
-    "migrate",
 ] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "cookies"] }
 serde = { version = "1.0", features = ["derive"] }

@@ -8,7 +8,6 @@ pub mod frontend_config;
 pub mod headers;
 pub mod logger;
 pub mod metrics;
-pub mod migrations;
 pub mod proxy;
 pub mod request_context;
 pub mod routing;
