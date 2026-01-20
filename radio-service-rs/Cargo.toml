@@ -17,7 +17,6 @@ once_cell = "1.21"
 thiserror = "2.0.17"
 urlencoding = "2.1"
 axum = { version = "0.8.8", default-features = false, features = ["macros", "tokio", "http1", "json", "query"] }
-deadpool-redis = { version = "0.22.1", default-features = false, features = ["serde", "rt_tokio_1"] }
 sqlx = { version = "0.8.6", default-features = false, features = [
     "runtime-tokio-rustls",
     "postgres",
@@ -45,3 +44,12 @@ criterion = { version = "0.8", features = ["html_reports"] }
 [[bench]]
 name = "cache_formats"
 harness = false
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+incremental = false

@@ -15,12 +15,6 @@ resources:
     memory: 512Mi
 
 env:
-  - name: REDIS_URL
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env-dev
-        key: REDIS_URL
-        optional: true
   - name: PG_URL
     valueFrom:
       secretKeyRef:
@@ -38,16 +32,8 @@ env:
         name: radio-service-env-dev
         key: PG_PASS
         optional: true
-  - name: STATIONS_CACHE_TTL
-    value: "3600"
   - name: STATIONS_MEMORY_CACHE_TTL
     value: "5"
-  - name: STATIONS_CACHE_KEY
-    valueFrom:
-      secretKeyRef:
-        name: radio-service-env-dev
-        key: STATIONS_CACHE_KEY
-        optional: true
   - name: STATIONS_REFRESH_TOKEN
     valueFrom:
       secretKeyRef:

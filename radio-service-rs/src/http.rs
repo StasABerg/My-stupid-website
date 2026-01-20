@@ -325,7 +325,7 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
 }
 
 async fn healthz(State(state): State<AppState>) -> Response {
-    match state.ping_redis().await {
+    match state.ping_postgres().await {
         Ok(_) => json_response(StatusCode::OK, HealthResponse { status: "ok" }),
         Err(error) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -338,16 +338,14 @@ async fn healthz(State(state): State<AppState>) -> Response {
 }
 
 async fn internal_status(State(state): State<AppState>) -> Response {
-    let redis_ok = state.ping_redis().await.is_ok();
     let postgres_ok = state.ping_postgres().await.is_ok();
     let metrics = state.status_snapshot().await;
-    let overall_ok = redis_ok && postgres_ok;
+    let overall_ok = postgres_ok;
     let status = if overall_ok { "ok" } else { "error" };
     let body = json!({
         "status": status,
         "timestamp": Utc::now().to_rfc3339(),
         "checks": {
-            "redis": if redis_ok { "ok" } else { "error" },
             "postgres": if postgres_ok { "ok" } else { "error" },
         },
         "metrics": {

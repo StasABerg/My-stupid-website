@@ -4,10 +4,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use deadpool_redis::{redis::AsyncCommands, Pool};
 use futures_util::{stream, StreamExt};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sqlx::PgPool;
 use tokio::time::timeout;
 
 use crate::{
@@ -43,7 +44,7 @@ impl StreamValidator {
     pub async fn validate(
         &self,
         stations: Vec<Station>,
-        redis: &Pool,
+        postgres: &PgPool,
     ) -> anyhow::Result<ValidationSummary> {
         if !self.config.enabled {
             return Ok(ValidationSummary {
@@ -53,7 +54,11 @@ impl StreamValidator {
             });
         }
 
-        let cache = Arc::new(self.load_cache(redis).await?);
+        let stream_urls: Vec<String> = stations
+            .iter()
+            .map(|station| station.stream_url.clone())
+            .collect();
+        let cache = Arc::new(self.load_cache(postgres, &stream_urls).await?);
         let now = current_timestamp();
         let validation_user_agent = std::env::var("RADIO_BROWSER_USER_AGENT")
             .unwrap_or_else(|_| "gitgud.zip blog".to_string());
@@ -103,7 +108,7 @@ impl StreamValidator {
 
         accepted.sort_by_key(|(idx, _)| *idx);
         let stations = accepted.into_iter().map(|(_, station)| station).collect();
-        self.write_cache(redis, cache_updates).await?;
+        self.write_cache(postgres, cache_updates).await?;
 
         Ok(ValidationSummary {
             stations,
@@ -228,16 +233,31 @@ impl StreamValidator {
         })
     }
 
-    async fn load_cache(&self, redis: &Pool) -> anyhow::Result<HashMap<String, CacheEntry>> {
-        let mut conn = redis.get().await?;
-        let raw: HashMap<String, String> = conn
-            .hgetall(&self.config.cache_key)
-            .await
-            .unwrap_or_default();
+    async fn load_cache(
+        &self,
+        postgres: &PgPool,
+        stream_urls: &[String],
+    ) -> anyhow::Result<HashMap<String, CacheEntry>> {
+        if stream_urls.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, Value)> = sqlx::query_as(
+            r#"
+            SELECT stream_url, payload
+            FROM radio_stream_validation_cache
+            WHERE stream_url = ANY($1)
+              AND expires_at > NOW()
+            "#,
+        )
+        .bind(stream_urls)
+        .fetch_all(postgres)
+        .await?;
+
         let mut map = HashMap::new();
-        for (key, value) in raw {
-            if let Ok(entry) = serde_json::from_str::<CacheEntry>(&value) {
-                map.insert(key, entry);
+        for (stream_url, payload) in rows {
+            if let Ok(entry) = serde_json::from_value::<CacheEntry>(payload) {
+                map.insert(stream_url, entry);
             }
         }
         Ok(map)
@@ -245,23 +265,38 @@ impl StreamValidator {
 
     async fn write_cache(
         &self,
-        redis: &Pool,
+        postgres: &PgPool,
         updates: HashMap<String, CacheEntry>,
     ) -> anyhow::Result<()> {
         if updates.is_empty() {
             return Ok(());
         }
-        let mut conn = redis.get().await?;
-        let mut pipe = deadpool_redis::redis::pipe();
+
+        let mut tx = postgres.begin().await?;
         for (stream_url, entry) in updates {
-            pipe.hset(
-                &self.config.cache_key,
-                stream_url,
-                serde_json::to_string(&entry)?,
-            );
+            let ttl_seconds = entry.ttl_seconds.unwrap_or(if entry.ok {
+                self.config.cache_ttl_seconds
+            } else {
+                self.config.failure_cache_ttl_seconds
+            });
+
+            sqlx::query(
+                r#"
+                INSERT INTO radio_stream_validation_cache (stream_url, payload, expires_at, updated_at)
+                VALUES ($1, $2, NOW() + ($3 * interval '1 second'), NOW())
+                ON CONFLICT (stream_url) DO UPDATE
+                  SET payload = EXCLUDED.payload,
+                      expires_at = EXCLUDED.expires_at,
+                      updated_at = NOW()
+                "#,
+            )
+            .bind(stream_url)
+            .bind(serde_json::to_value(&entry)?)
+            .bind(i64::try_from(ttl_seconds).unwrap_or(i64::MAX))
+            .execute(&mut *tx)
+            .await?;
         }
-        pipe.expire(&self.config.cache_key, self.config.cache_ttl_seconds as i64);
-        pipe.query_async::<()>(&mut conn).await?;
+        tx.commit().await?;
         Ok(())
     }
 }
