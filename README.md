@@ -2,7 +2,7 @@
 
 # My Stupid Website
 
-A small devops playground I built for fun to keep my hands in both infra and app code. It’s a mono-repo with a Dioxus (Rust) frontend and a few services behind Helm and Docker so I can experiment with builds, routing, and deployment patterns.
+A small devops playground I built for fun to keep my hands in both infra and app code. It’s a mono-repo with a Dioxus (Rust) frontend and a few services behind Docker Compose so I can experiment with builds, routing, and deployment patterns.
 
 ## What’s inside
 - Frontend (`dioxus-app/`): Dioxus app (Rust) .
@@ -10,13 +10,13 @@ A small devops playground I built for fun to keep my hands in both infra and app
 - FMD service (`fmd/`): Rust fetch→extract→HTML→Markdown service for the Tools page (proxied via the gateway).
 - Radio service (`radio-service-rs/`): Rust Radio service built on Radio Browser API.
 - Terminal service (`terminal-service-rs/`): Rust sandbox shell with an allowlisted command set.
-- Helm charts (`charts/`) and Dockerfiles (`docker/`) for each piece.
+- Dockerfiles (`docker/`) and Compose deployment files for each piece.
 
 ## Quick start
 - Build images (local or CI) from `docker/` for the SPA, gateway, radio, and terminal services.
-- Apply secrets/config for Postgres/Redis and service env vars (see chart values).
-- Lint charts: `helm lint charts/<chart>`
-- Deploy with Helm per service (charts in `charts/`), wiring Gateway API hostnames/paths as needed.
+- Apply secrets/config for Postgres/Redis and service env vars via `.env` files.
+- Build and publish images through Forgejo Actions workflows.
+- Deploy with Docker Compose (`docker-compose.website.yml`) using separate `website-dev` and `website-prod` projects.
 - Verify pods/routes, then hit the SPA through the gateway; docs live at `/swagger`, `/gateway/docs`, `/radio/docs`, `/terminal/docs`.
 
 ## How to use web-to-markdown via CURL

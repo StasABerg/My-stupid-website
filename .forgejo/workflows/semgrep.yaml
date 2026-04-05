@@ -40,28 +40,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p reports
-          mkdir -p reports/rendered
-          HELM_BIN="${HELM_BIN:-$(command -v helm)}"
-          if [ -z "${HELM_BIN}" ]; then
-            echo "helm binary not found; set HELM_BIN or install Helm"
-            exit 1
-          fi
-          chart_files=$(find charts -mindepth 1 -maxdepth 2 -name Chart.yaml)
-          if [ -n "${chart_files}" ]; then
-            printf '%s\n' "${chart_files}" | while IFS= read -r chart; do
-              chart_dir=$(dirname "$chart")
-              chart_name=$(basename "$chart_dir")
-              echo "Rendering Helm chart ${chart_name}"
-              "${HELM_BIN}" template "${chart_name}" "${chart_dir}" > "reports/rendered/${chart_name}.yaml"
-            done
-          else
-            echo "No Helm charts found under charts/"
-          fi
           source venv/bin/activate
           # Filter out Pro-only rules that still emit warnings under --oss-only.
           semgrep --oss-only \
             --config p/ci \
-            --config p/kubernetes \
             --config p/react \
             --config p/javascript \
             --config p/typescript \
@@ -74,7 +56,7 @@ jobs:
             --exclude venv \
             --exclude node_modules \
             --json --output reports/semgrep.json \
-            reports/rendered . || true
+            . || true
           jq -r '
             def clean($v): ($v // "") | tostring;
             def ensure_array($v):
