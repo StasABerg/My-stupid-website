@@ -12,7 +12,11 @@ jobs:
   build-frontend:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone repo
+        run: |
+          WORKDIR="/tmp/build-frontend-$$"
+          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
+          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
       - name: Login to registry
         run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
       - name: Set tag
@@ -29,12 +33,19 @@ jobs:
             -t $REGISTRY/$REPO/frontend:${{ steps.tag.outputs.tag }} \
             --build-arg WASM_OPT=0 \
             .
-          docker push $REGISTRY/$REPO/frontend:${{ steps.tag.outputs.tag }}
+        workdir: ${{ env.WORKDIR }}
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$WORKDIR"
 
   build-api-gateway:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone repo
+        run: |
+          WORKDIR="/tmp/build-gateway-$$"
+          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
+          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
       - name: Login to registry
         run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
       - name: Set tag
@@ -50,12 +61,19 @@ jobs:
           docker build -f docker/api-gateway.Dockerfile \
             -t $REGISTRY/$REPO/api-gateway:${{ steps.tag.outputs.tag }} \
             .
-          docker push $REGISTRY/$REPO/api-gateway:${{ steps.tag.outputs.tag }}
+        workdir: ${{ env.WORKDIR }}
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$WORKDIR"
 
   build-radio-service:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone repo
+        run: |
+          WORKDIR="/tmp/build-radio-$$"
+          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
+          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
       - name: Login to registry
         run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
       - name: Set tag
@@ -71,12 +89,19 @@ jobs:
           docker build -f docker/radio-service.Dockerfile \
             -t $REGISTRY/$REPO/radio-service:${{ steps.tag.outputs.tag }} \
             .
-          docker push $REGISTRY/$REPO/radio-service:${{ steps.tag.outputs.tag }}
+        workdir: ${{ env.WORKDIR }}
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$WORKDIR"
 
   build-terminal-service:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone repo
+        run: |
+          WORKDIR="/tmp/build-terminal-$$"
+          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
+          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
       - name: Login to registry
         run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
       - name: Set tag
@@ -92,12 +117,19 @@ jobs:
           docker build -f docker/terminal.Dockerfile \
             -t $REGISTRY/$REPO/terminal-service:${{ steps.tag.outputs.tag }} \
             .
-          docker push $REGISTRY/$REPO/terminal-service:${{ steps.tag.outputs.tag }}
+        workdir: ${{ env.WORKDIR }}
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$WORKDIR"
 
   build-fmd:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone repo
+        run: |
+          WORKDIR="/tmp/build-fmd-$$"
+          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
+          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
       - name: Login to registry
         run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
       - name: Set tag
@@ -113,4 +145,7 @@ jobs:
           docker build -f docker/fmd.Dockerfile \
             -t $REGISTRY/$REPO/fmd:${{ steps.tag.outputs.tag }} \
             .
-          docker push $REGISTRY/$REPO/fmd:${{ steps.tag.outputs.tag }}
+        workdir: ${{ env.WORKDIR }}
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$WORKDIR"
