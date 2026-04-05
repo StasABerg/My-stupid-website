@@ -28,16 +28,16 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM base AS build
 WORKDIR /app/fmd
 COPY --from=planner /app/fmd/recipe.json ./recipe.json
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache \
+RUN --mount=type=cache,id=fmd-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=fmd-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=fmd-target,target=/app/target,sharing=locked \
+    --mount=type=cache,id=fmd-sccache,target=/sccache,sharing=locked \
     cargo chef cook --release --recipe-path recipe.json
 COPY fmd/ .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache \
+RUN --mount=type=cache,id=fmd-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=fmd-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=fmd-target,target=/app/target,sharing=locked \
+    --mount=type=cache,id=fmd-sccache,target=/sccache,sharing=locked \
     cargo build --release
 
 FROM lightpanda/browser:nightly AS lightpanda

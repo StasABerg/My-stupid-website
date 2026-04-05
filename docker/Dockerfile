@@ -42,7 +42,7 @@ RUN CSS_PATH="/app/dioxus-app/target/dx/dioxus-app/release/web/public/assets/mai
     echo "css hash skipped: $CSS_PATH not found"; \
   fi
 FROM nginx:stable-alpine
-RUN apk add --no-cache nginx-mod-http-js
+RUN apk add --no-cache nginx-module-njs
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/sitemap.js  /etc/nginx/sitemap.js
 COPY --from=dioxus-build --chown=nginx:nginx /app/dioxus-app/target/dx/dioxus-app/release/web/public /usr/share/nginx/html
