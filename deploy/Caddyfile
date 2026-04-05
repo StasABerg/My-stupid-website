@@ -1,0 +1,31 @@
+{
+    acme_dns cloudflare {env.CF_API_TOKEN}
+}
+
+dev.gitgud.zip {
+    reverse_proxy localhost:8091
+}
+
+gitgud.zip {
+    reverse_proxy localhost:8080
+}
+
+www.gitgud.zip {
+    redir https://gitgud.zip{uri} permanent
+}
+
+forgejo.gitgud.zip {
+    reverse_proxy localhost:3000
+}
+
+immich.gitgud.zip {
+    reverse_proxy localhost:2283
+}
+
+vault.gitgud.zip {
+    reverse_proxy localhost:8081
+}
+
+kuma.gitgud.zip {
+    reverse_proxy localhost:3001
+}

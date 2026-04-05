@@ -1,0 +1,92 @@
+# Website services compose file.
+# Deploy as: docker compose -p website-{dev|prod} -f docker-compose.website.yml --env-file .env up -d
+#
+# ENV differences between dev/prod:
+#   COMPOSE_PROJECT_NAME  - set via -p flag
+#   FRONTEND_PORT         - 8091 (dev) / 8080 (prod)
+#   RADIO_PORT            - 4011 (dev) / 4010 (prod)
+#   PG_URL                - appdb_dev / appdb
+#   IMAGE_TAG             - dev / latest
+#   CORS_ALLOW_ORIGIN     - https://dev.gitgud.zip / https://gitgud.zip,https://dev.gitgud.zip
+#   APP_ENV               - development / production
+
+services:
+  frontend:
+    image: forgejo.gitgud.zip/stasaberg/frontend:${IMAGE_TAG}
+    ports:
+      - "${FRONTEND_PORT:-8080}:8080"
+    networks:
+      - default
+    depends_on:
+      api-gateway:
+        condition: service_started
+    restart: unless-stopped
+
+  api-gateway:
+    image: forgejo.gitgud.zip/stasaberg/api-gateway:${IMAGE_TAG}
+    environment:
+      PORT: "8080"
+      PG_URL: ${PG_URL}
+      PG_MAX_CONNECTIONS: "5"
+      SESSION_SECRET: ${SESSION_SECRET}
+      RADIO_SERVICE_URL: http://radio-service:4010
+      TERMINAL_SERVICE_URL: http://terminal-service:8080
+      FMD_SERVICE_URL: http://fmd:4020
+      FMD_TOKEN: ${FMD_TOKEN}
+      TRUST_PROXY: "true"
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGIN}
+      APP_ENV: ${APP_ENV:-development}
+      CACHE_MEMORY_ENABLED: "true"
+      CACHE_TTL_SECONDS: "60"
+      CONTACT_SMTP_HOST: ${CONTACT_SMTP_HOST:-}
+      CONTACT_SMTP_PORT: ${CONTACT_SMTP_PORT:-587}
+      CONTACT_SMTP_USERNAME: ${CONTACT_SMTP_USERNAME:-}
+      CONTACT_SMTP_PASSWORD: ${CONTACT_SMTP_PASSWORD:-}
+      CONTACT_FROM_ADDRESS: ${CONTACT_FROM_ADDRESS:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+    networks:
+      - default
+      - gitgud
+    restart: unless-stopped
+
+  radio-service:
+    image: forgejo.gitgud.zip/stasaberg/radio-service:${IMAGE_TAG}
+    ports:
+      - "${RADIO_PORT:-4010}:4010"
+    environment:
+      PORT: "4010"
+      PG_URL: ${PG_URL}
+      PG_MAX_CONNECTIONS: "5"
+      STATIONS_REFRESH_TOKEN: ${STATIONS_REFRESH_TOKEN}
+      ALLOW_INSECURE_TRANSPORT: "true"
+    networks:
+      - default
+      - gitgud
+    restart: unless-stopped
+
+  terminal-service:
+    image: forgejo.gitgud.zip/stasaberg/terminal-service:${IMAGE_TAG}
+    environment:
+      PORT: "8080"
+      SANDBOX_ROOT: /sandbox
+      MAX_PAYLOAD_BYTES: "2048"
+      CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN}
+    networks:
+      - default
+    restart: unless-stopped
+
+  fmd:
+    image: forgejo.gitgud.zip/stasaberg/fmd:${IMAGE_TAG}
+    environment:
+      PORT: "4020"
+      FMD_TOKEN: ${FMD_TOKEN}
+      FMD_RENDER_ENABLED: "true"
+      FMD_RENDER_MAX_CONCURRENCY: "1"
+    networks:
+      - default
+    restart: unless-stopped
+
+networks:
+  gitgud:
+    external: true
