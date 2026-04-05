@@ -1,0 +1,50 @@
+name: Build & Push Images
+
+on:
+  push:
+    branches: [main, feat/docker-compose-migration]
+
+env:
+  REGISTRY: forgejo.gitgud.zip
+  REPO: stasaberg
+
+jobs:
+  build-and-push:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        include:
+          - name: frontend
+            dockerfile: docker/Dockerfile
+            build_args: --build-arg WASM_OPT=0
+          - name: api-gateway
+            dockerfile: docker/api-gateway.Dockerfile
+            build_args: ""
+          - name: radio-service
+            dockerfile: docker/radio-service.Dockerfile
+            build_args: ""
+          - name: terminal-service
+            dockerfile: docker/terminal.Dockerfile
+            build_args: ""
+          - name: fmd
+            dockerfile: docker/fmd.Dockerfile
+            build_args: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to registry
+        run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
+      - name: Set tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build & push image
+        run: |
+          docker build -f ${{ matrix.dockerfile }} \
+            ${{ matrix.build_args }} \
+            -t $REGISTRY/$REPO/${{ matrix.name }}:${{ steps.tag.outputs.tag }} \
+            .
+          docker push $REGISTRY/$REPO/${{ matrix.name }}:${{ steps.tag.outputs.tag }}

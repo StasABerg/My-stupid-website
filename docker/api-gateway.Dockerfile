@@ -28,16 +28,16 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM base AS build
 WORKDIR /app/api-gateway-service
 COPY --from=planner /app/api-gateway-service/recipe.json ./recipe.json
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache \
+RUN --mount=type=cache,id=api-gateway-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=api-gateway-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=api-gateway-target,target=/app/target,sharing=locked \
+    --mount=type=cache,id=api-gateway-sccache,target=/sccache,sharing=locked \
     cargo chef cook --release --recipe-path recipe.json
 COPY api-gateway-service/ .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache \
+RUN --mount=type=cache,id=api-gateway-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=api-gateway-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=api-gateway-target,target=/app/target,sharing=locked \
+    --mount=type=cache,id=api-gateway-sccache,target=/sccache,sharing=locked \
     cargo build --release
 
 FROM debian:trixie-slim AS runner
