@@ -9,14 +9,28 @@ env:
   REPO: stasaberg
 
 jobs:
-  build-frontend:
+  build-and-push:
     runs-on: self-hosted
+    strategy:
+      matrix:
+        include:
+          - name: frontend
+            dockerfile: docker/Dockerfile
+            build_args: --build-arg WASM_OPT=0
+          - name: api-gateway
+            dockerfile: docker/api-gateway.Dockerfile
+            build_args: ""
+          - name: radio-service
+            dockerfile: docker/radio-service.Dockerfile
+            build_args: ""
+          - name: terminal-service
+            dockerfile: docker/terminal.Dockerfile
+            build_args: ""
+          - name: fmd
+            dockerfile: docker/fmd.Dockerfile
+            build_args: ""
     steps:
-      - name: Clone repo
-        run: |
-          WORKDIR="/tmp/build-frontend-$$"
-          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
-          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
       - name: Login to registry
         run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
       - name: Set tag
@@ -27,125 +41,10 @@ jobs:
           else
             echo "tag=dev" >> "$GITHUB_OUTPUT"
           fi
-      - name: Build & push frontend
+      - name: Build & push image
         run: |
-          docker build -f docker/Dockerfile \
-            -t $REGISTRY/$REPO/frontend:${{ steps.tag.outputs.tag }} \
-            --build-arg WASM_OPT=0 \
+          docker build -f ${{ matrix.dockerfile }} \
+            ${{ matrix.build_args }} \
+            -t $REGISTRY/$REPO/${{ matrix.name }}:${{ steps.tag.outputs.tag }} \
             .
-        workdir: ${{ env.WORKDIR }}
-      - name: Cleanup
-        if: always()
-        run: rm -rf "$WORKDIR"
-
-  build-api-gateway:
-    runs-on: self-hosted
-    steps:
-      - name: Clone repo
-        run: |
-          WORKDIR="/tmp/build-gateway-$$"
-          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
-          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
-      - name: Login to registry
-        run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
-      - name: Set tag
-        id: tag
-        run: |
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=dev" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build & push api-gateway
-        run: |
-          docker build -f docker/api-gateway.Dockerfile \
-            -t $REGISTRY/$REPO/api-gateway:${{ steps.tag.outputs.tag }} \
-            .
-        workdir: ${{ env.WORKDIR }}
-      - name: Cleanup
-        if: always()
-        run: rm -rf "$WORKDIR"
-
-  build-radio-service:
-    runs-on: self-hosted
-    steps:
-      - name: Clone repo
-        run: |
-          WORKDIR="/tmp/build-radio-$$"
-          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
-          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
-      - name: Login to registry
-        run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
-      - name: Set tag
-        id: tag
-        run: |
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=dev" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build & push radio-service
-        run: |
-          docker build -f docker/radio-service.Dockerfile \
-            -t $REGISTRY/$REPO/radio-service:${{ steps.tag.outputs.tag }} \
-            .
-        workdir: ${{ env.WORKDIR }}
-      - name: Cleanup
-        if: always()
-        run: rm -rf "$WORKDIR"
-
-  build-terminal-service:
-    runs-on: self-hosted
-    steps:
-      - name: Clone repo
-        run: |
-          WORKDIR="/tmp/build-terminal-$$"
-          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
-          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
-      - name: Login to registry
-        run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
-      - name: Set tag
-        id: tag
-        run: |
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=dev" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build & push terminal-service
-        run: |
-          docker build -f docker/terminal.Dockerfile \
-            -t $REGISTRY/$REPO/terminal-service:${{ steps.tag.outputs.tag }} \
-            .
-        workdir: ${{ env.WORKDIR }}
-      - name: Cleanup
-        if: always()
-        run: rm -rf "$WORKDIR"
-
-  build-fmd:
-    runs-on: self-hosted
-    steps:
-      - name: Clone repo
-        run: |
-          WORKDIR="/tmp/build-fmd-$$"
-          git clone --depth 1 --branch ${{ github.ref_name }} http://localhost:3000/stasaberg/My-stupid-website.git "$WORKDIR"
-          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
-      - name: Login to registry
-        run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
-      - name: Set tag
-        id: tag
-        run: |
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=dev" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build & push fmd
-        run: |
-          docker build -f docker/fmd.Dockerfile \
-            -t $REGISTRY/$REPO/fmd:${{ steps.tag.outputs.tag }} \
-            .
-        workdir: ${{ env.WORKDIR }}
-      - name: Cleanup
-        if: always()
-        run: rm -rf "$WORKDIR"
+          docker push $REGISTRY/$REPO/${{ matrix.name }}:${{ steps.tag.outputs.tag }}
