@@ -1,8 +1,9 @@
-name: Build CI Images
+name: Release Images
 
 on:
   push:
-    branches: ["**"]
+    tags:
+      - "v*.*.*"
 
 env:
   REGISTRY: forgejo.gitgud.zip
@@ -33,16 +34,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Login to registry
         run: docker login $REGISTRY -u stasaberg -p ${{ secrets.FORGEJO_TOKEN }}
-      - name: Set CI tags
+      - name: Set release tags
         id: tags
         run: |
-          SAFE_REF=$(echo "${{ github.ref_name }}" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-')
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-12)
-          PRIMARY="ci-${SAFE_REF}-${{ github.run_number }}"
-          EXTRA="sha-${SHORT_SHA}"
-          echo "primary=${PRIMARY}" >> "$GITHUB_OUTPUT"
-          echo "extra=${EXTRA}" >> "$GITHUB_OUTPUT"
-      - name: Build & push image
+          REF="${{ github.ref_name }}"
+          if ! echo "$REF" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Unsupported release tag format: $REF"
+            exit 1
+          fi
+          MAJOR=$(echo "$REF" | cut -d. -f1)
+          MINOR=$(echo "$REF" | cut -d. -f2)
+          echo "primary=$REF" >> "$GITHUB_OUTPUT"
+          echo "extra=${MAJOR}.${MINOR} ${MAJOR}" >> "$GITHUB_OUTPUT"
+      - name: Build & push release image
         run: |
           IMAGE="$REGISTRY/$REPO/${{ matrix.name }}"
           docker build -f ${{ matrix.dockerfile }} \

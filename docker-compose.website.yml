@@ -6,7 +6,7 @@
 #   FRONTEND_PORT         - 8091 (dev) / 8080 (prod)
 #   RADIO_PORT            - 4011 (dev) / 4010 (prod)
 #   PG_URL                - appdb_dev / appdb
-#   IMAGE_TAG             - dev / latest
+#   IMAGE_TAG             - explicit immutable tag (example: ci-main-123, v1.2.0)
 #   CORS_ALLOW_ORIGIN     - https://dev.gitgud.zip / https://gitgud.zip,https://dev.gitgud.zip
 #   APP_ENV               - development / production
 
