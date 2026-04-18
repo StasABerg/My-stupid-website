@@ -29,3 +29,13 @@ vault.gitgud.zip {
 kuma.gitgud.zip {
     reverse_proxy localhost:3001
 }
+
+shop.gitgud.zip {
+    @api path /api/* /healthz
+    handle @api {
+        reverse_proxy localhost:8093
+    }
+    handle {
+        reverse_proxy localhost:8092
+    }
+}
