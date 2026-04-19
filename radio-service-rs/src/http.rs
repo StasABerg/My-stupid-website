@@ -1585,6 +1585,7 @@ impl StationsQueryParams {
                 .map(|value| (value - 1) * limit_value)
         });
         let offset = derived_offset.unwrap_or(0);
+        #[allow(clippy::manual_checked_ops)]
         let page = if limit_value > 0 {
             (offset / limit_value) + 1
         } else {

@@ -1,9 +1,9 @@
 use crate::config::Config;
 use crate::logger::Logger;
 use anyhow::{Result, anyhow};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use http::{HeaderMap, Method, header};
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sqlx::PgPool;
