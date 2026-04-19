@@ -70,7 +70,7 @@ services:
       - 3000:3000
 
   immich-server:
-    image: ghcr.io/immich-app/immich-server:v2.7.2
+    image: ghcr.io/immich-app/immich-server:v2.7.5
     restart: unless-stopped
     depends_on:
       postgres:
@@ -96,7 +96,7 @@ services:
       - 2283:2283
 
   immich-ml:
-    image: ghcr.io/immich-app/immich-machine-learning:v2.7.2
+    image: ghcr.io/immich-app/immich-machine-learning:v2.7.5
     restart: unless-stopped
     environment:
       TRANSFORMERS_CACHE: /cache
