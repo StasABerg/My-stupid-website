@@ -1,0 +1,150 @@
+services:
+  postgres:
+    image: ghcr.io/immich-app/postgres:17-vectorchord0.5.3-pgvector0.8.1
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    shm_size: 128mb
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U postgres
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+      - gitgud
+
+  valkey:
+    image: valkey/valkey:8
+    restart: unless-stopped
+    ports:
+      - 6379:6379
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:14.0.3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - FORGEJO__database__DB_TYPE=postgres
+      - FORGEJO__database__HOST=${FORGEJO_DB_HOST}:${FORGEJO_DB_PORT}
+      - FORGEJO__database__NAME=${FORGEJO_DB_NAME}
+      - FORGEJO__database__USER=${FORGEJO_DB_USER}
+      - FORGEJO__database__PASSWD=${FORGEJO_DB_PASS}
+      - FORGEJO__server__DOMAIN=forgejo.gitgud.zip
+      - FORGEJO__server__ROOT_URL=https://forgejo.gitgud.zip/
+      - FORGEJO__server__PROTOCOL=http
+      - FORGEJO__server__HTTP_ADDR=0.0.0.0
+      - FORGEJO__server__HTTP_PORT=3000
+      - FORGEJO__server__SSH_DOMAIN=forgejo.gitgud.zip
+      - FORGEJO__server__SSH_PORT=22
+      - FORGEJO__server__SSH_LISTEN_PORT=2222
+      - FORGEJO__server__LFS_START_SERVER=true
+      - FORGEJO__server__MAX_CONTENT_LENGTH=2048
+      - FORGEJO__security__INSTALL_LOCK=true
+      - FORGEJO__service__DISABLE_REGISTRATION=true
+      - FORGEJO__session__PROVIDER=redis
+      - FORGEJO__session__PROVIDER_CONFIG=redis://valkey:6379/2
+      - FORGEJO__cache__ADAPTER=redis
+      - FORGEJO__cache__HOST=redis://valkey:6379/1
+      - FORGEJO__queue__TYPE=redis
+      - FORGEJO__queue__CONN_STR=redis://valkey:6379/0
+      - FORGEJO__packages__CHUNKED_UPLOAD_MAX_SIZE=4096
+      - FORGEJO__app_name__APP_NAME=GitGud Forgejo
+    volumes:
+      - ./forgejo/data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - 2222:2222
+      - 3000:3000
+
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:v2.7.2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+      immich-ml:
+        condition: service_started
+    environment:
+      DB_HOSTNAME: ${IMMICH_DB_HOST}
+      DB_PORT: ${IMMICH_DB_PORT}
+      DB_DATABASE_NAME: ${IMMICH_DB_NAME}
+      DB_USERNAME: ${IMMICH_DB_USER}
+      DB_PASSWORD: ${IMMICH_DB_PASS}
+      REDIS_HOSTNAME: valkey
+      REDIS_PORT: "6379"
+      IMMICH_MACHINE_LEARNING_URL: http://immich-ml:3003
+    volumes:
+      - ./immich/library:/usr/src/app/upload
+      - ./immich/profile:/usr/src/app/.profile
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - 2283:2283
+
+  immich-ml:
+    image: ghcr.io/immich-app/immich-machine-learning:v2.7.2
+    restart: unless-stopped
+    environment:
+      TRANSFORMERS_CACHE: /cache
+      HF_XET_CACHE: /cache/huggingface-xet
+      MPLCONFIGDIR: /cache/matplotlib-config
+    volumes:
+      - ./immich/ml-cache:/cache
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    restart: unless-stopped
+    environment:
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      DOMAIN: https://vault.gitgud.zip
+      SIGNUPS_ALLOWED: "false"
+      SMTP_HOST: ${VAULTWARDEN_SMTP_HOST}
+      SMTP_PORT: ${VAULTWARDEN_SMTP_PORT}
+      SMTP_SECURITY: starttls
+      SMTP_USERNAME: ${VAULTWARDEN_SMTP_USER}
+      SMTP_PASSWORD: ${VAULTWARDEN_SMTP_PASS}
+      SMTP_FROM: ${VAULTWARDEN_SMTP_FROM}
+      SMTP_FROM_NAME: ${VAULTWARDEN_SMTP_FROM_NAME}
+      ROCKET_ADDRESS: 0.0.0.0
+      ROCKET_PORT: "8080"
+      WEB_VAULT_ENABLED: "true"
+      SIGNUPS_VERIFY: "true"
+      INVITATIONS_ALLOWED: "true"
+      EMAIL_CHANGE_ALLOWED: "false"
+      EMERGENCY_ACCESS_ALLOWED: "true"
+      LOG_LEVEL: info
+      EXTENDED_LOGGING: "true"
+    volumes:
+      - ./vaultwarden/data:/data
+    ports:
+      - 8081:8080
+
+  kuma:
+    image: louislam/uptime-kuma:2.2.1
+    restart: unless-stopped
+    volumes:
+      - ./kuma/data:/app/data
+    ports:
+      - 3001:3001
+
+networks:
+  gitgud:
+    external: true

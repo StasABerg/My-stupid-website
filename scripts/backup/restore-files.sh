@@ -2,7 +2,7 @@
 set -euo pipefail
 
 COMPOSE_DIR="${COMPOSE_DIR:-/opt/services}"
-WEBSITE_DIR="${WEBSITE_DIR:-/opt/website}"
+WEBSITE_DIR="${WEBSITE_DIR:-/opt/my-stupid-website}"
 BACKUP_ENV_FILE="${BACKUP_ENV_FILE:-${COMPOSE_DIR}/.env}"
 SNAPSHOT="${SNAPSHOT:-latest}"
 LOG_TAG="[restore-files]"
@@ -49,8 +49,7 @@ main() {
   restore_target "${COMPOSE_DIR}/immich" "${COMPOSE_DIR}/immich/library"
   restore_target "/etc/caddy" "/etc/caddy/Caddyfile"
   restore_target "/etc/caddy" "/etc/caddy/env"
-  restore_target "${WEBSITE_DIR}/dev" "${WEBSITE_DIR}/dev/.env"
-  restore_target "${WEBSITE_DIR}/prod" "${WEBSITE_DIR}/prod/.env"
+  restore_target "${WEBSITE_DIR}" "${WEBSITE_DIR}/.env.production"
   log "restore completed"
 }
 

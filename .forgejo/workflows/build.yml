@@ -54,3 +54,45 @@ jobs:
             docker tag "$IMAGE:${{ steps.tags.outputs.primary }}" "$IMAGE:$tag"
             docker push "$IMAGE:$tag"
           done
+
+  deploy-dev:
+    needs: build-and-push
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set image tag
+        id: tags
+        run: |
+          SAFE_REF=$(echo "${{ github.ref_name }}" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-')
+          echo "tag=ci-${SAFE_REF}-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - name: Deploy dev
+        run: |
+          git config --global --add safe.directory /opt/my-stupid-website-dev
+          cd /opt/my-stupid-website-dev
+          git pull origin main
+          cp .env.production .env
+          echo "IMAGE_TAG=${{ steps.tags.outputs.tag }}" >> .env
+          docker compose -p website-dev -f docker-compose.website.yml --env-file .env pull
+          docker compose -p website-dev -f docker-compose.website.yml --env-file .env up -d --remove-orphans
+
+  deploy-prod:
+    needs: build-and-push
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set image tag
+        id: tags
+        run: |
+          SAFE_REF=$(echo "${{ github.ref_name }}" | tr '/:@ ' '-' | tr -cd '[:alnum:]._-')
+          echo "tag=ci-${SAFE_REF}-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - name: Deploy prod
+        run: |
+          git config --global --add safe.directory /opt/my-stupid-website
+          cd /opt/my-stupid-website
+          git pull origin main
+          cp .env.production .env
+          echo "IMAGE_TAG=${{ steps.tags.outputs.tag }}" >> .env
+          docker compose -p website-prod -f docker-compose.website.yml --env-file .env pull
+          docker compose -p website-prod -f docker-compose.website.yml --env-file .env up -d --remove-orphans

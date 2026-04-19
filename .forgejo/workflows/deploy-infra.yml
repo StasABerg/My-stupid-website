@@ -1,0 +1,23 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/infra/**"
+      - ".forgejo/workflows/deploy-infra.yml"
+
+jobs:
+  deploy-services:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy services
+        run: |
+          git config --global --add safe.directory /opt/my-stupid-website
+          cd /opt/my-stupid-website
+          git pull origin main
+          cp deploy/infra/docker-compose.services.yml /opt/services/docker-compose.yml
+          cd /opt/services
+          docker compose pull
+          docker compose up -d --remove-orphans

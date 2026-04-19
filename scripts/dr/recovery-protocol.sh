@@ -19,8 +19,9 @@ Disaster recovery protocol (Docker Compose + Backblaze B2)
 
 5) Start service stacks
    - docker compose -f /opt/services/docker-compose.yml up -d
-   - docker compose -p website-dev -f /opt/website/dev/docker-compose.yml --env-file /opt/website/dev/.env up -d
-   - docker compose -p website-prod -f /opt/website/prod/docker-compose.yml --env-file /opt/website/prod/.env up -d
+   - cd /opt/my-stupid-website && cp .env.production .env && echo "IMAGE_TAG=v0.1.0" >> .env
+   - docker compose -p website-dev -f docker-compose.website.yml --env-file .env up -d
+   - docker compose -p website-prod -f docker-compose.website.yml --env-file .env up -d
 
 6) Reload edge
    - systemctl reload caddy

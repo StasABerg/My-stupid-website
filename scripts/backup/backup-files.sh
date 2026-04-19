@@ -2,7 +2,7 @@
 set -euo pipefail
 
 COMPOSE_DIR="${COMPOSE_DIR:-/opt/services}"
-WEBSITE_DIR="${WEBSITE_DIR:-/opt/website}"
+WEBSITE_DIR="${WEBSITE_DIR:-/opt/my-stupid-website}"
 BACKUP_DIR="${BACKUP_DIR:-${COMPOSE_DIR}/backups}"
 BACKUP_ENV_FILE="${BACKUP_ENV_FILE:-${COMPOSE_DIR}/.env}"
 LOG_TAG="[backup-files]"
@@ -44,14 +44,10 @@ build_sources() {
     "${COMPOSE_DIR}/kuma/data" \
     "${COMPOSE_DIR}/immich/library" \
     "${COMPOSE_DIR}/docker-compose.yml" \
-    "${COMPOSE_DIR}/backup.sh" \
-    "${COMPOSE_DIR}/backup-db.sh" \
+    "${WEBSITE_DIR}/.env.production" \
+    "${WEBSITE_DIR}/docker-compose.website.yml" \
     "/etc/caddy/Caddyfile" \
-    "/etc/caddy/env" \
-    "${WEBSITE_DIR}/dev/docker-compose.yml" \
-    "${WEBSITE_DIR}/prod/docker-compose.yml" \
-    "${WEBSITE_DIR}/dev/.env" \
-    "${WEBSITE_DIR}/prod/.env"; do
+    "/etc/caddy/env"; do
     if [[ -e "${path}" ]]; then
       sources+=("${path}")
     fi
